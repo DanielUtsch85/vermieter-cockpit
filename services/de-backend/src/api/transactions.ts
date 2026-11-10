@@ -14,7 +14,7 @@ import {
   type SetTransactionSplits,
 } from '../application/index.js';
 import { principalOf } from './access-middleware.js';
-import { NO_QUERY, readBody, readIdempotencyKey, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
+import { jsonBody, NO_QUERY, readBody, readIdempotencyKey, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
 import { createBody, listQuery, propertyReferenceListQuery, listFilter, sendPage, setVersionTag, toSplitDto, toDto } from './transaction-dto.js';
 import { transactionLifecycleRoutes } from './transaction-lifecycle.js';
 import { transactionSplitRoutes } from './transaction-splits.js';
@@ -84,7 +84,7 @@ export function transactionRoutes(commands: TransactionCommands): Router {
       .catch(next);
   });
 
-  router.post('/transactions', express.json({ limit: '16kb' }), (req, res, next) => {
+  router.post('/transactions', jsonBody('16kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;

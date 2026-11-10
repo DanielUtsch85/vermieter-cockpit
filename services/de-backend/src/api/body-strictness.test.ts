@@ -106,8 +106,8 @@ describe('readBody (§58X decision 6)', () => {
     expect(() => readBody(schema, req({ reason: 'x' }))).toThrow(/is not strict/);
   });
 
-  it('a route without express.json is a programming error (no silent empty body)', () => {
-    expect(() => readBody(EMPTY_BODY, req(undefined))).toThrow('readBody: the route parses no JSON body (express.json)');
+  it('a route without jsonBody is a programming error (no silent empty body)', () => {
+    expect(() => readBody(EMPTY_BODY, req(undefined))).toThrow('readBody: the route parses no JSON body (jsonBody)');
   });
 
   it('returns the parsed data, or the errors: own, then the raw check, then the unknown fields', () => {

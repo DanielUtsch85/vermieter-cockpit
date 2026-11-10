@@ -17,7 +17,19 @@ import {
 import { Money, zod3 } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
 import { businessDate, definedOnly, optionalText, readId } from './acquisitions.js';
-import { money, NO_QUERY, PAGING, readBody, readIdempotencyKey, readIfMatch, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
+import {
+  jsonBody,
+  money,
+  NO_QUERY,
+  PAGING,
+  readBody,
+  readIdempotencyKey,
+  readIfMatch,
+  readQuery,
+  refuseQuery,
+  RESOURCE_ID,
+  sendValidationError,
+} from './validation.js';
 
 const uuid = zod3.transform(z.string().regex(RESOURCE_ID), (id) => id.toLowerCase());
 
@@ -134,7 +146,7 @@ export interface LoanCommands {
 export function loanRoutes(commands: LoanCommands): Router {
   const router = express.Router();
 
-  router.post('/loans', express.json({ limit: '32kb' }), (req, res, next) => {
+  router.post('/loans', jsonBody('32kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
@@ -188,7 +200,7 @@ export function loanRoutes(commands: LoanCommands): Router {
       .catch(next);
   });
 
-  router.post('/loans/:loanId/amend', express.json({ limit: '32kb' }), (req, res, next) => {
+  router.post('/loans/:loanId/amend', jsonBody('32kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const loanId = readId(req.params['loanId'], 'loanId', res);
     if (loanId === undefined) return;
@@ -215,7 +227,7 @@ export function loanRoutes(commands: LoanCommands): Router {
       .catch(next);
   });
 
-  router.post('/loans/:loanId/void', express.json({ limit: '16kb' }), (req, res, next) => {
+  router.post('/loans/:loanId/void', jsonBody('16kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const loanId = readId(req.params['loanId'], 'loanId', res);
     if (loanId === undefined) return;
@@ -238,7 +250,7 @@ export function loanRoutes(commands: LoanCommands): Router {
       .catch(next);
   });
 
-  router.post('/loans/:loanId/close', express.json({ limit: '16kb' }), (req, res, next) => {
+  router.post('/loans/:loanId/close', jsonBody('16kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const loanId = readId(req.params['loanId'], 'loanId', res);
     if (loanId === undefined) return;

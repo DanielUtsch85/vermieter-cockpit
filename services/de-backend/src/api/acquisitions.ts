@@ -19,7 +19,19 @@ import {
 import { Money, zod3 } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
 import { toDto as ownershipDto } from './ownerships.js';
-import { money, NO_QUERY, PAGING, readBody, readIdempotencyKey, readIfMatch, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
+import {
+  jsonBody,
+  money,
+  NO_QUERY,
+  PAGING,
+  readBody,
+  readIdempotencyKey,
+  readIfMatch,
+  readQuery,
+  refuseQuery,
+  RESOURCE_ID,
+  sendValidationError,
+} from './validation.js';
 
 export const businessDate = zod3.transform(z.string(), (value, ctx) => {
   const result = checkBusinessDate(value);
@@ -132,7 +144,7 @@ export interface AcquisitionCommands {
 export function acquisitionRoutes(commands: AcquisitionCommands): Router {
   const router = express.Router();
 
-  router.post('/acquisitions', express.json({ limit: '32kb' }), (req, res, next) => {
+  router.post('/acquisitions', jsonBody('32kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
@@ -186,7 +198,7 @@ export function acquisitionRoutes(commands: AcquisitionCommands): Router {
       .catch(next);
   });
 
-  router.post('/acquisitions/:acquisitionId/cancel', express.json({ limit: '16kb' }), (req, res, next) => {
+  router.post('/acquisitions/:acquisitionId/cancel', jsonBody('16kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const acquisitionId = readId(req.params['acquisitionId'], 'acquisitionId', res);
     if (acquisitionId === undefined) return;
@@ -209,7 +221,7 @@ export function acquisitionRoutes(commands: AcquisitionCommands): Router {
       .catch(next);
   });
 
-  router.post('/acquisitions/:acquisitionId/confirm', express.json({ limit: '16kb' }), (req, res, next) => {
+  router.post('/acquisitions/:acquisitionId/confirm', jsonBody('16kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const acquisitionId = readId(req.params['acquisitionId'], 'acquisitionId', res);
     if (acquisitionId === undefined) return;
@@ -232,7 +244,7 @@ export function acquisitionRoutes(commands: AcquisitionCommands): Router {
   });
 
   // §58N (VC-X-52): the transfer of economic ownership recorded later, with its evidence; status unchanged.
-  router.post('/acquisitions/:acquisitionId/economic-transfer-date', express.json({ limit: '32kb' }), (req, res, next) => {
+  router.post('/acquisitions/:acquisitionId/economic-transfer-date', jsonBody('32kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const acquisitionId = readId(req.params['acquisitionId'], 'acquisitionId', res);
     if (acquisitionId === undefined) return;
@@ -262,7 +274,7 @@ export function acquisitionRoutes(commands: AcquisitionCommands): Router {
   });
 
   // §58Q (VC-X-55): the seller's Ownership extended up to the transfer, the buyers' moved to it, in one act with evidence.
-  router.post('/acquisitions/:acquisitionId/align-ownerships-to-transfer', express.json({ limit: '32kb' }), (req, res, next) => {
+  router.post('/acquisitions/:acquisitionId/align-ownerships-to-transfer', jsonBody('32kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const acquisitionId = readId(req.params['acquisitionId'], 'acquisitionId', res);
     if (acquisitionId === undefined) return;

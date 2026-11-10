@@ -20,7 +20,18 @@ import {
   type WithdrawConfirmation,
 } from '../application/index.js';
 import { principalOf } from './access-middleware.js';
-import { type FieldError, NO_QUERY, readBody, readIdempotencyKey, readIfMatch, readQuery, RESOURCE_ID, sendValidationError } from './validation.js';
+import {
+  type FieldError,
+  jsonBody,
+  NO_QUERY,
+  pathParam,
+  readBody,
+  readIdempotencyKey,
+  readIfMatch,
+  readQuery,
+  RESOURCE_ID,
+  sendValidationError,
+} from './validation.js';
 
 /**
  * The statements of the tax-year view (api-design.md §58E, VC-X-28): acknowledging an attribution change of a
@@ -65,11 +76,11 @@ function pathOf(req: Request, ids: readonly string[], withYear: boolean): { erro
   const errors: FieldError[] = [];
   const found: Record<string, string> = {};
   for (const name of ids) {
-    const raw = req.params[name];
+    const raw = pathParam(req, name);
     if (raw === undefined || !RESOURCE_ID.test(raw)) errors.push({ field: name, code: 'INVALID_FORMAT' });
     else found[name] = raw.toLowerCase();
   }
-  const rawYear = req.params['year'] ?? '';
+  const rawYear = pathParam(req, 'year') ?? '';
   const year = Number(rawYear);
   if (withYear) {
     if (!/^\d{1,9}$/.test(rawYear)) errors.push({ field: 'year', code: 'INVALID_FORMAT' });
@@ -84,7 +95,7 @@ const CONFIRM_PATH = '/loans/:loanId/allocations/:allocationSetId/tax-confirmati
 export function taxStatementRoutes(commands: TaxStatementCommands): Router {
   const router = express.Router();
 
-  router.post(ACK_PATH, express.json({ limit: '16kb' }), (req, res, next) => {
+  router.post(ACK_PATH, jsonBody('16kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const path = pathOf(req, ['propertyReferenceId'], true);
     const idempotency = readIdempotencyKey(req, res);
@@ -131,7 +142,7 @@ export function taxStatementRoutes(commands: TaxStatementCommands): Router {
       .catch(next);
   });
 
-  router.post(`${ACK_PATH}/:acknowledgementId/withdraw`, express.json({ limit: '16kb' }), (req, res, next) => {
+  router.post(`${ACK_PATH}/:acknowledgementId/withdraw`, jsonBody('16kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const path = pathOf(req, ['propertyReferenceId', 'acknowledgementId'], true);
     const ifMatch = readIfMatch(req, res);
@@ -153,7 +164,7 @@ export function taxStatementRoutes(commands: TaxStatementCommands): Router {
       .catch(next);
   });
 
-  router.post(CONFIRM_PATH, express.json({ limit: '16kb' }), (req, res, next) => {
+  router.post(CONFIRM_PATH, jsonBody('16kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const path = pathOf(req, ['loanId', 'allocationSetId'], false);
     const idempotency = readIdempotencyKey(req, res);
@@ -192,7 +203,7 @@ export function taxStatementRoutes(commands: TaxStatementCommands): Router {
       .catch(next);
   });
 
-  router.post(`${CONFIRM_PATH}/:confirmationId/withdraw`, express.json({ limit: '16kb' }), (req, res, next) => {
+  router.post(`${CONFIRM_PATH}/:confirmationId/withdraw`, jsonBody('16kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const path = pathOf(req, ['loanId', 'allocationSetId', 'confirmationId'], false);
     const ifMatch = readIfMatch(req, res);

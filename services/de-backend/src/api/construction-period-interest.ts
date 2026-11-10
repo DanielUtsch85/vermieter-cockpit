@@ -15,7 +15,7 @@ import {
 } from '../application/index.js';
 import { principalOf } from './access-middleware.js';
 import { businessDate, optionalText, readId } from './acquisitions.js';
-import { NO_QUERY, readBody, readIdempotencyKey, readIfMatch, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
+import { jsonBody, NO_QUERY, readBody, readIdempotencyKey, readIfMatch, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
 
 const uuid = zod3.transform(z.string().regex(RESOURCE_ID), (id) => id.toLowerCase());
 
@@ -94,7 +94,7 @@ export function constructionPeriodInterestRoutes(commands: ConstructionPeriodInt
   const router = express.Router();
   const base = '/construction-period-interest';
 
-  router.post(base, express.json({ limit: '64kb' }), (req, res, next) => {
+  router.post(base, jsonBody('64kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
@@ -159,7 +159,7 @@ export function constructionPeriodInterestRoutes(commands: ConstructionPeriodInt
       readonly record: ConstructionPeriodInterest;
     }>,
   ) =>
-    router.post(`${base}/:recordId/${path}`, express.json({ limit: '64kb' }), (req, res, next) => {
+    router.post(`${base}/:recordId/${path}`, jsonBody('64kb'), (req, res, next) => {
       const query = readQuery(NO_QUERY, req);
       const id = readId(req.params['recordId'], 'recordId', res);
       if (id === undefined) return;

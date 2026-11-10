@@ -5,6 +5,7 @@ import { acquisitionCostRoutes, type AcquisitionCostCommands } from './acquisiti
 import { acquisitionRoutes, type AcquisitionCommands } from './acquisitions.js';
 import { depreciationAssetRoutes, type DepreciationAssetCommandsWithVersions } from './depreciation-assets.js';
 import { errorHandler } from './errors.js';
+import { optionsAsExpress4, slashAfterMountAsExpress4 } from './express-compat.js';
 import { exportRoutes, type ExportCommands } from './exports.js';
 import { financialAccountRoutes, type FinancialAccountCommands } from './financial-accounts.js';
 import { financialCategoryRoutes, type FinancialCategoryQueries } from './financial-categories.js';
@@ -126,7 +127,10 @@ export function createApp(deps: AppDependencies): Express {
 
   // Business API: every route below requires a verified principal with DE access.
   const api = express.Router();
+  // VC-X-66: two routing answers of Express 4 kept on Express 5 (express-compat.ts).
+  api.use(slashAfterMountAsExpress4);
   api.use(requireDeAccess(deps.verifyPrincipal));
+  api.use(optionsAsExpress4(api));
   api.get('/health', (req, res) => {
     const query = readQuery(NO_QUERY, req);
     if (refuseQuery(res, query)) return;

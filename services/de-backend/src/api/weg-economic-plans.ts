@@ -17,6 +17,7 @@ import { principalOf } from './access-middleware.js';
 import { businessDate, definedOnly, optionalText, readId } from './acquisitions.js';
 import {
   dayOfMonth,
+  jsonBody,
   money,
   NO_QUERY,
   PAGING,
@@ -100,7 +101,7 @@ export interface WegEconomicPlanCommands {
 export function wegEconomicPlanRoutes(commands: WegEconomicPlanCommands): Router {
   const router = express.Router();
 
-  router.post('/weg-memberships/:membershipId/economic-plans', express.json({ limit: '64kb' }), (req, res, next) => {
+  router.post('/weg-memberships/:membershipId/economic-plans', jsonBody('64kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const membershipId = readId(req.params['membershipId'], 'membershipId', res);
     if (membershipId === undefined) return;
@@ -162,7 +163,7 @@ export function wegEconomicPlanRoutes(commands: WegEconomicPlanCommands): Router
       .catch(next);
   });
 
-  router.post('/weg-economic-plans/:planId/void', express.json({ limit: '16kb' }), (req, res, next) => {
+  router.post('/weg-economic-plans/:planId/void', jsonBody('16kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const economicPlanId = readId(req.params['planId'], 'planId', res);
     if (economicPlanId === undefined) return;

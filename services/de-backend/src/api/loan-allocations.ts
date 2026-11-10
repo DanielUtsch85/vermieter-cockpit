@@ -19,7 +19,7 @@ import {
 } from '../application/index.js';
 import { principalOf } from './access-middleware.js';
 import { businessDate, optionalText, readId } from './acquisitions.js';
-import { NO_QUERY, readBody, readIdempotencyKey, readIfMatch, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
+import { jsonBody, NO_QUERY, readBody, readIdempotencyKey, readIfMatch, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
 
 const uuid = zod3.transform(z.string().regex(RESOURCE_ID), (id) => id.toLowerCase());
 
@@ -117,7 +117,7 @@ export interface LoanAllocationCommands {
 export function loanAllocationRoutes(commands: LoanAllocationCommands): Router {
   const router = express.Router();
 
-  router.post('/loans/:loanId/allocations', express.json({ limit: '64kb' }), (req, res, next) => {
+  router.post('/loans/:loanId/allocations', jsonBody('64kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const loanId = readId(req.params['loanId'], 'loanId', res);
     if (loanId === undefined) return;
@@ -155,7 +155,7 @@ export function loanAllocationRoutes(commands: LoanAllocationCommands): Router {
       .catch(next);
   });
 
-  router.post('/loans/:loanId/allocations/:allocationSetId/void', express.json({ limit: '16kb' }), (req, res, next) => {
+  router.post('/loans/:loanId/allocations/:allocationSetId/void', jsonBody('16kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const loanId = readId(req.params['loanId'], 'loanId', res);
     if (loanId === undefined) return;

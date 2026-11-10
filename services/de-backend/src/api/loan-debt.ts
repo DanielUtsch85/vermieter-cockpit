@@ -16,7 +16,7 @@ import {
 import { principalOf } from './access-middleware.js';
 import { eurCents, signedEurCents } from './cents.js';
 import { businessDate, optionalText, readId } from './acquisitions.js';
-import { money, NO_QUERY, readBody, readIdempotencyKey, readIfMatch, readQuery, refuseQuery, sendValidationError } from './validation.js';
+import { jsonBody, money, NO_QUERY, readBody, readIdempotencyKey, readIfMatch, readQuery, refuseQuery, sendValidationError } from './validation.js';
 import { rebasedOnDto } from './loan-terms.js';
 
 const perProperty = zod3.transform(z.enum(['true', 'false']), (value) => value === 'true').optional();
@@ -97,7 +97,7 @@ export function loanDebtRoutes(commands: LoanDebtCommands): Router {
       .catch(next);
   });
 
-  router.post('/loans/:loanId/balance-statements', express.json({ limit: '16kb' }), (req, res, next) => {
+  router.post('/loans/:loanId/balance-statements', jsonBody('16kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const loanId = readId(req.params['loanId'], 'loanId', res);
     if (loanId === undefined) return;
@@ -127,7 +127,7 @@ export function loanDebtRoutes(commands: LoanDebtCommands): Router {
       .catch(next);
   });
 
-  router.post('/loans/:loanId/balance-statements/:statementId/void', express.json({ limit: '16kb' }), (req, res, next) => {
+  router.post('/loans/:loanId/balance-statements/:statementId/void', jsonBody('16kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const loanId = readId(req.params['loanId'], 'loanId', res);
     if (loanId === undefined) return;

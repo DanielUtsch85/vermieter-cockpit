@@ -88,7 +88,7 @@ const IBAN_WEG = 'DE89370400440532013000';
 const PHASE_6 =
   /^(?!.*\/tax-meaning$)(?:[A-Z]+ \/(wegs|weg-memberships|weg-economic-plans|weg-annual-statements|weg-special-assessments)\b|[A-Z]+ \/transactions\/:transactionId\/(hausgeld|settlement)-proposal$|[A-Z]+ \/property-references\/:propertyReferenceId\/weg-memberships$)/;
 
-/** Every route the app serves, from Express' router stack (Express 4 internals, as ACC2–ACC5). */
+/** Every route the app serves, from Express' router stack (Express 5 internals `app.router.stack` since VC-X-66, as ACC2–ACC5). */
 function routesOf(app: Express): string[] {
   type Layer = { route?: { path: string; methods: Record<string, boolean> }; name?: string; handle: { stack?: Layer[] } };
   const walk = (stack: readonly Layer[]): string[] =>
@@ -96,7 +96,7 @@ function routesOf(app: Express): string[] {
       if (layer.route !== undefined) return Object.keys(layer.route.methods).map((method) => `${method.toUpperCase()} ${layer.route?.path}`);
       return layer.name === 'router' && layer.handle.stack !== undefined ? walk(layer.handle.stack) : [];
     });
-  return walk((app as unknown as { _router: { stack: Layer[] } })._router.stack);
+  return walk((app as unknown as { router: { stack: Layer[] } }).router.stack);
 }
 
 describe.skipIf(databaseUrl === undefined)('Phase 6 acceptance (roadmap exit)', () => {

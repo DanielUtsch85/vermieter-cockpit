@@ -26,6 +26,7 @@ import {
 import { principalOf } from './access-middleware.js';
 import { businessDate, definedOnly, optionalText, readId } from './acquisitions.js';
 import {
+  jsonBody,
   NO_QUERY,
   OPTIONAL_PAGING,
   PAGING,
@@ -165,7 +166,7 @@ export interface WegCommands {
 export function wegRoutes(commands: WegCommands): Router {
   const router = express.Router();
 
-  router.post('/wegs', express.json({ limit: '16kb' }), (req, res, next) => {
+  router.post('/wegs', jsonBody('16kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
@@ -214,7 +215,7 @@ export function wegRoutes(commands: WegCommands): Router {
       .catch(next);
   });
 
-  router.post('/wegs/:wegId/amend', express.json({ limit: '16kb' }), (req, res, next) => {
+  router.post('/wegs/:wegId/amend', jsonBody('16kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const wegId = readId(req.params['wegId'], 'wegId', res);
     if (wegId === undefined) return;
@@ -239,7 +240,7 @@ export function wegRoutes(commands: WegCommands): Router {
       .catch(next);
   });
 
-  router.post('/wegs/:wegId/void', express.json({ limit: '16kb' }), (req, res, next) => {
+  router.post('/wegs/:wegId/void', jsonBody('16kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const wegId = readId(req.params['wegId'], 'wegId', res);
     if (wegId === undefined) return;
@@ -262,7 +263,7 @@ export function wegRoutes(commands: WegCommands): Router {
       .catch(next);
   });
 
-  router.post('/wegs/:wegId/memberships', express.json({ limit: '16kb' }), (req, res, next) => {
+  router.post('/wegs/:wegId/memberships', jsonBody('16kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const wegId = readId(req.params['wegId'], 'wegId', res);
     if (wegId === undefined) return;
@@ -317,7 +318,7 @@ export function wegRoutes(commands: WegCommands): Router {
       .catch(next);
   });
 
-  router.post('/weg-memberships/:membershipId/amend', express.json({ limit: '16kb' }), (req, res, next) => {
+  router.post('/weg-memberships/:membershipId/amend', jsonBody('16kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const membershipId = readId(req.params['membershipId'], 'membershipId', res);
     if (membershipId === undefined) return;
@@ -346,7 +347,7 @@ export function wegRoutes(commands: WegCommands): Router {
       .catch(next);
   });
 
-  router.post('/weg-memberships/:membershipId/end', express.json({ limit: '16kb' }), (req, res, next) => {
+  router.post('/weg-memberships/:membershipId/end', jsonBody('16kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const membershipId = readId(req.params['membershipId'], 'membershipId', res);
     if (membershipId === undefined) return;
@@ -369,7 +370,7 @@ export function wegRoutes(commands: WegCommands): Router {
       .catch(next);
   });
 
-  router.post('/weg-memberships/:membershipId/void', express.json({ limit: '16kb' }), (req, res, next) => {
+  router.post('/weg-memberships/:membershipId/void', jsonBody('16kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const membershipId = readId(req.params['membershipId'], 'membershipId', res);
     if (membershipId === undefined) return;

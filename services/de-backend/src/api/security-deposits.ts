@@ -20,7 +20,19 @@ import {
 import { Money, zod3 } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
 import { businessDate, definedOnly, optionalText, readId } from './acquisitions.js';
-import { money, NO_QUERY, PAGING, readBody, readIdempotencyKey, readIfMatch, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
+import {
+  jsonBody,
+  money,
+  NO_QUERY,
+  PAGING,
+  readBody,
+  readIdempotencyKey,
+  readIfMatch,
+  readQuery,
+  refuseQuery,
+  RESOURCE_ID,
+  sendValidationError,
+} from './validation.js';
 
 const uuid = zod3.transform(z.string().regex(RESOURCE_ID), (id) => id.toLowerCase());
 const mreTenantId = z.string().regex(MRE_EXTERNAL_ID);
@@ -111,7 +123,7 @@ export interface SecurityDepositCommands {
 export function securityDepositRoutes(commands: SecurityDepositCommands): Router {
   const router = express.Router();
 
-  router.post('/security-deposits', express.json({ limit: '16kb' }), (req, res, next) => {
+  router.post('/security-deposits', jsonBody('16kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
@@ -166,7 +178,7 @@ export function securityDepositRoutes(commands: SecurityDepositCommands): Router
       .catch(next);
   });
 
-  router.post('/security-deposits/:securityDepositId/amend', express.json({ limit: '16kb' }), (req, res, next) => {
+  router.post('/security-deposits/:securityDepositId/amend', jsonBody('16kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const securityDepositId = readId(req.params['securityDepositId'], 'securityDepositId', res);
     if (securityDepositId === undefined) return;
@@ -191,7 +203,7 @@ export function securityDepositRoutes(commands: SecurityDepositCommands): Router
       .catch(next);
   });
 
-  router.post('/security-deposits/:securityDepositId/void', express.json({ limit: '16kb' }), (req, res, next) => {
+  router.post('/security-deposits/:securityDepositId/void', jsonBody('16kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const securityDepositId = readId(req.params['securityDepositId'], 'securityDepositId', res);
     if (securityDepositId === undefined) return;
@@ -214,7 +226,7 @@ export function securityDepositRoutes(commands: SecurityDepositCommands): Router
       .catch(next);
   });
 
-  router.post('/security-deposits/:securityDepositId/close', express.json({ limit: '16kb' }), (req, res, next) => {
+  router.post('/security-deposits/:securityDepositId/close', jsonBody('16kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const securityDepositId = readId(req.params['securityDepositId'], 'securityDepositId', res);
     if (securityDepositId === undefined) return;
@@ -238,7 +250,7 @@ export function securityDepositRoutes(commands: SecurityDepositCommands): Router
       .catch(next);
   });
 
-  router.post('/security-deposits/:securityDepositId/reopen', express.json({ limit: '16kb' }), (req, res, next) => {
+  router.post('/security-deposits/:securityDepositId/reopen', jsonBody('16kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const securityDepositId = readId(req.params['securityDepositId'], 'securityDepositId', res);
     if (securityDepositId === undefined) return;

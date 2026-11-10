@@ -7,7 +7,18 @@ import {
   type ReplacementInput,
 } from '../application/index.js';
 import { principalOf } from './access-middleware.js';
-import { EMPTY_BODY, NO_QUERY, readBody, readIdempotencyKey, readIfMatch, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
+import {
+  EMPTY_BODY,
+  jsonBody,
+  NO_QUERY,
+  readBody,
+  readIdempotencyKey,
+  readIfMatch,
+  readQuery,
+  refuseQuery,
+  RESOURCE_ID,
+  sendValidationError,
+} from './validation.js';
 import {
   toSplitInput,
   correctBody,
@@ -28,7 +39,7 @@ export function transactionLifecycleRoutes(commands: TransactionCommands): Route
   const router = express.Router();
 
   // Takes no body: no body, an empty one or `{}`; a field is unknown (§58X rule 3).
-  router.post('/transactions/:transactionId/confirm', express.json({ limit: '16kb' }), (req, res, next) => {
+  router.post('/transactions/:transactionId/confirm', jsonBody('16kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const id = req.params['transactionId'] ?? '';
     if (!RESOURCE_ID.test(id)) {
@@ -57,7 +68,7 @@ export function transactionLifecycleRoutes(commands: TransactionCommands): Route
       .catch(next);
   });
 
-  router.post('/transactions/:transactionId/correct', express.json({ limit: '64kb' }), (req, res, next) => {
+  router.post('/transactions/:transactionId/correct', jsonBody('64kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
@@ -121,7 +132,7 @@ export function transactionLifecycleRoutes(commands: TransactionCommands): Route
       });
   });
 
-  router.post('/transactions/:transactionId/reverse', express.json({ limit: '16kb' }), (req, res, next) => {
+  router.post('/transactions/:transactionId/reverse', jsonBody('16kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
@@ -153,7 +164,7 @@ export function transactionLifecycleRoutes(commands: TransactionCommands): Route
       .catch(next);
   });
 
-  router.post('/transactions/:transactionId/amend', express.json({ limit: '16kb' }), (req, res, next) => {
+  router.post('/transactions/:transactionId/amend', jsonBody('16kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const id = req.params['transactionId'] ?? '';
     if (!RESOURCE_ID.test(id)) {
@@ -202,7 +213,7 @@ export function transactionLifecycleRoutes(commands: TransactionCommands): Route
       });
   });
 
-  router.post('/transactions/:transactionId/ignore', express.json({ limit: '16kb' }), (req, res, next) => {
+  router.post('/transactions/:transactionId/ignore', jsonBody('16kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const id = req.params['transactionId'] ?? '';
     if (!RESOURCE_ID.test(id)) {
@@ -233,7 +244,7 @@ export function transactionLifecycleRoutes(commands: TransactionCommands): Route
   });
 
   // Takes no body: no body, an empty one or `{}`; a field is unknown (§58X rule 3).
-  router.post('/transactions/:transactionId/restore', express.json({ limit: '16kb' }), (req, res, next) => {
+  router.post('/transactions/:transactionId/restore', jsonBody('16kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const id = req.params['transactionId'] ?? '';
     if (!RESOURCE_ID.test(id)) {

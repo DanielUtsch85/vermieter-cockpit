@@ -11,7 +11,18 @@ import {
 } from '../application/index.js';
 import { isSupportedCurrency, normalizeIban, zod3 } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
-import { EMPTY_BODY, NO_QUERY, PAGING, readBody, readIdempotencyKey, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
+import {
+  EMPTY_BODY,
+  jsonBody,
+  NO_QUERY,
+  PAGING,
+  readBody,
+  readIdempotencyKey,
+  readQuery,
+  refuseQuery,
+  RESOURCE_ID,
+  sendValidationError,
+} from './validation.js';
 
 /** Field mapping verbatim from data-model.md §16 (api-design.md §29.1). */
 const createBody = z
@@ -45,7 +56,7 @@ export interface FinancialAccountCommands {
 export function financialAccountRoutes(commands: FinancialAccountCommands): Router {
   const router = express.Router();
 
-  router.post('/financial-accounts', express.json({ limit: '16kb' }), (req, res, next) => {
+  router.post('/financial-accounts', jsonBody('16kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
@@ -105,7 +116,7 @@ export function financialAccountRoutes(commands: FinancialAccountCommands): Rout
   });
 
   // Takes no body: no body, an empty one or `{}`; a field is unknown (§58X rule 3).
-  router.post('/financial-accounts/:financialAccountId/close', express.json({ limit: '16kb' }), (req, res, next) => {
+  router.post('/financial-accounts/:financialAccountId/close', jsonBody('16kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const { financialAccountId } = req.params;
     if (!RESOURCE_ID.test(financialAccountId)) {

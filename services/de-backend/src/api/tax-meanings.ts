@@ -22,7 +22,7 @@ import { principalOf } from './access-middleware.js';
 import { definedOnly, readId } from './acquisitions.js';
 import { distributionDto, flagsDto, plain, ref } from './tax-classification-dto.js';
 import type { TaxationCommands } from './tax-classifications.js';
-import { NO_QUERY, PAGING, readQuery, refuseQuery, sendValidationError } from './validation.js';
+import { NO_QUERY, PAGING, pathParam, readQuery, refuseQuery, sendValidationError } from './validation.js';
 
 const csv = <T extends readonly [string, ...string[]]>(values: T) =>
   zod3
@@ -94,9 +94,9 @@ export function taxMeaningRoutes(commands: TaxationCommands): Router {
   const wegRoute = (path: string, idParam: string, read: GetWegTaxMeaning) =>
     router.get(path, (req, res, next) => {
       const query = readQuery(NO_QUERY, req);
-      const sourceId = readId(req.params[idParam], idParam, res);
+      const sourceId = readId(pathParam(req, idParam), idParam, res);
       if (sourceId === undefined) return;
-      const at = readPosition(req.params['position'], res);
+      const at = readPosition(pathParam(req, 'position'), res);
       if (at === undefined) return;
       if (refuseQuery(res, query)) return;
       read({ principal: principalOf(res), sourceId, position: at })

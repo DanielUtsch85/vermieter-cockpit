@@ -237,8 +237,8 @@ export const PHASE_2 =
   /^(?!.*\/anschaffungsnahe-herstellungskosten$)(?:[A-Z]+ \/(parties|ownerships|acquisitions)\b|[A-Z]+ \/property-references\/:propertyReferenceId\/(ownerships|ownership-changes|acquisitions)$)/;
 
 /**
- * Every route the app serves, from Express' router stack, relative to its mount point. This reads Express 4
- * internals (`app._router.stack`); on Express 5 it finds no routes and the comparison below fails loudly, which
+ * Every route the app serves, from Express' router stack, relative to its mount point. This reads Express 5
+ * internals (`app.router.stack`, VC-X-66); on another major it may find no routes and the comparison below fails loudly, which
  * is the intended direction: adapt it then rather than let the table go unchecked.
  */
 export function routesOf(app: Express): string[] {
@@ -248,7 +248,7 @@ export function routesOf(app: Express): string[] {
       if (layer.route !== undefined) return Object.keys(layer.route.methods).map((method) => `${method.toUpperCase()} ${layer.route?.path}`);
       return layer.name === 'router' && layer.handle.stack !== undefined ? walk(layer.handle.stack) : [];
     });
-  return walk((app as unknown as { _router: { stack: Layer[] } })._router.stack);
+  return walk((app as unknown as { router: { stack: Layer[] } }).router.stack);
 }
 
 export interface Phase2Context {

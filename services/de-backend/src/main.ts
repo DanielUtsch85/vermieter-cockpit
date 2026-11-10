@@ -549,7 +549,10 @@ const auditPseudonymisation = startAuditPseudonymisation({
 });
 await auditPseudonymisation.firstRun;
 
-const server = app.listen(config.PORT, () => {
+const server = app.listen(config.PORT, (error?: Error) => {
+  // Express 5 hands a listen error (a port in use) to this callback, where Express 4 left it unhandled and the process
+  // stopped: thrown here, the start fails as before instead of logging "listening" without a server (VC-X-66).
+  if (error !== undefined) throw error;
   console.log(`de-backend listening on port ${config.PORT}`);
   console.log(
     `depreciation schedule recording: ${config.DEPRECIATION_RECORDING_ENABLED ? 'enabled' : 'disabled'}, released stage ${config.DEPRECIATION_RECORDING_STAGE}`,

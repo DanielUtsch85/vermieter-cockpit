@@ -12,7 +12,7 @@ import {
 } from '../application/index.js';
 import { principalOf } from './access-middleware.js';
 import { sendError } from './errors.js';
-import { fieldErrors, NO_QUERY, parse, readBody, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
+import { fieldErrors, jsonBody, NO_QUERY, parse, readBody, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
 
 /** Upper bound of an uploaded statement, enforced while streaming, before any parsing. */
 export const MAX_IMPORT_FILE_BYTES = 5 * 1024 * 1024;
@@ -154,7 +154,7 @@ export function importRoutes(commands: ImportCommands): Router {
       .catch(next);
   });
 
-  router.post('/imports/:importBatchId/review-items/:reviewItemId/resolve', express.json({ limit: '1kb' }), (req, res, next) => {
+  router.post('/imports/:importBatchId/review-items/:reviewItemId/resolve', jsonBody('1kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const batchId = req.params['importBatchId'] ?? '';
     const itemId = req.params['reviewItemId'] ?? '';

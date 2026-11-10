@@ -26,6 +26,7 @@ import { principalOf } from './access-middleware.js';
 import { businessDate, definedOnly, optionalText, readId } from './acquisitions.js';
 import {
   EMPTY_BODY,
+  jsonBody,
   NO_QUERY,
   PAGING,
   readBody,
@@ -223,7 +224,7 @@ export interface WegAnnualStatementCommands {
 export function wegAnnualStatementRoutes(commands: WegAnnualStatementCommands): Router {
   const router = express.Router();
 
-  router.post('/weg-memberships/:membershipId/annual-statements', express.json({ limit: '256kb' }), (req, res, next) => {
+  router.post('/weg-memberships/:membershipId/annual-statements', jsonBody('256kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const membershipId = readId(req.params['membershipId'], 'membershipId', res);
     if (membershipId === undefined) return;
@@ -280,7 +281,7 @@ export function wegAnnualStatementRoutes(commands: WegAnnualStatementCommands): 
       .catch(next);
   });
 
-  router.put('/weg-annual-statements/:statementId', express.json({ limit: '256kb' }), (req, res, next) => {
+  router.put('/weg-annual-statements/:statementId', jsonBody('256kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const statementId = readId(req.params['statementId'], 'statementId', res);
     if (statementId === undefined) return;
@@ -303,7 +304,7 @@ export function wegAnnualStatementRoutes(commands: WegAnnualStatementCommands): 
       .catch(next);
   });
 
-  router.post('/weg-annual-statements/:statementId/confirm', express.json({ limit: '1kb' }), (req, res, next) => {
+  router.post('/weg-annual-statements/:statementId/confirm', jsonBody('1kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const statementId = readId(req.params['statementId'], 'statementId', res);
     if (statementId === undefined) return;
@@ -321,7 +322,7 @@ export function wegAnnualStatementRoutes(commands: WegAnnualStatementCommands): 
       .catch(next);
   });
 
-  router.post('/weg-annual-statements/:statementId/void', express.json({ limit: '16kb' }), (req, res, next) => {
+  router.post('/weg-annual-statements/:statementId/void', jsonBody('16kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const statementId = readId(req.params['statementId'], 'statementId', res);
     if (statementId === undefined) return;

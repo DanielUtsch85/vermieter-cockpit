@@ -78,8 +78,8 @@ const LEASE_MS = 300;
 const PHASE_4 = /^[A-Z]+ \/rent-reconciliations\b|^[A-Z]+ \/transactions\/:transactionId\/rent-reconciliations$/;
 
 /**
- * Every route the app serves, from Express' router stack, relative to its mount point. This reads Express 4
- * internals (`app._router.stack`), as ACC2 and ACC3 do; on Express 5 it finds no routes and the comparison fails loudly.
+ * Every route the app serves, from Express' router stack, relative to its mount point. This reads Express 5
+ * internals (`app.router.stack`, VC-X-66), as ACC2 and ACC3 do; on another major it may find no routes and the comparison fails loudly.
  */
 function routesOf(app: Express): string[] {
   type Layer = { route?: { path: string; methods: Record<string, boolean> }; name?: string; handle: { stack?: Layer[] } };
@@ -88,7 +88,7 @@ function routesOf(app: Express): string[] {
       if (layer.route !== undefined) return Object.keys(layer.route.methods).map((method) => `${method.toUpperCase()} ${layer.route?.path}`);
       return layer.name === 'router' && layer.handle.stack !== undefined ? walk(layer.handle.stack) : [];
     });
-  return walk((app as unknown as { _router: { stack: Layer[] } })._router.stack);
+  return walk((app as unknown as { router: { stack: Layer[] } }).router.stack);
 }
 
 describe.skipIf(databaseUrl === undefined)('Phase 4 acceptance (roadmap exit)', () => {
