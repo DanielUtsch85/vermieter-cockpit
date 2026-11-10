@@ -1015,20 +1015,20 @@
   ],
   "bodies": {
     "POST /api/v1/acquisitions": {
-      "requests": 614,
-      "sha256": "cb7a6a7e4484f73e11fa60ac9ff3fccadf42cc02d031eed698ff5a3d3d99b625",
+      "requests": 641,
+      "sha256": "7ec0c89a624bd72875c0a2401f09b3ea49cae912f61d9b3c89234ee7a938c6e9",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"propertyReferenceId\",\"code\":\"REQUIRED\"},{\"field\":\"purchasePrice\",\"code\":\"REQUIRED\"},{\"field\":\"contractDate\",\"code\":\"REQUIRED\"},{\"field\":\"buyerPartyIds\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"propertyReferenceId\":\"0000f061-0000-4000-8000-000000000001\",\"purchasePrice\":{\"amount\":\"100.00\",\"currency\":\"EUR\"},\"contractDate\":\"2027-01-15\",\"buyerPartyIds\":[\"0000f061-0000-4000-8000-000000000001\"]} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/acquisitions/:acquisitionId/align-ownerships-to-transfer": {
-      "requests": 141,
-      "sha256": "c444f4d987917911657625b8c8acda9baef1acefbab51dbd064dd1aa94a888cd",
+      "requests": 147,
+      "sha256": "e517927296f6604e5f266384e61874b9c92641bb6ac7e9448f5de6c5167edca8",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"sourceReferences\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"sourceReferences\":[\"x\"]} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/acquisitions/:acquisitionId/cancel": {
-      "requests": 141,
-      "sha256": "b7ef1b35777f1dcc6c6d3633993fc00b7503739176902688a5e205929ed26f25",
+      "requests": 147,
+      "sha256": "9ae8d94975a0680388aeedc48a01b12d64b84af6d10eb2e40b4d7dac0c9287c9",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"reason\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"reason\":\"x\"} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
@@ -1039,50 +1039,50 @@
       "last": "{} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/acquisitions/:acquisitionId/costs": {
-      "requests": 1355,
-      "sha256": "72e62729baca7ce206cc63039e5161cfb4dbf3eb5df2c254f0f1da975bf8425d",
+      "requests": 1370,
+      "sha256": "550b25a5ba6e3833093fc8d5038b038728d930d14ce58c3d52e256a25d267698",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"category\",\"code\":\"REQUIRED\"},{\"field\":\"amount\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"category\":\"BROKER\",\"amount\":{\"amount\":\"100.00\",\"currency\":\"EUR\"}} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/acquisitions/:acquisitionId/costs/:costId/classifications": {
-      "requests": 1694,
-      "sha256": "52f06a6ad49b7e5ce00499f7414b8dae8db11df8bae995b86810026408824a57",
+      "requests": 1724,
+      "sha256": "fee081f3cc493f931b72cedac803982fd24c6c1265652a24e0435b22186f1564",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"parts\",\"code\":\"REQUIRED\"},{\"field\":\"description\",\"code\":\"REQUIRED\"},{\"field\":\"supersedes\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"parts\":[{\"purpose\":\"FINANCING\",\"amount\":{\"amount\":\"100.00\",\"currency\":\"EUR\"}}],\"description\":\"x\",\"supersedes\":null} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/acquisitions/:acquisitionId/costs/:costId/void": {
-      "requests": 141,
-      "sha256": "c4728836c4fe8c675b3dd270bcc819aa9a2a0ffd8365bfac630ddd38f79ac5ef",
+      "requests": 147,
+      "sha256": "8be78208eaffa0385ad1006ceb3fb84068631e93ae5ef0aed6bd7dea88197f1d",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"reason\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"reason\":\"x\"} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/acquisitions/:acquisitionId/economic-transfer-date": {
-      "requests": 276,
-      "sha256": "9d7529f7f9fd2f90304ce7dc34bb367c461ce912508c443791ea74a160bbca3d",
+      "requests": 288,
+      "sha256": "a68534a8316ff7016b1f8eb4ba73d40f64e5478d2f5c766ee8b2d8fd0b45ca6c",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"economicTransferDate\",\"code\":\"REQUIRED\"},{\"field\":\"sourceReferences\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"economicTransferDate\":\"2027-01-15\",\"sourceReferences\":[\"x\"]} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/acquisitions/:acquisitionId/land-building-allocation": {
-      "requests": 3043,
-      "sha256": "a34f75a107211b2828aa16716ca02d35fe3c52ac2767579019f1682a3e01c9bc",
+      "requests": 3088,
+      "sha256": "0d2b0384940f6bd48a4f76247c3adf9d9f89d6e266cd35e71a9d9f3f7bf7c648",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"totalAllocableAmount\",\"code\":\"REQUIRED\"},{\"field\":\"landAmount\",\"code\":\"REQUIRED\"},{\"field\":\"buildingAmount\",\"code\":\"REQUIRED\"},{\"field\":\"method\",\"code\":\"REQUIRED\"},{\"field\":\"supersedes\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"totalAllocableAmount\":{\"amount\":\"x\"},\"landAmount\":{\"amount\":\"100.00\",\"currency\":\"EUR\"},\"buildingAmount\":{\"amount\":\"100.00\",\"currency\":\"EUR\"},\"method\":\"ADVISOR\",\"supersedes\":null} -> 400 {\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"totalAllocableAmount.currency\",\"code\":\"REQUIRED\"}]}}}"
     },
     "POST /api/v1/acquisitions/:acquisitionId/payments": {
-      "requests": 344,
-      "sha256": "eb6c21bd299c4e27093a4956cd412c098fcb70da4013c9066fcc28a93c9f7a61",
+      "requests": 359,
+      "sha256": "9fcec528286eeef23b702cc7c8fcb5a68dc2ac989181186f7565b9c749bc8ba5",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"transactionId\",\"code\":\"REQUIRED\"},{\"field\":\"amount\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"transactionId\":\"0000f061-0000-4000-8000-000000000001\",\"amount\":{\"amount\":\"100.00\",\"currency\":\"EUR\"}} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/acquisitions/:acquisitionId/payments/:paymentId/unlink": {
-      "requests": 141,
-      "sha256": "c3cb44cd23551f009c183928814367851332050a46bc4b8b5923ff8f274eeca2",
+      "requests": 147,
+      "sha256": "2d9050275cc43d6a68f89a1ece6b15d84c4ce64d1fadaad70b2afdad6b4cbdcc",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"reason\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"reason\":\"x\"} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/construction-period-interest": {
-      "requests": 1086,
-      "sha256": "18fd56753658ea086855ec84d0f74da3a1f3fe2195410441f32e09712705b348",
+      "requests": 1134,
+      "sha256": "6e25de36ca354ffd3c24aa2be64fff12ea298261350de7ee66cef928049318c4",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"propertyReferenceIds\",\"code\":\"REQUIRED\"},{\"field\":\"measure\",\"code\":\"REQUIRED\"},{\"field\":\"herstellungFrom\",\"code\":\"REQUIRED\"},{\"field\":\"useIntent\",\"code\":\"REQUIRED\"},{\"field\":\"advanceExpenseDeductible\",\"code\":\"REQUIRED\"},{\"field\":\"buildingFundsShare\",\"code\":\"REQUIRED\"},{\"field\":\"earlierYearsTreatment\",\"code\":\"REQUIRED\"},{\"field\":\"sourceReferences\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"propertyReferenceIds\":[\"0000f061-0000-4000-8000-000000000001\"],\"measure\":\"x\",\"herstellungFrom\":\"2027-01-15\",\"useIntent\":\"x\",\"advanceExpenseDeductible\":true,\"buildingFundsShare\":\"1/2\",\"earlierYearsTreatment\":\"x\",\"sourceReferences\":[\"x\"]} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
@@ -1093,50 +1093,50 @@
       "last": "{} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/construction-period-interest/:recordId/confirm": {
-      "requests": 1152,
-      "sha256": "b65ef63d77c89199c0fe2786a529482e5240793949f458735263904c335dd1e4",
+      "requests": 1158,
+      "sha256": "db82cb78f5288b560f9ad65b643d46489ca97ba24e317b92fb1f586eafeb57f6",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"reviewState\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"reviewState\":\"CONFIRMED\"} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/construction-period-interest/:recordId/void": {
-      "requests": 141,
-      "sha256": "10262c6fe55ca2ddabe8a67705ad84b2c7750fa2518ea52b14f11a15a52117c4",
+      "requests": 147,
+      "sha256": "fdbc366743fdbdb9430870998b95a3504aebbb2a7277df01a88dcc0f68f621aa",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"reason\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"reason\":\"x\"} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/depreciation-assets": {
-      "requests": 141,
-      "sha256": "a37cf5e25eb10c8cc3d0974e2ca0ed7d73467ea2bf8063279dbb0f91d766ed8e",
+      "requests": 147,
+      "sha256": "03c8e92b4c13535f11aab1992e425e22de134c64448c40f9b595ce603b22bc6c",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"propertyReferenceId\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"propertyReferenceId\":\"0000f061-0000-4000-8000-000000000001\"} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/depreciation-assets/:assetId/amend": {
-      "requests": 79,
-      "sha256": "e1dfa3e0b3d5aa0159da3c1a78b5b725fdf86e0b0e92cc1717b0c0c410356f73",
+      "requests": 82,
+      "sha256": "e25ce7a9f06132873acb8e91581e5ea48c66fb851c2e1a001a0a839e42eb1d08",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"(body)\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"description\":\"x\"} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/depreciation-assets/:assetId/confirm": {
-      "requests": 1152,
-      "sha256": "b05349c8bcea3cedd90ee0c123311a9d2610261e60acf0caedee730d6434065e",
+      "requests": 1158,
+      "sha256": "5f040c9c5638ccd70bc985bc5654b23a4ff0feb20dbc4bbfb3ac756b56c808cc",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"reviewState\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"reviewState\":\"ADVISOR_CONFIRMED\"} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/depreciation-assets/:assetId/schedule-versions": {
-      "requests": 411,
-      "sha256": "feec3475f548abdf504510d2dfe57aeb6a2ae1784582a7285a1a38bf7de3485b",
+      "requests": 429,
+      "sha256": "4fdb468a8ffa9992f1a97604baf3d22b9874204d76dbf0d7d11e9847e36394e7",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"throughYear\",\"code\":\"REQUIRED\"},{\"field\":\"reason\",\"code\":\"REQUIRED\"},{\"field\":\"expectedInputFingerprint\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"throughYear\":2027,\"reason\":\"x\",\"expectedInputFingerprint\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/depreciation-assets/:assetId/void": {
-      "requests": 141,
-      "sha256": "0ed066c896a9a394bda7ba8f509f3a4968cea34427198f9898cb6d631807a3ad",
+      "requests": 147,
+      "sha256": "ebb3de8c190f250ca34da73bbc2bf56d43ac0dca8f849196c8d62f220d810006",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"reason\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"reason\":\"x\"} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/financial-accounts": {
-      "requests": 2433,
-      "sha256": "5edb8e946b6243c3d539aac402daf037ed42ee4069ceff9e7cbaf0105a83a0d4",
+      "requests": 2451,
+      "sha256": "6a15a916e6da561b5621de82dd61bc65d895791b1bd2bf43d0c4840ff81d29b7",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"accountType\",\"code\":\"REQUIRED\"},{\"field\":\"displayName\",\"code\":\"REQUIRED\"},{\"field\":\"currency\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"accountType\":\"BANK\",\"displayName\":\"x\",\"currency\":\"EUR\"} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
@@ -1147,122 +1147,122 @@
       "last": "{} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/imports/:importBatchId/review-items/:reviewItemId/resolve": {
-      "requests": 141,
-      "sha256": "42434eea6bd43eef58ea7b46fb86ba9d70567692f8e25c7235048ee0f311e574",
+      "requests": 147,
+      "sha256": "cff06d0a491e884617604e6c675b1cc58faed9988d36293f34d16c2f897a995d",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"resolution\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"resolution\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"} -> 413 {\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Request body is too large.\"}}"
     },
     "POST /api/v1/loans": {
-      "requests": 1692,
-      "sha256": "e72479dfe4934b4651b918807a3e3a8190d85de0cab00c1b1dc6d640665d9362",
+      "requests": 1722,
+      "sha256": "4b0aeb4eb6fb41bc74dd0ccf8a6afcb48d1c5fbcc27d00ac26b2a044fb55295d",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"lenderPartyId\",\"code\":\"REQUIRED\"},{\"field\":\"borrowerPartyIds\",\"code\":\"REQUIRED\"},{\"field\":\"principalOriginal\",\"code\":\"REQUIRED\"},{\"field\":\"startDate\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"lenderPartyId\":\"0000f061-0000-4000-8000-000000000001\",\"borrowerPartyIds\":[\"0000f061-0000-4000-8000-000000000001\"],\"principalOriginal\":{\"amount\":\"100.00\",\"currency\":\"EUR\"},\"startDate\":\"2027-01-15\"} -> 400 {\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"borrowerPartyIds.0\",\"code\":\"LENDER_IS_BORROWER\"}]}}}"
     },
     "POST /api/v1/loans/:loanId/allocations": {
-      "requests": 480,
-      "sha256": "9fdaff794f554fb98b947232be6c7376e8d3caf134ef0c7729b46940f5b1172d",
+      "requests": 501,
+      "sha256": "288d4b17673226932ca4be1d104df70ebe94c3cc53a034a329c7e2f5d3227535",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"validFrom\",\"code\":\"REQUIRED\"},{\"field\":\"allocations\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"validFrom\":\"2027-01-15\",\"allocations\":[{\"propertyReferenceId\":\"0000f061-0000-4000-8000-000000000001\",\"share\":\"1/1\"}]} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/loans/:loanId/allocations/:allocationSetId/tax-confirmations": {
-      "requests": 141,
-      "sha256": "e3c734a685db138584795df1d976acd435ba45b7ac00bbc69838d8f47af0589f",
+      "requests": 147,
+      "sha256": "7843dc1cb0d98eb8cf83e71482e513b80eed7602a88d7ca524fb82794a0d358a",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"reason\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"reason\":\"x\"} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/loans/:loanId/allocations/:allocationSetId/tax-confirmations/:confirmationId/withdraw": {
-      "requests": 141,
-      "sha256": "52fb2ed2c1c8bb089c0b5a1a5fe06bf4121259845a23dc18dc930143cf66b9d0",
+      "requests": 147,
+      "sha256": "1ed33797a7e37ace299f9cee70601fd7a7f6d39cbd4625062667bf9820ad5401",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"reason\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"reason\":\"x\"} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/loans/:loanId/allocations/:allocationSetId/void": {
-      "requests": 141,
-      "sha256": "29cd8a6949d6f03c095d06e59474a2c003121d6de893b24a32467fea4e59c37e",
+      "requests": 147,
+      "sha256": "3ccc686e388b6a6c8e3496e9a4627e776b77ff33497d7ef0166c850b0250a73d",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"reason\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"reason\":\"x\"} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/loans/:loanId/amend": {
-      "requests": 79,
-      "sha256": "8e1008fb46ef0ae072e7807b09d30ccd8b362382db980a84f921063da6b8aeed",
+      "requests": 82,
+      "sha256": "cdb9ab1faf8acf53e374dda8dbb91fcd31e26611b7e68302b3d94be1a01b5817",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"(body)\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"notes\":\"x\"} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/loans/:loanId/balance-statements": {
-      "requests": 479,
-      "sha256": "7c02dc0f19bb5bbfb1c6d69bfdc0508d8cc7c1ac105d7e3d4a01b8dca83811f2",
+      "requests": 500,
+      "sha256": "accd3efebb7f14f427f49af535021823a0dcc76bbc9f79d8de59bb6de8005458",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"statementDate\",\"code\":\"REQUIRED\"},{\"field\":\"balance\",\"code\":\"REQUIRED\"},{\"field\":\"source\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"statementDate\":\"2027-01-15\",\"balance\":{\"amount\":\"100.00\",\"currency\":\"EUR\"},\"source\":\"x\"} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/loans/:loanId/balance-statements/:statementId/void": {
-      "requests": 141,
-      "sha256": "a1f7a195bfacb7d28f28ff60a7fe9c5892dee2f0aca54a288c433dec61e01753",
+      "requests": 147,
+      "sha256": "4b136976608400f9f336ddbcebb247381051c30209b3e7605122b3a82585473f",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"reason\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"reason\":\"x\"} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/loans/:loanId/close": {
-      "requests": 1287,
-      "sha256": "b73be56372337bc5ef67a586686322cfde71a5d05d913b6a71378c18f6c21445",
+      "requests": 1299,
+      "sha256": "057979f663183ca9753cdb4dbccb1c218efc07be8bbfc6b1f3c4073b784e7875",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"closingDate\",\"code\":\"REQUIRED\"},{\"field\":\"reason\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"closingDate\":\"2027-01-15\",\"reason\":\"REPAID\"} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/loans/:loanId/terms": {
-      "requests": 1760,
-      "sha256": "c17bb88287324f72798d483c9783c7fa06391aa590ad8d888f2a8f06bcb19616",
+      "requests": 1793,
+      "sha256": "dc2db1a9f073485ab240f47dd4f4c7339cfa7d497312d8793b3abae037b6b8bc",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"validFrom\",\"code\":\"REQUIRED\"},{\"field\":\"interestRate\",\"code\":\"REQUIRED\"},{\"field\":\"repaymentModel\",\"code\":\"REQUIRED\"},{\"field\":\"firstPaymentDate\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"validFrom\":\"2027-01-15\",\"interestRate\":\"1\",\"repaymentModel\":\"ANNUITY\",\"firstPaymentDate\":\"2027-01-15\",\"scheduledPayment\":{\"amount\":\"100.00\",\"currency\":\"EUR\"}} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/loans/:loanId/terms/:termsId/void": {
-      "requests": 141,
-      "sha256": "4b7514ed8ce3d56b785952baf2b6d281f7a838cb2550ab355266337cd95ad555",
+      "requests": 147,
+      "sha256": "daf0e9601f3e9ed3a02db9a2832752b46b9af38c8618d30c99bbc8d63a028070",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"reason\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"reason\":\"x\"} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/loans/:loanId/void": {
-      "requests": 141,
-      "sha256": "dc2541c4d676363d3e8606d7e634691f8bc6ee3b6d709452cc9019672282d130",
+      "requests": 147,
+      "sha256": "2f5a928f7cc3068ca3a26d272769f4f8eada373cdccc226a3f685837553e4167",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"reason\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"reason\":\"x\"} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/ownerships": {
-      "requests": 546,
-      "sha256": "61c826516a5233b87fe4e8bb5516888702d5c49f7a9fd56f7fe6ed1961f75240",
+      "requests": 570,
+      "sha256": "f8064d41aa219de23ade0a23fa7ad349610acb307b551a4cbd7af106aaa218bc",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"propertyReferenceId\",\"code\":\"REQUIRED\"},{\"field\":\"ownerPartyId\",\"code\":\"REQUIRED\"},{\"field\":\"share\",\"code\":\"REQUIRED\"},{\"field\":\"validFrom\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"propertyReferenceId\":\"0000f061-0000-4000-8000-000000000001\",\"ownerPartyId\":\"0000f061-0000-4000-8000-000000000001\",\"share\":\"1/2\",\"validFrom\":\"2027-01-15\"} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/ownerships/:ownershipId/close": {
-      "requests": 141,
-      "sha256": "8389764f5be29a2ad21a40ac51c38022c28ff0bb8f1adccbe7543ef00f5c0515",
+      "requests": 147,
+      "sha256": "e6259ff16897b748ea074d191b651b7c27e55e46e5290421e5a6b25b09c2a852",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"validUntil\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"validUntil\":\"2027-01-15\"} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/ownerships/:ownershipId/void": {
-      "requests": 141,
-      "sha256": "9be8330f1aef2956a92856ab16963e1a821f05b09e0990e5543a14c345e8c7e0",
+      "requests": 147,
+      "sha256": "54b6d24b720cfae39ac24bf3c095863fe1a63bdcaece51c32cc0fd4d2cefca00",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"reason\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"reason\":\"x\"} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/parties": {
-      "requests": 1287,
-      "sha256": "a022616e08cd9631441b411514c8b07a151e5f49c6614950ffcc0e5dbf14b82f",
+      "requests": 1299,
+      "sha256": "4df8c9c70f3839d43af6dcbd3c0257cd647227761257aca621f6d2e6d137dc1b",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"partyType\",\"code\":\"REQUIRED\"},{\"field\":\"displayName\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"partyType\":\"ORGANIZATION\",\"displayName\":\"x\"} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/parties/:partyId/amend": {
-      "requests": 79,
-      "sha256": "38f756f83f06abf7b6c1ee072ab25ee38bd6b287d13880337baab273e74f8d07",
+      "requests": 82,
+      "sha256": "e88a2998948aed284c7e506b46a2eb80e16586d4860a7988215c213b64960b89",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"(body)\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"displayName\":\"x\"} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/parties/:partyId/deactivate": {
-      "requests": 141,
-      "sha256": "f51e4d1abd6bb0a04d2cea619381b0617f932d011b5415f1345691cd0728fd19",
+      "requests": 147,
+      "sha256": "1fb7406bc150b1583429b4ba03206454588739e75740897bd4861eb0033498ce",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"reason\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"reason\":\"x\"} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/parties/:partyId/external-references": {
-      "requests": 2500,
-      "sha256": "6cb81a3adeb59f953c0dbb725606cff2e0a7c0a1695a606ce3b456715cd66c2d",
+      "requests": 2521,
+      "sha256": "1c477de4e813aa10f32303643fa698971aa31ac1eb07106e416cb0f9332dc3a4",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"system\",\"code\":\"INVALID_FORMAT\"},{\"field\":\"entityType\",\"code\":\"INVALID_FORMAT\"},{\"field\":\"mreRealmId\",\"code\":\"REQUIRED\"},{\"field\":\"externalId\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"system\":\"MRE\",\"mreRealmId\":\"x\",\"externalId\":\"6512f0c2a1b2c3d4e5f60a61\"} -> 400 {\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"entityType\",\"code\":\"INVALID_FORMAT\"}]}}}"
     },
@@ -1273,8 +1273,8 @@
       "last": "{} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/property-references/:propertyReferenceId/ownership-changes": {
-      "requests": 615,
-      "sha256": "7960f5e30f90d5435769e54e8e40f935bceb109ab3128fbf9d7885e08cb9cd96",
+      "requests": 642,
+      "sha256": "f46696f75299e83ccec02757e25af46dd155c62ebfcf92f2f8e856672cbe8bdd",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"effectiveDate\",\"code\":\"REQUIRED\"},{\"field\":\"reason\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"effectiveDate\":\"2027-01-15\",\"reason\":\"x\",\"create\":[{\"ownerPartyId\":\"0000f061-0000-4000-8000-000000000001\",\"share\":\"1/2\"}]} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
@@ -1285,26 +1285,26 @@
       "last": "{} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/property-references/:propertyReferenceId/tax-years/:year/acknowledgements": {
-      "requests": 411,
-      "sha256": "539e28464906aa05af19f51ba3f9f76f3e064cb536cf60152cb0d116da51a27f",
+      "requests": 429,
+      "sha256": "c005c50a48bbbf62c98cca9bb5e218b0354320e3a2aa56014303cd81f5f29a33",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"auditRecordId\",\"code\":\"REQUIRED\"},{\"field\":\"expectedFingerprint\",\"code\":\"REQUIRED\"},{\"field\":\"reason\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"auditRecordId\":\"0000f061-0000-4000-8000-000000000001\",\"expectedFingerprint\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"reason\":\"x\"} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/property-references/:propertyReferenceId/tax-years/:year/acknowledgements/:acknowledgementId/withdraw": {
-      "requests": 141,
-      "sha256": "9cd8dc9eb2b11998ac039a9aa32817565cf9ea9b482c8a7ac0812df6944cccde",
+      "requests": 147,
+      "sha256": "07702868f3908a671a5982a32c14413832ebb54988edfcc71e835e12bed63cfd",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"reason\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"reason\":\"x\"} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/property-references/link": {
-      "requests": 276,
-      "sha256": "33d739fa3377d0d73361ebd687336b10ee54954b6e15d53c299453381f7c15e4",
+      "requests": 288,
+      "sha256": "1b51765d6f7a240a4d9494e5a092521f9352d1adf0403d0ae182fcbb2765324c",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"mreRealmId\",\"code\":\"REQUIRED\"},{\"field\":\"mrePropertyId\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"mreRealmId\":\"x\",\"mrePropertyId\":\"6512f0c2a1b2c3d4e5f60a61\"} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/rent-reconciliations": {
-      "requests": 614,
-      "sha256": "9827b53325cb0ac81946cb95ac6ab58f249f105a4031a1ca2c81dfb79243265d",
+      "requests": 641,
+      "sha256": "a7f51ab84b5763b4d69410132e96a08e44291081e14de5dec6edac82733e8939",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"transactionId\",\"code\":\"REQUIRED\"},{\"field\":\"mreTenantId\",\"code\":\"REQUIRED\"},{\"field\":\"mreRentTerm\",\"code\":\"REQUIRED\"},{\"field\":\"matchedAmount\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"transactionId\":\"0000f061-0000-4000-8000-000000000001\",\"mreTenantId\":\"6512f0c2a1b2c3d4e5f60a61\",\"mreRentTerm\":\"2027010100\",\"matchedAmount\":{\"amount\":\"100.00\",\"currency\":\"EUR\"}} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
@@ -1315,14 +1315,14 @@
       "last": "{} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/rent-reconciliations/:reconciliationId/reject": {
-      "requests": 141,
-      "sha256": "c36ac700e3c7d10012515e71debd7deb154784c1024f810a8514f43f6f4a30df",
+      "requests": 147,
+      "sha256": "81ebd825954f650f1ec3fd3c5ba015e6681ac1da156ca8e29d80e3d5eda9dd12",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"reason\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"reason\":\"x\"} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/rent-reconciliations/:reconciliationId/release": {
-      "requests": 141,
-      "sha256": "3084141d400b0b48536f5b99ee273e0f97239e776cd9f321e1de3a97d029f4d5",
+      "requests": 147,
+      "sha256": "ef1ab0402ab51dd8972726624c0f14f91453ebdca1465e6aa554c57d88ac0a0f",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"reason\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"reason\":\"x\"} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
@@ -1339,14 +1339,14 @@
       "last": "{} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/rent-reconciliations/suggest": {
-      "requests": 276,
-      "sha256": "aa705606a13ff8d17fa0c554a9089c6d13ff36d9b36c7881ab212c7f583f8dbe",
+      "requests": 288,
+      "sha256": "4e58e88b0dff1826d4823c5bf98ea3c4dab9cb7c76b60b5d5e025bb31fa73afc",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"from\",\"code\":\"REQUIRED\"},{\"field\":\"to\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"from\":\"2027-01\",\"to\":\"2027-01\"} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/rental-contract-references": {
-      "requests": 141,
-      "sha256": "e23e721ad0bfb1ad753ec5155d93f8791fa25bd1bf91c46104db4ec3f0ffd8fb",
+      "requests": 147,
+      "sha256": "68149dc38aca8980049d1125f7177a155e5ec5331a3000dfa9f0733c5e397a31",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"mreTenantId\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"mreTenantId\":\"6512f0c2a1b2c3d4e5f60a61\"} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
@@ -1357,20 +1357,20 @@
       "last": "{} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/security-deposits": {
-      "requests": 141,
-      "sha256": "9eb2b56523fed159fcac309c3964988e87045a326f82cca4d82550a0c4e9ff2e",
+      "requests": 147,
+      "sha256": "42a132bcafbbfa1161b5e57497df3348bcac16989b87019506e25ae409aeaa33",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"mreTenantId\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"mreTenantId\":\"6512f0c2a1b2c3d4e5f60a61\"} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/security-deposits/:securityDepositId/amend": {
-      "requests": 79,
-      "sha256": "7b660a6f2a6c7b82be20e2ca68757b44bb47dccf2ee43d8a5810ecf89297f0cb",
+      "requests": 82,
+      "sha256": "a15c5419bf35503599f4b7a7f83358607079420d2d8c3e935717a22a22cfde07",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"(body)\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"notes\":\"x\"} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/security-deposits/:securityDepositId/close": {
-      "requests": 1287,
-      "sha256": "4e52d1d63a42adee25b44f75892ee0fd7be2b9dac0077984a8685c1a5967a982",
+      "requests": 1299,
+      "sha256": "569bc1a740207c0c6070058ff56262b1d19af9db9a47a194378837047ab0ebc2",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"closingDate\",\"code\":\"REQUIRED\"},{\"field\":\"reason\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"closingDate\":\"2027-01-15\",\"reason\":\"RETURNED\"} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
@@ -1381,14 +1381,14 @@
       "last": "{} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/security-deposits/:securityDepositId/void": {
-      "requests": 141,
-      "sha256": "9dd369000e018c952ea4782ea60024273368c8d1dbbed60b1ed307a38871e3ad",
+      "requests": 147,
+      "sha256": "d76019d12e4266a975d8955a224204bc51edb8aa9b1ac72bb2cb632cc589a49c",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"reason\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"reason\":\"x\"} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/tax-classifications": {
-      "requests": 3579,
-      "sha256": "164e3f39cbb4080657f32a2ca5a2269704c0d88871f9bc27539a132ce3790e17",
+      "requests": 3603,
+      "sha256": "f66141948c00775b4a877eda5622a5f72f97529f75d9be4760e3d34589a64e5d",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"sourceType\",\"code\":\"REQUIRED\"},{\"field\":\"sourceId\",\"code\":\"REQUIRED\"},{\"field\":\"taxCategory\",\"code\":\"REQUIRED\"},{\"field\":\"treatment\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"sourceType\":\"DEPOSIT_CLOSING\",\"sourceId\":\"0000f061-0000-4000-8000-000000000001\",\"taxCategory\":\"ADMINISTRATION\",\"treatment\":\"CAPITALIZED\"} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
@@ -1405,20 +1405,20 @@
       "last": "{} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/tax-classifications/:classificationId/mark-needs-review": {
-      "requests": 141,
-      "sha256": "4b91170f1a59d76ceee11a2d950c87ef78aa5e12ad5a6c0ea07c553edf5cb32d",
+      "requests": 147,
+      "sha256": "22fcefa3ae785c2a769675774f679e4c3e0bc9e19054240150ca0fd3c88e58bb",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"reason\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"reason\":\"x\"} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/transactions": {
-      "requests": 1625,
-      "sha256": "8fcbf1fe27be7c6f922fb1b5bf30f8f28ef35c30e1935906fad5c7aa0060546b",
+      "requests": 1652,
+      "sha256": "3a70eaa3faa878c366f40fd3fb35a0d455230fc229abe745d67e1c2a109b6a89",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"financialAccountId\",\"code\":\"REQUIRED\"},{\"field\":\"amount\",\"code\":\"REQUIRED\"},{\"field\":\"direction\",\"code\":\"REQUIRED\"},{\"field\":\"bookingDate\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"financialAccountId\":\"0000f061-0000-4000-8000-000000000001\",\"amount\":{\"amount\":\"100.00\",\"currency\":\"EUR\"},\"direction\":\"INFLOW\",\"bookingDate\":\"2027-01-15\"} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/transactions/:transactionId/amend": {
-      "requests": 79,
-      "sha256": "d83542802c72b58f9137f4eb7c5df7e8df7f8a0cae1778aacc290336023d1158",
+      "requests": 82,
+      "sha256": "26d014e0518df2d6cc2cb080d0c8ce403431fcf8e433dcbdd0ece11a269a5f05",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"(body)\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"description\":\"x\"} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
@@ -1429,14 +1429,14 @@
       "last": "{} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/transactions/:transactionId/correct": {
-      "requests": 276,
-      "sha256": "976f80c4ee113b23da2a7a4a8e0de2b16c39da834c7ddb9a0fe6fc9829a6cefa",
+      "requests": 288,
+      "sha256": "fd2355f45f085b87ff640677ce5e13388fb66552bc84988e8b698b15b9e45a7d",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"reason\",\"code\":\"REQUIRED\"},{\"field\":\"replacement\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"reason\":\"x\",\"replacement\":{}} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/transactions/:transactionId/ignore": {
-      "requests": 141,
-      "sha256": "6296df7e9bed672faab6706087296660342d0aee2fa20614695a2991c96f81ea",
+      "requests": 147,
+      "sha256": "a12059ca77139db56d29066d8f0b32cdc66bdba7145d81b31b36eb2a01a172aa",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"reason\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"reason\":\"x\"} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
@@ -1447,20 +1447,20 @@
       "last": "{} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/transactions/:transactionId/reverse": {
-      "requests": 141,
-      "sha256": "4196fe7d6b11662144282c9c4eb21b38410bf2686536d1f9f0a822ba73ee9208",
+      "requests": 147,
+      "sha256": "fc36dc64511ba5a646c9afe34698f239271cdc4976d502383eb7db505e2cf728",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"reason\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"reason\":\"x\"} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "PUT /api/v1/transactions/:transactionId/splits": {
-      "requests": 1424,
-      "sha256": "6b5d7237e8eee2364c3e92273cff9d41ff7468c6f117278d049d19aea3ad8086",
+      "requests": 1442,
+      "sha256": "3e37dc706111619fea5588acdecd0743553fa4ed0080fd3ee19fdc1e0c70b024",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"splits\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"splits\":[{\"amount\":{\"amount\":\"100.00\",\"currency\":\"EUR\"},\"financialCategoryCode\":\"ABOVE_SUGGESTION\"}]} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "PUT /api/v1/weg-annual-statements/:statementId": {
-      "requests": 3655,
-      "sha256": "56818d874fc71c987084e2899e2844bdfb9e539b61e7ec75426c910d36cd2bdf",
+      "requests": 3772,
+      "sha256": "cda19159da7d6bae6608a3d072a2b7925ae5eb919921e3fe298889ae0d16365b",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"financialYear\",\"code\":\"REQUIRED\"},{\"field\":\"periodFrom\",\"code\":\"REQUIRED\"},{\"field\":\"periodUntil\",\"code\":\"REQUIRED\"},{\"field\":\"costLines\",\"code\":\"REQUIRED\"},{\"field\":\"recoverableSubtotal\",\"code\":\"REQUIRED\"},{\"field\":\"nonRecoverableSubtotal\",\"code\":\"REQUIRED\"},{\"field\":\"totalCosts\",\"code\":\"REQUIRED\"},{\"field\":\"hausgeldRequested\",\"code\":\"REQUIRED\"},{\"field\":\"hausgeldPaid\",\"code\":\"REQUIRED\"},{\"field\":\"settlementPeak\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"financialYear\":2027,\"periodFrom\":\"2027-01-15\",\"periodUntil\":\"2027-01-15\",\"costLines\":[{\"position\":1,\"account\":\"x\",\"group\":\"NON_RECOVERABLE\",\"allocationKey\":\"x\",\"totalAmount\":{\"amount\":\"100.00\",\"currency\":\"EUR\"},\"unitShare\":{\"amount\":\"100.00\",\"currency\":\"EUR\"}}],\"recoverableSubtotal\":{\"amount\":\"100.00\",\"currency\":\"EUR\"},\"nonRecoverableSubtotal\":{\"amount\":\"100.00\",\"currency\":\"EUR\"},\"totalCosts\":{\"amount\":\"100.00\",\"currency\":\"EUR\"},\"hausgeldRequested\":{\"amount\":\"100.00\",\"currency\":\"EUR\"},\"hausgeldPaid\":{\"amount\":\"100.00\",\"currency\":\"EUR\"},\"settlementPeak\":{\"amount\":\"100.00\",\"currency\":\"EUR\"}} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
@@ -1471,92 +1471,92 @@
       "last": "{} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/weg-annual-statements/:statementId/void": {
-      "requests": 141,
-      "sha256": "39c441338e915da64f2b2701f17cbee3a87b79d9de130b7bb569b0055422da25",
+      "requests": 147,
+      "sha256": "d87a8e4f17ee58bb2a5ee2340043c0c96443e5d00bd0418f51782368a938d432",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"reason\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"reason\":\"x\"} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/weg-economic-plans/:planId/void": {
-      "requests": 141,
-      "sha256": "910b87ba9c1c23fa0d2b226f95a8ce91dfaa5fa9138e34a87167b7e2e74a964c",
+      "requests": 147,
+      "sha256": "1b13d21db045a97ab515a2a54fe1e079c60562954edc7fdc6e9b2c29dd2bf7d9",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"reason\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"reason\":\"x\"} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/weg-memberships/:membershipId/amend": {
-      "requests": 79,
-      "sha256": "a7b0e0c0cc0f9f34f6b740946c9abf1c9cf8a6d54af9fd0e9b221cfe24998b12",
+      "requests": 82,
+      "sha256": "8b7c8699c52d5098625b9fd7ba7748b43b3b39c9ea18b83b84cfe19467493c53",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"(body)\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"notes\":\"x\"} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/weg-memberships/:membershipId/annual-statements": {
-      "requests": 3655,
-      "sha256": "65e099ae26d75fed24ecdeb443826798cbe7c4c871964cf5d430976254539d36",
+      "requests": 3772,
+      "sha256": "ad6cab5194c993d4053cecad4646d937705711cb233805b98db5054f9490d8e3",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"financialYear\",\"code\":\"REQUIRED\"},{\"field\":\"periodFrom\",\"code\":\"REQUIRED\"},{\"field\":\"periodUntil\",\"code\":\"REQUIRED\"},{\"field\":\"costLines\",\"code\":\"REQUIRED\"},{\"field\":\"recoverableSubtotal\",\"code\":\"REQUIRED\"},{\"field\":\"nonRecoverableSubtotal\",\"code\":\"REQUIRED\"},{\"field\":\"totalCosts\",\"code\":\"REQUIRED\"},{\"field\":\"hausgeldRequested\",\"code\":\"REQUIRED\"},{\"field\":\"hausgeldPaid\",\"code\":\"REQUIRED\"},{\"field\":\"settlementPeak\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"financialYear\":2027,\"periodFrom\":\"2027-01-15\",\"periodUntil\":\"2027-01-15\",\"costLines\":[{\"position\":1,\"account\":\"x\",\"group\":\"NON_RECOVERABLE\",\"allocationKey\":\"x\",\"totalAmount\":{\"amount\":\"100.00\",\"currency\":\"EUR\"},\"unitShare\":{\"amount\":\"100.00\",\"currency\":\"EUR\"}}],\"recoverableSubtotal\":{\"amount\":\"100.00\",\"currency\":\"EUR\"},\"nonRecoverableSubtotal\":{\"amount\":\"100.00\",\"currency\":\"EUR\"},\"totalCosts\":{\"amount\":\"100.00\",\"currency\":\"EUR\"},\"hausgeldRequested\":{\"amount\":\"100.00\",\"currency\":\"EUR\"},\"hausgeldPaid\":{\"amount\":\"100.00\",\"currency\":\"EUR\"},\"settlementPeak\":{\"amount\":\"100.00\",\"currency\":\"EUR\"}} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/weg-memberships/:membershipId/economic-plans": {
-      "requests": 1088,
-      "sha256": "5f671397d8759e7dc0fddb0c454eba3ab0e18846da284a8d75ccbd79e3e5507e",
+      "requests": 1136,
+      "sha256": "2d369d0336ab70b68615e140078c375ce523880e43777f7cf800182e50c464b2",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"financialYear\",\"code\":\"REQUIRED\"},{\"field\":\"effectiveFrom\",\"code\":\"REQUIRED\"},{\"field\":\"monthlyHausgeld\",\"code\":\"REQUIRED\"},{\"field\":\"monthlyReserveContribution\",\"code\":\"REQUIRED\"},{\"field\":\"recoverableCosts\",\"code\":\"REQUIRED\"},{\"field\":\"nonRecoverableCosts\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"financialYear\":2027,\"effectiveFrom\":\"2027-01-15\",\"monthlyHausgeld\":{\"amount\":\"100.00\",\"currency\":\"EUR\"},\"monthlyReserveContribution\":{\"amount\":\"100.00\",\"currency\":\"EUR\"},\"recoverableCosts\":{\"amount\":\"100.00\",\"currency\":\"EUR\"},\"nonRecoverableCosts\":{\"amount\":\"100.00\",\"currency\":\"EUR\"}} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/weg-memberships/:membershipId/end": {
-      "requests": 141,
-      "sha256": "8c53c335291770f84c13b0b05b3699d34ce889e8620734bda7ae39c9f9beb349",
+      "requests": 147,
+      "sha256": "5e99a09ff19fa0cedd839e863457c9c8ba87ad5642765fdf3a7b3e067d40e938",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"validUntil\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"validUntil\":\"2027-01-15\"} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/weg-memberships/:membershipId/special-assessments": {
-      "requests": 2167,
-      "sha256": "69c5bf78f2d8df41fe380a406b5010767f2f04e9d967a8907c10b6488506d8f3",
+      "requests": 2218,
+      "sha256": "4162e2c3aff5924edb62997ba0dca7ca969f211e0afc4be37f2e58b5de255206",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"description\",\"code\":\"REQUIRED\"},{\"field\":\"purpose\",\"code\":\"REQUIRED\"},{\"field\":\"unitShare\",\"code\":\"REQUIRED\"},{\"field\":\"instalments\",\"code\":\"REQUIRED\"},{\"field\":\"resolutionDate\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"description\":\"x\",\"purpose\":\"LIQUIDITY\",\"unitShare\":{\"amount\":\"100.00\",\"currency\":\"EUR\"},\"instalments\":[{\"position\":1,\"dueDate\":\"2027-01-15\",\"amount\":{\"amount\":\"100.00\",\"currency\":\"EUR\"}}],\"resolutionDate\":\"2027-01-15\"} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/weg-memberships/:membershipId/void": {
-      "requests": 141,
-      "sha256": "7f832cc62be00dc660cd3a1a6220e3fa0feef09cf789c2e4910a713309a2722f",
+      "requests": 147,
+      "sha256": "728563d747536e2c4dfd44dee996fd890e3a9ea1179324c6444434d5674834b2",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"reason\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"reason\":\"x\"} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/weg-special-assessments/:assessmentId/amend": {
-      "requests": 2032,
-      "sha256": "7d5b833b6fba497bc8a05187a8726179fe34026cc589f913f6b79236ab97fb4e",
+      "requests": 2077,
+      "sha256": "f784d9c8e4cb7411f5e9dbd114c540331ae025785b4c4318788dc652bc236bf5",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"description\",\"code\":\"REQUIRED\"},{\"field\":\"purpose\",\"code\":\"REQUIRED\"},{\"field\":\"unitShare\",\"code\":\"REQUIRED\"},{\"field\":\"instalments\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"description\":\"x\",\"purpose\":\"LIQUIDITY\",\"unitShare\":{\"amount\":\"100.00\",\"currency\":\"EUR\"},\"instalments\":[{\"position\":1,\"dueDate\":\"2027-01-15\",\"amount\":{\"amount\":\"100.00\",\"currency\":\"EUR\"}}]} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "PUT /api/v1/weg-special-assessments/:assessmentId/uses": {
-      "requests": 141,
-      "sha256": "ab98921cbcfe896d32413feb29d831bb7b127bd12eb3a956aa35cdeafb00206c",
+      "requests": 147,
+      "sha256": "ba69ed4dc8359a0574a93c36c755c65a0ccf094ff1047f6beab7325a11cb6ca7",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"uses\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"uses\":[]} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/weg-special-assessments/:assessmentId/void": {
-      "requests": 141,
-      "sha256": "dbe1df24a21639b88069c704389e0bb9bf4e1cc261d691dc9b3d11e223211f9a",
+      "requests": 147,
+      "sha256": "2b5c3394fc48986b7e5df9d9df3a57b98467b62b9fe507dd796e6e0ced3c23a2",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"reason\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"reason\":\"x\"} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/wegs": {
-      "requests": 141,
-      "sha256": "f457294c8e3d2a9b4ac0a4161d1f0f84d6b2bfc6a606f8fdac5153a6aa7523bb",
+      "requests": 147,
+      "sha256": "6a11ca2e300ea941e4f6816af33c23ce96c29b285771b094fd437876d213507d",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"displayName\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"displayName\":\"x\"} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/wegs/:wegId/amend": {
-      "requests": 79,
-      "sha256": "9250b0ef26c6c5200a99c5247590edd8c8481c9a8e48d078a190b1e9a486bcd6",
+      "requests": 82,
+      "sha256": "6f26c93c4aac7fbc51e1423ce8fd482fdd821ee5e7f8f9c29907bfc7d6f96c67",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"(body)\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"displayName\":\"x\"} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/wegs/:wegId/memberships": {
-      "requests": 411,
-      "sha256": "541048bd0726537d8b6845cfd2d486f1b32c53110a994064d8e21a2fc2bd0508",
+      "requests": 429,
+      "sha256": "d8971804f000b22802a3957d0381d41fdb4a9831856297f56e23a7f9d7d4aa76",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"propertyReferenceId\",\"code\":\"REQUIRED\"},{\"field\":\"miteigentumsanteil\",\"code\":\"REQUIRED\"},{\"field\":\"validFrom\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"propertyReferenceId\":\"0000f061-0000-4000-8000-000000000001\",\"miteigentumsanteil\":\"1/2\",\"validFrom\":\"2027-01-15\"} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     },
     "POST /api/v1/wegs/:wegId/void": {
-      "requests": 141,
-      "sha256": "12d6b19d9ffa13ed7a950ba10523215cf5d6d52d15be69fb54778ac4aacbdeb6",
+      "requests": 147,
+      "sha256": "fdb6a93b218a1c562d0ad8ea35c2055c1ab65639521bca0d9f4dffb07d80a7d8",
       "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"reason\",\"code\":\"REQUIRED\"}]}}}",
       "last": "{\"reason\":\"x\"} -> 500 {\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}"
     }

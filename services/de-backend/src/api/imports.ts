@@ -12,7 +12,7 @@ import {
 } from '../application/index.js';
 import { principalOf } from './access-middleware.js';
 import { sendError } from './errors.js';
-import { fieldErrors, NO_QUERY, readBody, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
+import { fieldErrors, NO_QUERY, parse, readBody, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
 
 /** Upper bound of an uploaded statement, enforced while streaming, before any parsing. */
 export const MAX_IMPORT_FILE_BYTES = 5 * 1024 * 1024;
@@ -91,7 +91,7 @@ export function importRoutes(commands: ImportCommands): Router {
           sendValidationError(res, [{ field: 'metadata', code: 'INVALID_FORMAT' }]);
           return undefined;
         }
-        const parsed = metadataSchema.safeParse(json);
+        const parsed = parse(metadataSchema, json);
         if (!parsed.success) {
           sendValidationError(res, fieldErrors(parsed.error));
           return undefined;

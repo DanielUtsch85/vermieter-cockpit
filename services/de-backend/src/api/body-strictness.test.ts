@@ -1,6 +1,7 @@
 import type { Request } from 'express';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
+import { zod3 } from '../shared/index.js';
 import { assertStrictBody, EMPTY_BODY, money, readBody, signedMoney } from './validation.js';
 import { positiveEur } from './tax-classification-performance.js';
 
@@ -13,38 +14,42 @@ import { positiveEur } from './tax-classification-performance.js';
 const loose = z.object({ a: z.string() });
 const strict = loose.strict();
 
-/** Each wrapper around `inner`: the non-strict one must throw, the same around the strict object must not. */
-const WRAPPERS: [string, (inner: z.ZodTypeAny) => z.ZodTypeAny][] = [
+/**
+ * Each wrapper around `inner`: the non-strict one must throw, the same around the strict object must not. Zod 4 (VC-X-65)
+ * names its types by `def.type`; a refinement is a check of the object itself and a brand a type only, so both leave the
+ * object in place (still found), and `zod3.transform` is a pipe with a check before it.
+ */
+const WRAPPERS: [string, (inner: z.ZodType) => z.ZodType][] = [
   ['the object itself', (inner) => inner],
   ['a field of a strict object', (inner) => z.object({ x: inner }).strict()],
-  ['ZodEffects: transform', (inner) => inner.transform((v: unknown) => v)],
-  ['ZodEffects: refine', (inner) => inner.refine(() => true)],
-  ['ZodEffects: superRefine', (inner) => inner.superRefine(() => undefined)],
-  ['ZodEffects: preprocess', (inner) => z.preprocess((v) => v, inner)],
-  ['ZodOptional', (inner) => inner.optional()],
-  ['ZodNullable', (inner) => inner.nullable()],
+  ['pipe: transform', (inner) => inner.transform((v: unknown) => v)],
+  ['pipe: zod3.transform', (inner) => zod3.transform(inner, (v: unknown) => v)],
+  ['check: refine', (inner) => inner.refine(() => true)],
+  ['check: superRefine', (inner) => inner.superRefine(() => undefined)],
+  ['pipe: preprocess', (inner) => z.preprocess((v) => v, inner)],
+  ['optional', (inner) => inner.optional()],
+  ['nullable', (inner) => inner.nullable()],
   ['nullish', (inner) => inner.nullish()],
-  ['ZodDefault', (inner) => inner.default({ a: '' })],
-  ['ZodCatch', (inner) => inner.catch({ a: '' })],
-  ['ZodReadonly', (inner) => inner.readonly()],
-  ['ZodBranded', (inner) => inner.brand<'B'>()],
-  ['ZodPipeline out', (inner) => z.unknown().pipe(inner)],
-  ['ZodPipeline in', (inner) => inner.pipe(z.unknown())],
-  ['ZodArray', (inner) => z.array(inner)],
-  ['ZodSet', (inner) => z.set(inner)],
-  ['ZodUnion', (inner) => z.union([z.string(), inner])],
-  [
-    'ZodDiscriminatedUnion',
-    (inner) => z.discriminatedUnion('k', [z.object({ k: z.literal('s') }).strict(), z.object({ k: z.literal('l'), v: inner }).strict()]),
-  ],
-  ['ZodIntersection right', (inner) => z.intersection(z.object({}).strict(), inner)],
-  ['ZodIntersection left', (inner) => z.intersection(inner, z.object({}).strict())],
-  ['ZodRecord', (inner) => z.record(inner)],
-  ['ZodMap', (inner) => z.map(z.string(), inner)],
-  ['ZodTuple items', (inner) => z.tuple([z.string(), inner])],
-  ['ZodTuple rest', (inner) => z.tuple([z.string()]).rest(inner)],
-  ['ZodPromise', (inner) => z.promise(inner)],
-  ['ZodLazy', (inner) => z.lazy(() => inner)],
+  ['default', (inner) => inner.default({ a: '' })],
+  ['prefault', (inner) => inner.prefault({ a: '' })],
+  ['nonoptional', (inner) => inner.optional().nonoptional()],
+  ['catch', (inner) => inner.catch({ a: '' })],
+  ['readonly', (inner) => inner.readonly()],
+  ['brand', (inner) => inner.brand<'B'>()],
+  ['pipe out', (inner) => z.unknown().pipe(inner)],
+  ['pipe in', (inner) => inner.pipe(z.unknown())],
+  ['array', (inner) => z.array(inner)],
+  ['set', (inner) => z.set(inner)],
+  ['union', (inner) => z.union([z.string(), inner])],
+  ['discriminated union', (inner) => z.discriminatedUnion('k', [z.object({ k: z.literal('s') }).strict(), z.object({ k: z.literal('l'), v: inner }).strict()])],
+  ['intersection right', (inner) => z.intersection(z.object({}).strict(), inner)],
+  ['intersection left', (inner) => z.intersection(inner, z.object({}).strict())],
+  ['record', (inner) => z.record(z.string(), inner)],
+  ['map', (inner) => z.map(z.string(), inner)],
+  ['tuple items', (inner) => z.tuple([z.string(), inner])],
+  ['tuple rest', (inner) => z.tuple([z.string()]).rest(inner)],
+  ['promise', (inner) => z.promise(inner)],
+  ['lazy', (inner) => z.lazy(() => inner)],
   ['two wrappers deep (array of optional refined)', (inner) => z.array(inner.refine(() => true).optional())],
 ];
 
@@ -75,12 +80,14 @@ describe('assertStrictBody finds a non-strict object under every wrapper (§58X 
   });
 
   it('a zod type it does not know throws, so a new wrapper cannot hide an object', () => {
-    class Opaque extends z.ZodType<unknown> {
-      _parse(input: z.ParseInput): z.ParseReturnType<unknown> {
-        return z.OK(input.data);
-      }
-    }
-    expect(() => assertStrictBody(new Opaque({ typeName: 'ZodOpaque' } as never))).toThrow('readBody: cannot check a ZodOpaque at (body) for strictness');
+    // `file` is a Zod 4 type the walk does not list (no route takes one): refused, not passed.
+    expect(() => assertStrictBody(z.file())).toThrow('readBody: cannot check a file at (body) for strictness');
+    expect(() => assertStrictBody(z.object({ x: z.file() }).strict())).toThrow('readBody: cannot check a file at x for strictness');
+  });
+
+  it('the leaves of Zod 3 parsing pass: zod3.number, zod3.integer, zod3.coercedInteger, a transform output', () => {
+    for (const schema of [zod3.number(), zod3.integer(1, 2), zod3.coercedInteger(1, 2), zod3.transform(z.string(), (v) => v)])
+      expect(() => assertStrictBody(z.object({ x: schema }).strict())).not.toThrow();
   });
 
   it('the amount objects are strict (money, signedMoney, positiveEur) and EMPTY_BODY is', () => {

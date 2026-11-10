@@ -1,5 +1,6 @@
 import express, { type Response, type Router } from 'express';
 import { z } from 'zod';
+import { zod3 } from '../shared/index.js';
 import {
   ALLOCATION_BASES,
   ALLOCATION_STATUSES,
@@ -20,13 +21,10 @@ import { principalOf } from './access-middleware.js';
 import { businessDate, optionalText, readId } from './acquisitions.js';
 import { NO_QUERY, readBody, readIdempotencyKey, readIfMatch, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
 
-const uuid = z
-  .string()
-  .regex(RESOURCE_ID)
-  .transform((id) => id.toLowerCase());
+const uuid = zod3.transform(z.string().regex(RESOURCE_ID), (id) => id.toLowerCase());
 
 /** §26.1's notation, `0 < n ≤ d ≤ 10000`; input may be unreduced, kept reduced. */
-const share = z.string().transform((value, ctx) => {
+const share = zod3.transform(z.string(), (value, ctx) => {
   const result = parseShare(value);
   if ('share' in result) return { numerator: BigInt(result.share.numerator), denominator: BigInt(result.share.denominator) };
   ctx.addIssue({ code: 'custom', params: { code: result.error } });
@@ -37,7 +35,7 @@ const share = z.string().transform((value, ctx) => {
  * §58V rule 2: the part outside letting, `0 < share < 1` in §26.1's notation; `0/d` and `1/1` (or `d/d`) are
  * `OUT_OF_RANGE`, the share of a set keeping at least one PropertyReference.
  */
-const outsideShare = z.string().transform((value, ctx) => {
+const outsideShare = zod3.transform(z.string(), (value, ctx) => {
   if (/^0\/[1-9][0-9]{0,8}$/.test(value)) {
     ctx.addIssue({ code: 'custom', params: { code: 'OUT_OF_RANGE' } });
     return z.NEVER;
@@ -56,14 +54,14 @@ const createBody = z
   .object({
     validFrom: businessDate,
     basis: z.enum(ALLOCATION_BASES).default('MANUAL'),
-    allocations: z
+    allocations: zod3
       .array(z.object({ propertyReferenceId: uuid, share: share.optional(), acquisitionId: uuid.optional() }).strict())
       .min(1)
       .max(MAX_ALLOCATIONS),
     notes: optionalText(2000).nullish(),
     // §58V (Entscheidung des Projektinhabers, 2026-11-07, questions 3–5): MANUAL only, with its evidence.
     outsideLetting: z.object({ share: outsideShare }).strict().nullish(),
-    useEvidence: z.array(z.string().trim().min(1).max(500)).min(1).max(MAX_USE_EVIDENCE).nullish(),
+    useEvidence: zod3.array(z.string().trim().min(1).max(500)).min(1).max(MAX_USE_EVIDENCE).nullish(),
   })
   .strict()
   .superRefine((body, ctx) => {

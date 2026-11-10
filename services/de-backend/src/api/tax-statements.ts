@@ -1,5 +1,6 @@
 import express, { type Request, type Response, type Router } from 'express';
 import { z } from 'zod';
+import { zod3 } from '../shared/index.js';
 import {
   CHANGE_KINDS,
   FINGERPRINT,
@@ -47,9 +48,8 @@ const acknowledgeBody = z.object({ auditRecordId: uuid, kind: kind.optional(), e
 const confirmBody = z.object({ reason, advisorPartyId: uuid.nullish() }).strict();
 const withdrawBody = z.object({ reason }).strict();
 const listQuery = z.object({
-  status: z
-    .string()
-    .transform((value, ctx) => {
+  status: zod3
+    .transform(z.string(), (value, ctx) => {
       const statuses = value.split(',');
       if (statuses.some((s) => !(TAX_STATEMENT_STATUSES as readonly string[]).includes(s))) {
         ctx.addIssue({ code: 'custom', path: [], params: { code: 'INVALID_FORMAT' } });

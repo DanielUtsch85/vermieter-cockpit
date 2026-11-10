@@ -1,5 +1,6 @@
 import express, { type Response, type Router } from 'express';
 import { z } from 'zod';
+import { zod3 } from '../shared/index.js';
 import {
   MRE_EXTERNAL_ID,
   PARTY_STATUSES,
@@ -15,20 +16,10 @@ import { principalOf } from './access-middleware.js';
 import { NO_QUERY, PAGING, readBody, readIdempotencyKey, readIfMatch, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
 
 /** Trimmed, at most `max`; empty (or null) becomes null (api-design.md §19.1). */
-const optionalText = (max: number) =>
-  z
-    .string()
-    .trim()
-    .max(max)
-    .nullable()
-    .transform((value) => (value === '' ? null : value));
+const optionalText = (max: number) => zod3.transform(z.string().trim().max(max).nullable(), (value) => (value === '' ? null : value));
 /** One `@` with text on both sides; no further validation (§19.1). */
-const email = z
-  .string()
-  .trim()
-  .max(254)
-  .nullable()
-  .transform((value) => (value === '' ? null : value))
+const email = zod3
+  .transform(z.string().trim().max(254).nullable(), (value) => (value === '' ? null : value))
   .refine((value) => value === null || /^[^@\s]+@[^@\s]+$/.test(value));
 const displayName = z.string().trim().min(1).max(200);
 

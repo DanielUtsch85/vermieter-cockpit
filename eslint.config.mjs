@@ -3,6 +3,22 @@
 import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
 
+// VC-X-65 (Zod 4): the zod parts whose rules differ from Zod 3 in what a client sees are used through
+// `shared/zod3.ts`, which keeps Zod 3's rules (a transform's aborting, integers, numbers, array bounds).
+const ZOD3 = [
+  {
+    selector: "CallExpression[callee.property.name='transform']:not([callee.object.name='zod3'])",
+    message: 'Use zod3.transform (shared/zod3.ts, VC-X-65): Zod 4 runs refinements after a failed transform input.',
+  },
+  { selector: "CallExpression[callee.property.name='int']", message: 'Use zod3.integer (shared/zod3.ts, VC-X-65): Zod 4 aborts at a fraction.' },
+  { selector: "CallExpression[callee.object.name='z'][callee.property.name='number']", message: 'Use zod3.number (shared/zod3.ts, VC-X-65).' },
+  { selector: "MemberExpression[object.name='z'][property.name='coerce']", message: 'Use zod3.coercedInteger (shared/zod3.ts, VC-X-65).' },
+  {
+    selector: "CallExpression[callee.object.name='z'][callee.property.name='array']",
+    message: 'Use zod3.array (shared/zod3.ts, VC-X-65): Zod 4 stops at a maximum.',
+  },
+];
+
 export default tseslint.config(
   { ignores: ['**/dist/**', '**/node_modules/**', '.yarn/**'] },
   js.configs.recommended,
@@ -37,6 +53,11 @@ export default tseslint.config(
     },
   },
   {
+    files: ['services/de-backend/src/**/*.ts'],
+    ignores: ['services/de-backend/src/shared/zod3.ts', '**/*.test.ts', '**/*.test-support.ts'],
+    rules: { 'no-restricted-syntax': ['error', ...ZOD3] },
+  },
+  {
     // VC-X-61 (api-design.md §58W): `readQuery` in validation.ts is the only reader of a request's query; a route that
     // read `req.query` itself would bypass the refusal of unknown and repeated parameters. VC-X-69 (§58X): the same for
     // `readBody` and a request's body (its strictness check and the naming of unknown fields).
@@ -51,6 +72,7 @@ export default tseslint.config(
         { selector: "MemberExpression[property.name='body']", message: 'Read the body with readBody (validation.ts, §58X).' },
         { selector: "MemberExpression[property.value='body']", message: 'Read the body with readBody (validation.ts, §58X).' },
         { selector: "ObjectPattern > Property[key.name='body']", message: 'Read the body with readBody (validation.ts, §58X).' },
+        ...ZOD3,
       ],
     },
   },

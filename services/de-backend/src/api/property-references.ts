@@ -1,5 +1,6 @@
 import express, { type Response, type Router } from 'express';
 import { z } from 'zod';
+import { zod3 } from '../shared/index.js';
 import {
   EXTERNAL_REFERENCE_STATES,
   MRE_OBJECT_ID,
@@ -24,10 +25,9 @@ const linkBody = z
 
 /** api-design.md §23.3; unknown parameters are `400`. */
 const listQuery = z.object({
-  externalReferenceState: z
-    .string()
-    .transform((value) => value.split(','))
-    .pipe(z.array(z.enum(EXTERNAL_REFERENCE_STATES)).min(1))
+  externalReferenceState: zod3
+    .transform(z.string(), (value) => value.split(','))
+    .pipe(zod3.array(z.enum(EXTERNAL_REFERENCE_STATES)).min(1))
     .optional(),
   ...PAGING,
 });

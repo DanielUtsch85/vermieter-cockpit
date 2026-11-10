@@ -9,7 +9,7 @@ import {
   type GetFinancialAccount,
   type ListFinancialAccounts,
 } from '../application/index.js';
-import { isSupportedCurrency, normalizeIban } from '../shared/index.js';
+import { isSupportedCurrency, normalizeIban, zod3 } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
 import { EMPTY_BODY, NO_QUERY, PAGING, readBody, readIdempotencyKey, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
 
@@ -19,19 +19,13 @@ const createBody = z
     accountType: z.enum(ACCOUNT_TYPES),
     displayName: z.string().trim().min(1).max(200),
     currency: z.string().refine(isSupportedCurrency),
-    iban: z
-      .string()
-      .transform((value, ctx) => normalizeIban(value) ?? (ctx.addIssue({ code: 'custom' }), z.NEVER))
-      .optional(),
+    iban: zod3.transform(z.string(), (value, ctx) => normalizeIban(value) ?? (ctx.addIssue({ code: 'custom' }), z.NEVER)).optional(),
   })
   .strict();
 
 /** A comma-separated list of the given values, any of them. */
 const commaList = <T extends readonly [string, ...string[]]>(values: T) =>
-  z
-    .string()
-    .transform((value) => value.split(','))
-    .pipe(z.array(z.enum(values)).min(1));
+  zod3.transform(z.string(), (value) => value.split(',')).pipe(zod3.array(z.enum(values)).min(1));
 
 /** api-design.md §29.3; unknown parameters are `400`. */
 const listQuery = z.object({

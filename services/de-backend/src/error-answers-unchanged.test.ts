@@ -231,6 +231,10 @@ const BODY_VALUES: unknown[] = [
   -0.5,
   Array.from({ length: 11 }, () => 'x'),
   Array.from({ length: 11 }, () => UUID),
+  // Over a bound with wrong elements: Zod 4 stops an array at its maximum, Zod 3 also checked every element.
+  Array.from({ length: 11 }, () => 1),
+  Array.from({ length: 51 }, () => ({})),
+  Array.from({ length: 51 }, () => 'x'),
   [1],
   [null],
   [UUID, UUID],

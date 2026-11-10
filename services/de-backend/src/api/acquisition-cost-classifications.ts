@@ -8,20 +8,17 @@ import {
   type CreateCostClassification,
   type ListCostClassifications,
 } from '../application/index.js';
-import { Money } from '../shared/index.js';
+import { Money, zod3 } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
 import { optionalText, readId } from './acquisitions.js';
 import { money, NO_QUERY, readBody, readIdempotencyKey, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
 
-const uuid = z
-  .string()
-  .regex(RESOURCE_ID)
-  .transform((id) => id.toLowerCase());
+const uuid = zod3.transform(z.string().regex(RESOURCE_ID), (id) => id.toLowerCase());
 
 const issue = (ctx: z.RefinementCtx, path: (string | number)[], code: string) => ctx.addIssue({ code: 'custom', path, params: { code } });
 
 /** A review state the command takes; `SUGGESTED` (reserved for machine suggestions) is `NOT_ALLOWED`, another `INVALID_FORMAT`. */
-const reviewState = z.string().transform((value, ctx) => {
+const reviewState = zod3.transform(z.string(), (value, ctx) => {
   if ((CLASSIFICATION_REVIEW_STATES as readonly string[]).includes(value)) return value as (typeof CLASSIFICATION_REVIEW_STATES)[number];
   issue(ctx, [], value === 'SUGGESTED' ? 'NOT_ALLOWED' : 'INVALID_FORMAT');
   return z.NEVER;
@@ -37,11 +34,11 @@ const part = z
 
 const body = z
   .object({
-    parts: z.array(part).superRefine((list, ctx) => {
+    parts: zod3.array(part).superRefine((list, ctx) => {
       if (list.length < 1 || list.length > MAX_CLASSIFICATION_PARTS) issue(ctx, [], 'OUT_OF_RANGE');
     }),
     description: z.string().trim().min(1).max(500),
-    sourceReferences: z.array(optionalText(500)).max(10).optional(),
+    sourceReferences: zod3.array(optionalText(500)).max(10).optional(),
     reviewState: reviewState.optional(),
     advisorPartyId: uuid.nullish(),
     notes: optionalText(2000).nullish(),

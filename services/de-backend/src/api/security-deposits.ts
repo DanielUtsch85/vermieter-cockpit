@@ -17,15 +17,12 @@ import {
   type ReopenDeposit,
   type VoidDeposit,
 } from '../application/index.js';
-import { Money } from '../shared/index.js';
+import { Money, zod3 } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
 import { businessDate, definedOnly, optionalText, readId } from './acquisitions.js';
 import { money, NO_QUERY, PAGING, readBody, readIdempotencyKey, readIfMatch, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
 
-const uuid = z
-  .string()
-  .regex(RESOURCE_ID)
-  .transform((id) => id.toLowerCase());
+const uuid = zod3.transform(z.string().regex(RESOURCE_ID), (id) => id.toLowerCase());
 const mreTenantId = z.string().regex(MRE_EXTERNAL_ID);
 
 /** Data-model §26's fields that P5-D1 dropped or P5-D2 derives: unknown keys, refused as any other (§47.1). */
@@ -89,10 +86,7 @@ const getQuery = z.object({ checkMre: z.enum(['true', 'false']).default('false')
 
 /** A comma-separated list of the given values, any of them. */
 const commaList = <T extends readonly [string, ...string[]]>(values: T) =>
-  z
-    .string()
-    .transform((value) => value.split(','))
-    .pipe(z.array(z.enum(values)).min(1));
+  zod3.transform(z.string(), (value) => value.split(',')).pipe(zod3.array(z.enum(values)).min(1));
 
 const listQuery = z.object({
   status: commaList(DEPOSIT_STATUSES).optional(),

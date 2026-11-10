@@ -1,5 +1,6 @@
 import express, { type Response, type Router } from 'express';
 import { z } from 'zod';
+import { zod3 } from '../shared/index.js';
 import {
   MEMBERSHIP_STATUSES,
   WEG_STATUSES,
@@ -37,13 +38,10 @@ import {
   sendValidationError,
 } from './validation.js';
 
-const uuid = z
-  .string()
-  .regex(RESOURCE_ID)
-  .transform((id) => id.toLowerCase());
+const uuid = zod3.transform(z.string().regex(RESOURCE_ID), (id) => id.toLowerCase());
 
 /** `"n/d"` with up to three decimals per part, normalized here (api-design.md §49.2). */
-const mea = z.string().transform((value, ctx) => {
+const mea = zod3.transform(z.string(), (value, ctx) => {
   const result = parseMea(value);
   if ('mea' in result) return result.mea;
   ctx.addIssue({ code: 'custom', params: { code: result.error } });
@@ -51,8 +49,8 @@ const mea = z.string().transform((value, ctx) => {
 });
 
 const displayName = z.string().trim().min(1).max(200);
-const month = z.number().int().min(1).max(12);
-const sourceReferences = z.array(optionalText(500)).max(10);
+const month = zod3.integer(1, 12);
+const sourceReferences = zod3.array(optionalText(500)).max(10);
 
 /** Documents do not exist yet: refused, never stored unchecked (as §33.2). */
 const notSupported = (fields: readonly string[]) => (body: Record<string, unknown>, ctx: z.RefinementCtx) => {
@@ -123,10 +121,7 @@ const voidBody = z.object({ reason: z.string().trim().min(1).max(500) }).strict(
 
 /** A comma-separated list of the given values, any of them. */
 const commaList = <T extends readonly [string, ...string[]]>(values: T) =>
-  z
-    .string()
-    .transform((value) => value.split(','))
-    .pipe(z.array(z.enum(values)).min(1));
+  zod3.transform(z.string(), (value) => value.split(',')).pipe(zod3.array(z.enum(values)).min(1));
 
 const wegListQuery = z.object({
   status: commaList(WEG_STATUSES).optional(),

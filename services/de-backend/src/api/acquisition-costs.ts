@@ -13,16 +13,13 @@ import {
   type UnlinkAcquisitionPayment,
   type VoidAcquisitionCost,
 } from '../application/index.js';
-import { Money } from '../shared/index.js';
+import { Money, zod3 } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
 import { classificationDto } from './acquisition-cost-classifications.js';
 import { businessDate, definedOnly, optionalText, readId } from './acquisitions.js';
 import { money, NO_QUERY, readBody, readIdempotencyKey, readIfMatch, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
 
-const uuid = z
-  .string()
-  .regex(RESOURCE_ID)
-  .transform((id) => id.toLowerCase());
+const uuid = zod3.transform(z.string().regex(RESOURCE_ID), (id) => id.toLowerCase());
 
 const positive = (field: string) => (value: { [key: string]: unknown }, ctx: z.RefinementCtx) => {
   // Refinements run even after a field failed to parse: only check what parsed.
@@ -36,7 +33,7 @@ const costBody = z
     amount: money,
     incurredDate: businessDate.nullish(),
     counterpartyPartyId: uuid.nullish(),
-    sourceReferences: z.array(optionalText(500)).max(10).optional(),
+    sourceReferences: zod3.array(optionalText(500)).max(10).optional(),
     notes: optionalText(2000).nullish(),
     // Documents and tax classifications do not exist yet: refused, never stored unchecked (as §33.2).
     documentId: z.unknown().optional(),
@@ -60,11 +57,8 @@ const reasonBody = z.object({ reason: z.string().trim().min(1).max(500) }).stric
 const costQuery = z.object({ status: z.enum(COST_STATUSES).optional() });
 const paymentQuery = z.object({
   // The literal `null` names the price's payments; an empty value is malformed.
-  acquisitionCostId: z.union([z.literal('null').transform(() => null), uuid]).optional(),
-  counting: z
-    .enum(['true', 'false'])
-    .transform((value) => value === 'true')
-    .optional(),
+  acquisitionCostId: z.union([zod3.transform(z.literal('null'), () => null), uuid]).optional(),
+  counting: zod3.transform(z.enum(['true', 'false']), (value) => value === 'true').optional(),
 });
 
 export interface AcquisitionCostCommands {

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { zod3 } from '../shared/index.js';
 import {
   AMEND_REVIEW_STATES,
   ASSET_REVIEW_STATES,
@@ -29,17 +30,14 @@ import { RESOURCE_ID, integerIn, money } from './validation.js';
 
 /** The DepreciationAsset API's request schemas and their mapping to the commands, shared by its route files (api-design.md §59–§59B). */
 
-const uuid = z
-  .string()
-  .regex(RESOURCE_ID)
-  .transform((id) => id.toLowerCase());
+const uuid = zod3.transform(z.string().regex(RESOURCE_ID), (id) => id.toLowerCase());
 
 const issue = (ctx: z.RefinementCtx, path: (string | number)[], code: string) => ctx.addIssue({ code: 'custom', path, params: { code } });
 const given = (value: unknown) => value !== undefined && value !== null;
 
 /** A review state of data-model §6.7 that this command takes; another known one (or `SUGGESTED`) is `NOT_ALLOWED`. */
 const reviewStateOf = <T extends string>(allowed: readonly T[]) =>
-  z.string().transform((value, ctx) => {
+  zod3.transform(z.string(), (value, ctx) => {
     if ((allowed as readonly string[]).includes(value)) return value as T;
     const known = value === 'SUGGESTED' || (ASSET_REVIEW_STATES as readonly string[]).includes(value);
     ctx.addIssue({ code: 'custom', params: { code: known ? 'NOT_ALLOWED' : 'INVALID_FORMAT' } });
@@ -48,7 +46,7 @@ const reviewStateOf = <T extends string>(allowed: readonly T[]) =>
 
 const completionYear = integerIn(COMPLETION_YEAR_MIN, COMPLETION_YEAR_MAX);
 /** Trimmed; an empty one is absent (§49.1). */
-const sourceReferences = z.array(optionalText(500)).max(MAX_ASSET_SOURCE_REFERENCES);
+const sourceReferences = zod3.array(optionalText(500)).max(MAX_ASSET_SOURCE_REFERENCES);
 export const references = (values: readonly (string | null)[] | null | undefined) =>
   (values ?? []).filter((reference): reference is string => reference !== null);
 
@@ -95,7 +93,7 @@ const declaredAfaRow = z
   });
 
 /** Each owner once (`DUPLICATE`), at most 20 (`OUT_OF_RANGE`). */
-const declaredAfaList = z.array(declaredAfaRow).superRefine((list, ctx) => {
+const declaredAfaList = zod3.array(declaredAfaRow).superRefine((list, ctx) => {
   if (list.length > MAX_DECLARED_AFA) issue(ctx, [], 'OUT_OF_RANGE');
   const seen = new Set<unknown>();
   list.forEach((r, index) => {
@@ -123,7 +121,7 @@ const entry = z
   });
 
 /** At most one entry per Acquisition (`DUPLICATE`), at most 20 (`OUT_OF_RANGE`). */
-const entries = z.array(entry).superRefine((list, ctx) => {
+const entries = zod3.array(entry).superRefine((list, ctx) => {
   if (list.length > MAX_SHORTER_USEFUL_LIVES) issue(ctx, [], 'OUT_OF_RANGE');
   const seen = new Set<unknown>();
   list.forEach((e, index) => {
@@ -144,7 +142,7 @@ const purchaseMethod = z
     acquisitionId: uuid,
     consideration: z.enum(CONSIDERATIONS),
     method: z.enum(PURCHASE_METHODS),
-    specialDepreciation: z.array(z.enum(SPECIAL_DEPRECIATIONS)).superRefine((list, ctx) => {
+    specialDepreciation: zod3.array(z.enum(SPECIAL_DEPRECIATIONS)).superRefine((list, ctx) => {
       list.forEach((value, index) => {
         if (list.indexOf(value) !== index) issue(ctx, [index], 'DUPLICATE');
       });
@@ -166,7 +164,7 @@ const purchaseMethod = z
   });
 
 /** At most one entry per Acquisition (`DUPLICATE`), at most 20 (`OUT_OF_RANGE`), as the shorter lives. */
-const purchaseMethods = z.array(purchaseMethod).superRefine((list, ctx) => {
+const purchaseMethods = zod3.array(purchaseMethod).superRefine((list, ctx) => {
   if (list.length > MAX_PURCHASE_METHODS) issue(ctx, [], 'OUT_OF_RANGE');
   const seen = new Set<unknown>();
   list.forEach((e, index) => {
@@ -176,7 +174,7 @@ const purchaseMethods = z.array(purchaseMethod).superRefine((list, ctx) => {
   });
 });
 
-const assetType = z.string().transform((value, ctx) => {
+const assetType = zod3.transform(z.string(), (value, ctx) => {
   if (value === 'BUILDING' || value === 'SEPARATE_ASSET') return value;
   ctx.addIssue({ code: 'custom', params: { code: 'INVALID_FORMAT' } });
   return z.NEVER;
@@ -188,13 +186,13 @@ const usefulLifeBasis = z.string().trim().min(1).max(500);
 const usefulLifeYears = integerIn(USEFUL_LIFE_MIN_YEARS, USEFUL_LIFE_MAX_YEARS);
 
 /** A source as §58B names it; a deposit closing is never a capitalised item (`NOT_ALLOWED`). */
-const itemSourceType = z.string().transform((value, ctx) => {
+const itemSourceType = zod3.transform(z.string(), (value, ctx) => {
   if ((ITEM_SOURCE_TYPES as readonly string[]).includes(value)) return value as ItemRef['sourceType'];
   ctx.addIssue({ code: 'custom', params: { code: value === 'DEPOSIT_CLOSING' ? 'NOT_ALLOWED' : 'INVALID_FORMAT' } });
   return z.NEVER;
 });
 const item = z
-  .object({ sourceType: itemSourceType, sourceId: uuid, sourcePosition: z.number().int().nullish() })
+  .object({ sourceType: itemSourceType, sourceId: uuid, sourcePosition: zod3.integer().nullish() })
   .strict()
   .superRefine((value, ctx) => {
     // Refinements run even after the source type failed to parse: the position is judged only against a valid one.
@@ -209,7 +207,7 @@ const item = z
 const itemKey = (i: { sourceType: string; sourceId: string; sourcePosition?: number | null | undefined }) =>
   `${i.sourceType}:${i.sourceId}:${i.sourcePosition ?? ''}`;
 /** At most 50 items (`OUT_OF_RANGE`), each once (`DUPLICATE`). */
-const items = z.array(item).superRefine((list, ctx) => {
+const items = zod3.array(item).superRefine((list, ctx) => {
   if (list.length > MAX_ASSET_ITEMS) issue(ctx, [], 'OUT_OF_RANGE');
   const seen = new Set<string>();
   list.forEach((i, index) => {
@@ -303,7 +301,7 @@ export const confirmBody = z
 export const voidBody = z.object({ reason: z.string().trim().min(1).max(500) }).strict();
 
 /** `year` as §58C: digits only (`INVALID_FORMAT`), 2000–2100 (`OUT_OF_RANGE`). */
-const year = z.string().transform((value, ctx) => {
+const year = zod3.transform(z.string(), (value, ctx) => {
   if (!/^\d{1,9}$/.test(value)) {
     ctx.addIssue({ code: 'custom', params: { code: 'INVALID_FORMAT' } });
     return z.NEVER;
@@ -319,10 +317,9 @@ export const getQuery = z.object({ year: year.optional() });
 /** §59A: `from` and `to` as `year`, `ownerPartyId` a UUID; any other parameter is `400`. */
 export const scheduleQuery = z.object({ from: year.optional(), to: year.optional(), ownerPartyId: uuid.optional() });
 export const listQuery = z.object({
-  status: z
-    .string()
-    .transform((value) => value.split(','))
-    .pipe(z.array(z.enum(ASSET_STATUSES)).min(1))
+  status: zod3
+    .transform(z.string(), (value) => value.split(','))
+    .pipe(zod3.array(z.enum(ASSET_STATUSES)).min(1))
     .optional(),
   year: year.optional(),
 });
