@@ -26,4 +26,6 @@ export const USED_ROUTES: readonly (readonly [method: string, path: string])[] =
   ['GET', '/api/v1/financial-accounts'],
   ['GET', '/api/v1/property-references'],
   ['GET', '/api/v1/financial-categories'],
+  // Step 3 (ui-guide.md §10): the split editor replaces the whole split set with `If-Match` (api-design.md §33.2).
+  ['PUT', '/api/v1/transactions/:transactionId/splits'],
 ];

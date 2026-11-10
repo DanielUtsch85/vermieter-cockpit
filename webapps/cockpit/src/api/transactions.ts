@@ -3,19 +3,31 @@ import type {
   FinancialCategoryDto,
   PageDto,
   PropertyReferenceDto,
+  SplitInputDto,
   TransactionDetailDto,
   TransactionDto,
   TransactionSplitDto,
+  TransactionSplitsDto,
 } from '@vermieter-cockpit/de-backend/client-contract';
-import { apiPath, type DeClient } from './client';
+import { apiPath, ifMatchForVersion, type DeClient } from './client';
 import { ApiError, CLIENT_CODES } from './errors';
 
-export type { FinancialAccountDto, FinancialCategoryDto, PageDto, PropertyReferenceDto, TransactionDetailDto, TransactionDto, TransactionSplitDto };
+export type {
+  FinancialAccountDto,
+  FinancialCategoryDto,
+  PageDto,
+  PropertyReferenceDto,
+  SplitInputDto,
+  TransactionDetailDto,
+  TransactionDto,
+  TransactionSplitDto,
+  TransactionSplitsDto,
+};
 
 /**
  * The reads of step 2 (ui-guide.md §6.3, §10): the transaction list and one Transaction, plus the lists that turn ids
- * into names for the filters and the detail (accounts, PropertyReferences, categories; §5.3, §13). Reads only: nothing
- * here writes, and no route outside `USED_ROUTES` (gate/backend-pin.ts) is called.
+ * into names for the filters and the detail (accounts, PropertyReferences, categories; §5.3, §13). The one write is
+ * step 3's `PUT …/splits` (`putSplits`, below). No route outside `USED_ROUTES` (gate/backend-pin.ts) is called.
  */
 
 /**
@@ -76,4 +88,34 @@ export async function listPropertyReferences(client: DeClient, signal?: AbortSig
 export async function listFinancialCategories(client: DeClient, signal?: AbortSignal): Promise<readonly FinancialCategoryDto[]> {
   const { data } = await client.get<{ items: readonly FinancialCategoryDto[] }>('/financial-categories', signal === undefined ? {} : { signal });
   return data.items;
+}
+
+export interface SplitsSaved {
+  readonly result: TransactionSplitsDto;
+  /** The new `ETag`: the version the next change sends as `If-Match` (ui-guide.md §8: the newly returned one). */
+  readonly etag: string;
+}
+
+/**
+ * `PUT /transactions/{transactionId}/splits` (api-design.md §33, step 3): replaces the whole split set, with `If-Match`
+ * carrying the `ETag` read before (§16.1). No `Idempotency-Key`: the route takes none; it is naturally idempotent, and
+ * the same set sent again after a lost answer is a `200` without a new version, whatever the version (§16.1 "Order").
+ * The answer names its Transaction; an answer for another one is refused, never shown.
+ */
+export async function putSplits(
+  client: DeClient,
+  transactionId: string,
+  body: { readonly splits: readonly SplitInputDto[] },
+  ifMatch: string,
+  signal?: AbortSignal,
+): Promise<SplitsSaved> {
+  const { data, etag } = await client.put<TransactionSplitsDto>(apiPath`/transactions/${transactionId}/splits`, {
+    body,
+    ifMatch,
+    ...(signal === undefined ? {} : { signal }),
+  });
+  if (data.transactionId.toLowerCase() !== transactionId.toLowerCase()) {
+    throw new ApiError(200, CLIENT_CODES.unexpected, 'The answer names another Transaction than the one changed.');
+  }
+  return { result: data, etag: etag ?? ifMatchForVersion(data.version) };
 }

@@ -14,8 +14,8 @@ const proxy = {
 
 export default defineConfig({
   base: '/cockpit/',
-  // Vite 8 transforms with Oxc instead of esbuild (VC-X-67); the same automatic JSX runtime as `esbuild.jsx` before.
-  oxc: { jsx: { runtime: 'automatic' } },
+  // JSX: Vite 8 transforms with Oxc, which takes the automatic runtime from `"jsx": "react-jsx"` in tsconfig.json, the one
+  // place it is set. An `oxc.jsx` line here only repeated it (#326 hint H1): without it the build is byte-identical.
   css: {
     postcss: { plugins: [tailwindcss({ config: fileURLToPath(new URL('./tailwind.config.ts', import.meta.url)) })] },
   },

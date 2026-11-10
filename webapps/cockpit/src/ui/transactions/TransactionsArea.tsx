@@ -1,13 +1,24 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useState } from 'react';
 import type { DeClient } from '../../api/client';
-import { getTransaction, listFinancialAccounts, listFinancialCategories, listPropertyReferences, listTransactions } from '../../api/transactions';
+import {
+  getTransaction,
+  listFinancialAccounts,
+  listFinancialCategories,
+  listPropertyReferences,
+  listTransactions,
+  putSplits,
+  type TransactionRead,
+} from '../../api/transactions';
 import { navigate } from '../../navigation';
 import { realmKey } from '../../query';
 import { AREAS, areaPath } from '../../routing';
 import { readListParams, toApiQuery, toSearch, type ListParams } from '../../transactions/list-params';
+import { splitsEditable } from '../../transactions/split-draft';
 import type { References } from './references';
 import { TransactionDetailView } from './TransactionDetail';
 import { TransactionListView } from './TransactionList';
+import { SplitEditor } from './SplitEditor';
 
 /**
  * The query keys of step 2. Each starts with the Realm and the session's epoch (ui-guide.md §7.3), so an answer of
@@ -16,6 +27,8 @@ import { TransactionListView } from './TransactionList';
 export const transactionKeys = {
   list: (realmId: string, epoch: number, query: Readonly<Record<string, string>>) => realmKey(realmId, epoch, 'transactions', 'list', query),
   detail: (realmId: string, epoch: number, transactionId: string) => realmKey(realmId, epoch, 'transactions', 'detail', transactionId),
+  /** Every list and detail of the Realm: what a split change invalidates (§7.3: "Buchung und Listen"). */
+  all: (realmId: string, epoch: number) => realmKey(realmId, epoch, 'transactions'),
   accounts: (realmId: string, epoch: number) => realmKey(realmId, epoch, 'financial-accounts', 'picker'),
   properties: (realmId: string, epoch: number) => realmKey(realmId, epoch, 'property-references', 'picker'),
   categories: (realmId: string, epoch: number) => realmKey(realmId, epoch, 'financial-categories'),
@@ -82,11 +95,35 @@ function TransactionDetailPage(props: {
   readonly references: References;
   readonly listHref: string;
 }) {
+  const queryClient = useQueryClient();
   const read = useQuery({
     queryKey: transactionKeys.detail(props.realmId, props.epoch, props.transactionId),
     queryFn: ({ signal }) => getTransaction(props.client, props.transactionId, signal),
   });
+  // The editor stays once shown: a later read (after a save or a 412) that is refused, or names a status without
+  // splits, must not take the unsaved draft away (ui-guide.md §11); the editor says itself when it cannot save.
+  const [editorShown, setEditorShown] = useState(false);
+  const first = read.data;
+  if (!editorShown && first !== undefined && read.status === 'success' && splitsEditable(first.transaction.status)) setEditorShown(true);
+  const reload = async (): Promise<TransactionRead> => {
+    const result = await read.refetch();
+    if (result.status === 'error' || result.data === undefined) throw result.error ?? new Error('No Transaction read.');
+    return result.data;
+  };
   return (
-    <TransactionDetailView realmId={props.realmId} read={read} references={props.references} listHref={props.listHref} onRetry={() => void read.refetch()} />
+    <>
+      <TransactionDetailView realmId={props.realmId} read={read} references={props.references} listHref={props.listHref} onRetry={() => void read.refetch()} />
+      {editorShown && first !== undefined && (
+        <SplitEditor
+          key={props.transactionId}
+          transaction={first.transaction}
+          etag={first.etag}
+          references={props.references}
+          save={(body, ifMatch) => putSplits(props.client, props.transactionId, body, ifMatch)}
+          reload={reload}
+          onSaved={() => void queryClient.invalidateQueries({ queryKey: transactionKeys.all(props.realmId, props.epoch) })}
+        />
+      )}
+    </>
   );
 }
