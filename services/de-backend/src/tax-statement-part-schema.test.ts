@@ -129,7 +129,7 @@ describe.skipIf(databaseUrl === undefined)('the schema of 0063 past the reposito
   it('part items only in the transaction of their acknowledgement, never changed or deleted; counter-check: in the same transaction', async () => {
     const pr = await propertyReference();
     const client = await ctx.pool.connect();
-    let id = '';
+    let id: string;
     try {
       await client.query('BEGIN');
       id = (await client.query(ackRow(pr))).rows[0].id as string;
