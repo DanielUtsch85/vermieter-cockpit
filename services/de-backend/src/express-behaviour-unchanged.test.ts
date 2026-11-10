@@ -16,8 +16,11 @@ import { REALM } from './api/transactions.test-support.js';
  * upload route's refusals (`Connection: close`). No database: every command rejects and is counted (`route-walk`).
  *
  * `express-behaviour-golden/before-vc-x-66.json` was recorded by this file on main 5abb3f1 (Express 4.22.3) with
- * `VC_X66_RECORD_BEFORE=1`. Every answer is kept as a line (request, status, every response header but `Date`, the raw
- * body and the commands reached), grouped by section, so a difference names the request. Synthetic values only.
+ * `VC_X66_RECORD_BEFORE=1`. The probes `Content-Encoding: BR` and `Br` (hint E1 of the review on #325) were added before
+ * the Vitest 5 upgrade (VC-X-67): recorded on main b4f06c7 (Express 5.3.0 with `jsonBody`, Vitest 2) and on 7910da2
+ * (Express 4.22.3), both byte-identical but for the `express` label, every other line unchanged.
+ * Every answer is kept as a line (request, status, every response header but `Date`, the raw body and the commands
+ * reached), grouped by section, so a difference names the request. Synthetic values only.
  */
 const golden = join(dirname(fileURLToPath(import.meta.url)), 'express-behaviour-golden', 'before-vc-x-66.json');
 const RECORD = process.env['VC_X66_RECORD_BEFORE'] === '1';
@@ -160,6 +163,9 @@ const BODIES: { headers?: Record<string, string>; body?: Buffer | string }[] = [
   { headers: { ...JSON_TYPE, 'content-encoding': 'gzip' }, body: gzipSync('{"zzz":1}') },
   { headers: { ...JSON_TYPE, 'content-encoding': 'deflate' }, body: deflateSync('{"zzz":1}') },
   { headers: { ...JSON_TYPE, 'content-encoding': 'br' }, body: brotliCompressSync('{"zzz":1}') },
+  // VC-X-67 (hint E1 of the review on #325): body-parser lower-cases the encoding, so `BR` and `Br` are `br` as well.
+  { headers: { ...JSON_TYPE, 'content-encoding': 'BR' }, body: brotliCompressSync('{"zzz":1}') },
+  { headers: { ...JSON_TYPE, 'content-encoding': 'Br' }, body: brotliCompressSync('{"zzz":1}') },
   { headers: { ...JSON_TYPE, 'content-encoding': 'identity' }, body: '{"zzz":1}' },
   { headers: { ...JSON_TYPE, 'content-encoding': 'x-unknown' }, body: '{"zzz":1}' },
   { headers: { ...JSON_TYPE, 'content-encoding': 'gzip' }, body: 'not gzip' },
@@ -307,5 +313,9 @@ describe('what Express decides answers as before Express 5 (VC-X-66)', () => {
     expect(find('POST /api/v1/imports/bank-transactions?zzz=1 [content-type=multipart')).toContain('connection: close');
     expect(recorded.routes['/api/v1/acquisitions/:acquisitionId']?.first).toContain('allow: GET,HEAD');
     expect(find('POST /api/v1/transactions [content-type=text/plain] "{}"')).toContain('"code":"VALIDATION_ERROR"');
+    // `BR` and `Br` answer as `br` (refused, not decoded): the record of hint E1 on #325.
+    const answer = (encoding: string) => find(`POST /api/v1/transactions [content-type=application/json content-encoding=${encoding}]`).split(' -> ')[1];
+    expect(answer('br')).toMatch(/^500 /);
+    expect([answer('BR'), answer('Br')]).toEqual([answer('br'), answer('br')]);
   });
 });
