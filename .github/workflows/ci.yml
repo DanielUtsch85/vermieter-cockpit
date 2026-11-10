@@ -40,6 +40,8 @@ jobs:
           node-version-file: .nvmrc
           cache: yarn
       - run: yarn install --immutable
+      # The root scripts cover every workspace, services/de-backend and webapps/cockpit (the UI in every step:
+      # build, typecheck, lint, size:check, format:check and its Vitest suite in `yarn test`).
       - run: yarn build
       - run: yarn typecheck
       - run: yarn lint

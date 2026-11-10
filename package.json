@@ -3,7 +3,8 @@
   "private": true,
   "license": "MIT",
   "workspaces": [
-    "services/*"
+    "services/*",
+    "webapps/*"
   ],
   "engines": {
     "node": "^24"
@@ -12,9 +13,9 @@
     "build": "yarn workspaces foreach --topological-dev --verbose run build",
     "typecheck": "yarn workspaces foreach --verbose run typecheck",
     "test": "yarn workspaces foreach --verbose run test",
-    "lint": "eslint services scripts eslint.config.mjs",
-    "format": "prettier --write services scripts docs/development/design-tokens.css eslint.config.mjs",
-    "format:check": "prettier --check services scripts docs/development/design-tokens.css eslint.config.mjs",
+    "lint": "eslint services webapps scripts eslint.config.mjs",
+    "format": "prettier --write services webapps scripts docs/development/design-tokens.css eslint.config.mjs",
+    "format:check": "prettier --check services webapps scripts docs/development/design-tokens.css eslint.config.mjs",
     "size:check": "node scripts/file-size-check.mjs",
     "api:inventory": "yarn workspace @vermieter-cockpit/de-backend run api:inventory",
     "api:inventory:check": "yarn workspace @vermieter-cockpit/de-backend run api:inventory:check"
