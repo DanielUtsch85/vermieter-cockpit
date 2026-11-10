@@ -7,7 +7,10 @@ WORKDIR /app
 COPY package.json yarn.lock .yarnrc.yml tsconfig.base.json ./
 COPY .yarn/releases .yarn/releases
 COPY .yarn/plugins .yarn/plugins
+# Every workspace manifest of the root's `workspaces`: without one, yarn would want to change yarn.lock and --immutable
+# fails. The cockpit's manifest only; its sources are not part of this image.
 COPY services/de-backend/package.json services/de-backend/
+COPY webapps/cockpit/package.json webapps/cockpit/
 RUN node .yarn/releases/yarn-3.3.0.cjs install --immutable
 COPY services/de-backend services/de-backend
 RUN node .yarn/releases/yarn-3.3.0.cjs workspace @vermieter-cockpit/de-backend build
@@ -19,6 +22,7 @@ COPY package.json yarn.lock .yarnrc.yml ./
 COPY .yarn/releases .yarn/releases
 COPY .yarn/plugins .yarn/plugins
 COPY services/de-backend/package.json services/de-backend/
+COPY webapps/cockpit/package.json webapps/cockpit/
 RUN node .yarn/releases/yarn-3.3.0.cjs workspaces focus @vermieter-cockpit/de-backend --production \
   && node .yarn/releases/yarn-3.3.0.cjs cache clean --all
 COPY --from=build /app/services/de-backend/dist services/de-backend/dist

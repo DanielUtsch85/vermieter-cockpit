@@ -1,6 +1,7 @@
-// File-size limit of the backend sources (coding-guidelines.md §3, issue #191): every `.ts` file under services/*/src,
-// migrations/ excluded, has at most 600 lines (production) or 900 lines (tests: `*.test.ts`, `*.test-support.ts`).
-// `yarn size:check` fails on a file over its limit; CI runs it after lint.
+// File-size limit of the sources (coding-guidelines.md §3, issue #191): every `.ts` file under services/*/src, migrations/
+// excluded, and every `.ts` and `.tsx` file under webapps/*/src (the cockpit UI, same limits; Entscheidung des
+// Projektinhabers, 2026-11-09: the UI in every CI step) has at most 600 lines (production) or 900 lines (tests:
+// `*.test.ts`, `*.test.tsx`, `*.test-support.ts`). `yarn size:check` fails on a file over its limit; CI runs it after lint.
 //
 // Lines are counted as `wc -l` counts them for a file ending in a newline (Prettier guarantees that): the number of line
 // breaks, plus one for a last line without a trailing newline.
@@ -14,7 +15,6 @@ import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
-const servicesDir = join(root, 'services');
 
 const PRODUCTION_LIMIT = 600;
 const TEST_LIMIT = 900;
@@ -30,7 +30,7 @@ const countLines = (source) => {
   const breaks = source.split('\n').length - 1;
   return source.length > 0 && !source.endsWith('\n') ? breaks + 1 : breaks;
 };
-const isTest = (file) => file.endsWith('.test.ts') || file.endsWith('.test-support.ts');
+const isTest = (file) => /\.test\.tsx?$/.test(file) || file.endsWith('.test-support.ts');
 
 const files = [];
 const walk = (dir) => {
@@ -38,14 +38,16 @@ const walk = (dir) => {
     const path = join(dir, entry.name);
     if (entry.isDirectory()) {
       if (entry.name !== 'migrations' && entry.name !== 'node_modules') walk(path);
-    } else if (entry.name.endsWith('.ts')) {
+    } else if (entry.name.endsWith('.ts') || entry.name.endsWith('.tsx')) {
       files.push(path);
     }
   }
 };
-for (const service of readdirSync(servicesDir, { withFileTypes: true })) {
-  const src = join(servicesDir, service.name, 'src');
-  if (service.isDirectory() && existsSync(src)) walk(src);
+for (const area of ['services', 'webapps']) {
+  for (const workspace of readdirSync(join(root, area), { withFileTypes: true })) {
+    const src = join(root, area, workspace.name, 'src');
+    if (workspace.isDirectory() && existsSync(src)) walk(src);
+  }
 }
 
 const errors = [];

@@ -4,6 +4,11 @@
   "private": true,
   "license": "MIT",
   "type": "module",
+  "exports": {
+    "./client-contract": {
+      "types": "./src/api/client-contract.ts"
+    }
+  },
   "engines": {
     "node": "^24"
   },

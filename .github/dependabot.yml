@@ -9,7 +9,10 @@ version: 2
 
 updates:
   # Yarn berry (3.3.0, yarnPath in .yarnrc.yml) at the repository root; the root manifest covers the workspaces
-  # services/* and the single yarn.lock.
+  # services/* and webapps/* (the cockpit UI, webapps/cockpit) and the single yarn.lock. The cockpit is in this entry, not
+  # in one of its own: one yarn.lock means one entry, so the backend and the UI never get two PRs for the same package
+  # (vitest, typescript), and its minor and patch updates come in the same weekly bundle (Entscheidung des
+  # Projektinhabers, 2026-11-09: a Dependabot entry for the new workspace).
   - package-ecosystem: npm
     directory: /
     schedule:
@@ -56,6 +59,23 @@ updates:
       # patch releases still come in the bundle (optional nit from the review on #304).
       - dependency-name: kysely
         update-types: ['version-update:semver-minor']
+      # The cockpit (webapps/cockpit) follows the stack of the pinned MRE landlord app (ui-guide.md §7.1, technology.md
+      # §7.1: React 18, Tailwind 3, TanStack Query 5); a new major is a stack decision, not a weekly PR. Vite moves with
+      # Vitest (Vitest 2 runs on Vite 5, the cockpit pins the same Vite), so its major comes with Vitest 5 (VC-X-67).
+      - dependency-name: react
+        update-types: ['version-update:semver-major']
+      - dependency-name: react-dom
+        update-types: ['version-update:semver-major']
+      - dependency-name: '@types/react'
+        update-types: ['version-update:semver-major']
+      - dependency-name: '@types/react-dom'
+        update-types: ['version-update:semver-major']
+      - dependency-name: tailwindcss
+        update-types: ['version-update:semver-major']
+      - dependency-name: '@tanstack/react-query'
+        update-types: ['version-update:semver-major']
+      - dependency-name: vite
+        update-types: ['version-update:semver-major']
 
   # Dockerfile base image (node:24-bookworm-slim, both stages).
   - package-ecosystem: docker
