@@ -482,4 +482,22 @@ describe('only validation.ts reads a request query (§58W test 8) or body (§58X
       expect(source, f).not.toMatch(/\.body\b|\[['"]body['"]\]|\{\s*body\b[^}]*\}\s*=\s*req\b/);
     }
   });
+
+  it('VC-X-66: jsonBody is the only body parser of src/api, by the ESLint rule and by source; every command route uses it', () => {
+    const config = readFileSync(join(srcDir, '..', '..', '..', 'eslint.config.mjs'), 'utf8');
+    const block = config.slice(config.indexOf("files: ['services/de-backend/src/api/**/*.ts']"));
+    expect(block.slice(0, block.indexOf('},\n  },'))).toContain(
+      `selector: "MemberExpression[object.name='express'][property.name=/^(json|urlencoded|raw|text)$/]"`,
+    );
+    const dir = join(srcDir, 'api');
+    const files = readdirSync(dir).filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts') && !f.endsWith('.test-support.ts') && f !== 'validation.ts');
+    let routes = 0;
+    for (const f of files) {
+      const source = readFileSync(join(dir, f), 'utf8');
+      expect(source, f).not.toMatch(/express\.(json|urlencoded|raw|text)\b|bodyParser|body-parser/);
+      routes += [...source.matchAll(/jsonBody\('\d+kb'\)/g)].length;
+    }
+    // Counter-check: the 86 parsers of the 91 JSON commands all moved to jsonBody (a few factories register several routes).
+    expect(routes).toBe(86);
+  });
 });

@@ -15,7 +15,7 @@ import { toDto as propertyReferenceDto } from './property-references.js';
 import { toDto as depositDto } from './security-deposits.js';
 import { CSV_DIALECTS, CSV_ROWS, csvHead, csvRecords, type CsvDialect, type CsvRows } from './transaction-csv.js';
 import { checkDateRange, filterFields, listFilter } from './transaction-dto.js';
-import { NO_QUERY, readQuery, refuseQuery } from './validation.js';
+import { NO_QUERY, pathParam, readQuery, refuseQuery } from './validation.js';
 import { membershipDto, wegDto } from './wegs.js';
 
 /**
@@ -145,7 +145,7 @@ export function exportRoutes(commands: ExportCommands): Router {
 
   router.get('/property-references/:propertyReferenceId/export.json', (req: Request, res: Response, next) => {
     const query = readQuery(NO_QUERY, req);
-    const propertyReferenceId = readId(req.params['propertyReferenceId'], 'propertyReferenceId', res);
+    const propertyReferenceId = readId(pathParam(req, 'propertyReferenceId'), 'propertyReferenceId', res);
     if (propertyReferenceId === undefined) return;
     if (refuseQuery(res, query)) return;
     commands

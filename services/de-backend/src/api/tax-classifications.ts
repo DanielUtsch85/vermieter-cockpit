@@ -32,7 +32,7 @@ import { interestPeriodBody, performanceBody, performanceFieldIssue, positiveEur
 import { ref, uuid } from './tax-classification-dto.js';
 import { taxMeaningRoutes } from './tax-meanings.js';
 import { taxYearRoutes } from './tax-years.js';
-import { integerIn, NO_QUERY, readBody, readIdempotencyKey, readIfMatch, readQuery, refuseQuery, sendValidationError } from './validation.js';
+import { integerIn, jsonBody, NO_QUERY, readBody, readIdempotencyKey, readIfMatch, readQuery, refuseQuery, sendValidationError } from './validation.js';
 
 const issue = (ctx: z.RefinementCtx, path: string, code: string) => ctx.addIssue({ code: 'custom', path: [path], params: { code } });
 const has = (list: readonly string[], value: unknown) => typeof value === 'string' && list.includes(value);
@@ -189,7 +189,7 @@ export function taxationRoutes(commands: TaxationCommands): Router {
   router.use(taxMeaningRoutes(commands));
   router.use(taxYearRoutes(commands));
 
-  router.post('/tax-classifications', express.json({ limit: '64kb' }), (req, res, next) => {
+  router.post('/tax-classifications', jsonBody('64kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
@@ -264,7 +264,7 @@ export function taxationRoutes(commands: TaxationCommands): Router {
 
   /** §57's three steps: `If-Match`, the body read with `schema` (`readBody`), the step made of it by `stepOf`. */
   const reviewRoute = <S extends z.ZodTypeAny>(path: string, schema: S, stepOf: (data: z.output<S>) => ReviewStep) =>
-    router.post(`/tax-classifications/:classificationId/${path}`, express.json({ limit: '16kb' }), (req, res, next) => {
+    router.post(`/tax-classifications/:classificationId/${path}`, jsonBody('16kb'), (req, res, next) => {
       const query = readQuery(NO_QUERY, req);
       const classificationId = readId(req.params['classificationId'], 'classificationId', res);
       if (classificationId === undefined) return;

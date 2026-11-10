@@ -69,7 +69,7 @@ const IBAN_K = 'DE89370400440532013000';
 /** The deposit routes of Phase 5; the deposit's tax meaning (`…/tax-meaning`) is Phase 7's (VC-7-02, §58A). */
 const PHASE_5 = /^[A-Z]+ \/security-deposits\b(?!.*\/tax-meaning$)/;
 
-/** Every route the app serves, from Express' router stack (Express 4 internals, as ACC2–ACC4). */
+/** Every route the app serves, from Express' router stack (Express 5 internals `app.router.stack` since VC-X-66, as ACC2–ACC4). */
 function routesOf(app: Express): string[] {
   type Layer = { route?: { path: string; methods: Record<string, boolean> }; name?: string; handle: { stack?: Layer[] } };
   const walk = (stack: readonly Layer[]): string[] =>
@@ -77,7 +77,7 @@ function routesOf(app: Express): string[] {
       if (layer.route !== undefined) return Object.keys(layer.route.methods).map((method) => `${method.toUpperCase()} ${layer.route?.path}`);
       return layer.name === 'router' && layer.handle.stack !== undefined ? walk(layer.handle.stack) : [];
     });
-  return walk((app as unknown as { _router: { stack: Layer[] } })._router.stack);
+  return walk((app as unknown as { router: { stack: Layer[] } }).router.stack);
 }
 
 describe.skipIf(databaseUrl === undefined)('Phase 5 acceptance (roadmap exit)', () => {

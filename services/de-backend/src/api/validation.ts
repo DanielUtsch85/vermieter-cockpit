@@ -1,4 +1,4 @@
-import type { Request, Response } from 'express';
+import express, { type Request, type RequestHandler, type Response } from 'express';
 import { z, type ZodError } from 'zod';
 import { Money, MoneyError, zod3 } from '../shared/index.js';
 import { sendError } from './error-envelope.js';
@@ -188,8 +188,42 @@ function bodyErrors(error: ZodError | undefined, body: unknown, extra: readonly 
 }
 
 /**
+ * The JSON body parser of a command route, `express.json` as Express 4 ran it (VC-X-66; the only JSON parser in
+ * `src/api/`, by the lint rule). Express 5's parser (body-parser 2) leaves the body `undefined` when there is none or its
+ * type is not JSON, where Express 4's was `{}`: so a command without a body, or with a text, form or multipart body,
+ * still reaches `readBody` with the empty object and answers its fields. And body-parser 2 decodes `br`, which Express 4
+ * refused as an unsupported encoding (`415`, `encoding.unsupported`, answered `500` by the error handler): refused here the
+ * same way, before the parser reads anything.
+ */
+export function jsonBody(limit: string): ReturnType<typeof express.json> {
+  const parser = express.json({ limit });
+  const handler: RequestHandler = (req, res, next) => {
+    const encoding = req.headers['content-encoding'];
+    if (typeof encoding === 'string' && encoding.toLowerCase() === 'br' && typeof req.is('application/json') === 'string') {
+      next(
+        Object.assign(new Error('unsupported content encoding "br"'), {
+          status: 415,
+          statusCode: 415,
+          expose: true,
+          encoding: 'br',
+          type: 'encoding.unsupported',
+        }),
+      );
+      return;
+    }
+    parser(req, res, (error?: unknown) => {
+      if (error === undefined && req.body === undefined) req.body = {};
+      next(error);
+    });
+  };
+  // Typed as `express.json` is, so a route's path parameters stay inferred from its path (a `RequestHandler` would widen
+  // them to Express 5's `string | string[]`).
+  return handler as unknown as ReturnType<typeof express.json>;
+}
+
+/**
  * The body of a command (api-design.md §58X), the only reader of a request's body in `src/api/` (the lint rule), the
- * twin of `readQuery`. The route's `express.json` has parsed it (no body and `{}` are the empty object; malformed JSON,
+ * twin of `readQuery`. The route's `jsonBody` has parsed it (no body and `{}` are the empty object; malformed JSON,
  * `null`, whitespace and an oversized body never reach the handler). The schema must be strict throughout
  * (`assertStrictBody`, once per schema; a route with a non-strict schema answers `500` on its first request). `also`
  * checks the raw body beside the schema (a rule zod would skip once a field failed): its errors come after the schema's
@@ -201,11 +235,20 @@ export function readBody<S extends z.ZodType>(schema: S, req: Request, also?: (r
     strictSchemas.add(schema);
   }
   const raw: unknown = req.body;
-  if (raw === undefined) throw new Error('readBody: the route parses no JSON body (express.json)');
+  if (raw === undefined) throw new Error('readBody: the route parses no JSON body (jsonBody)');
   const parsed = parse(schema, raw);
   const extra = also?.(raw) ?? [];
   if (parsed.success && extra.length === 0) return { ok: true, data: parsed.data };
   return { ok: false, errors: bodyErrors(parsed.success ? undefined : parsed.error, raw, extra) };
+}
+
+/**
+ * A path parameter as Express matched it. Express 5's types allow a list (a wildcard segment); no route has one, so a
+ * parameter is a string or absent, and anything else reads as absent (the route's own `INVALID_FORMAT`). VC-X-66.
+ */
+export function pathParam(req: Pick<Request, 'params'>, name: string): string | undefined {
+  const value: unknown = req.params[name];
+  return typeof value === 'string' ? value : undefined;
 }
 
 /** The query of a route without parameters (§58W rule 1): every parameter is unknown. */

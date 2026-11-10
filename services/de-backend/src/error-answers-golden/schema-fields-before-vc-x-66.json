@@ -1,0 +1,1713 @@
+{
+  "express": "4.22.3",
+  "bodies": {
+    "POST /api/v1/acquisitions": {
+      "requests": 632,
+      "sha256": "93b5678264e9ae4150d3bac2f43a5db57ada45926638a5e8ec75febf725293e6",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": [
+        "purchasePrice",
+        "acquiredShare",
+        "economicTransferDate",
+        "landRegistryTransferDate",
+        "buyerPartyIds",
+        "sellerPartyIds",
+        "sourceReferences",
+        "notes",
+        "notarialDocumentId"
+      ]
+    },
+    "POST /api/v1/acquisitions/:acquisitionId/align-ownerships-to-transfer": {
+      "requests": 142,
+      "sha256": "173791fff3df08412c8f9d2dd2fa46775d84c4e4156bb0b02463dbc5b4779855",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": ["sourceReferences", "notes"]
+    },
+    "POST /api/v1/acquisitions/:acquisitionId/cancel": {
+      "requests": 2,
+      "sha256": "692faa8bc0f549f3e438f21dba13526ee62ec3375a37c3bfca452f43b21e0a68",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": []
+    },
+    "POST /api/v1/acquisitions/:acquisitionId/confirm": {
+      "requests": 2,
+      "sha256": "0b6e849cc5dd28ffb0ed0ae93f4546769ea2fd6df97a43ca7a0ffa1198f79d4b",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": []
+    },
+    "POST /api/v1/acquisitions/:acquisitionId/costs": {
+      "requests": 492,
+      "sha256": "f8de0812b4d7887cb26888b09fc48217614ce863d50d814ab71aab5d694f0925",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": ["amount", "incurredDate", "counterpartyPartyId", "sourceReferences", "notes", "documentId", "taxClassificationId"]
+    },
+    "POST /api/v1/acquisitions/:acquisitionId/costs/:costId/classifications": {
+      "requests": 422,
+      "sha256": "cf2837c5aecb213cb5e26d5de6d9bebc68c29d49088d91316ab3e140ace6e74e",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": ["parts", "parts.0.amount", "sourceReferences", "reviewState", "advisorPartyId", "notes"]
+    },
+    "POST /api/v1/acquisitions/:acquisitionId/costs/:costId/void": {
+      "requests": 2,
+      "sha256": "c407a19d9382344b9cb500e1365753d6c436873dc88dbbd41c173fea5ae7d0da",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": []
+    },
+    "POST /api/v1/acquisitions/:acquisitionId/economic-transfer-date": {
+      "requests": 142,
+      "sha256": "347ba15da42c1c6df7fa6094fd95472a759aede9ac0b79bf15ce82b3e9051584",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": ["sourceReferences", "notes"]
+    },
+    "POST /api/v1/acquisitions/:acquisitionId/land-building-allocation": {
+      "requests": 1402,
+      "sha256": "76ca1ab47d9288d02bb465077fbdc3627ac99b3de672e071b78262a63f19e115",
+      "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"totalAllocableAmount.currency\",\"code\":\"REQUIRED\"}]}}}",
+      "last": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"totalAllocableAmount.currency\",\"code\":\"REQUIRED\"}]}}}",
+      "paths": [
+        "totalAllocableAmount",
+        "totalAllocableAmount.currency",
+        "landAmount",
+        "buildingAmount",
+        "reviewState",
+        "effectiveDate",
+        "advisorPartyId",
+        "sourceReferences",
+        "notes",
+        "comparison",
+        "comparison.method",
+        "comparison.landValue",
+        "comparison.landValue.amount",
+        "comparison.landValue.currency",
+        "comparison.buildingValue",
+        "comparison.buildingValue.amount",
+        "comparison.buildingValue.currency",
+        "comparison.sourceReferences",
+        "deviationReason",
+        "documentIds"
+      ]
+    },
+    "POST /api/v1/acquisitions/:acquisitionId/payments": {
+      "requests": 142,
+      "sha256": "ec0ef485e134ad6225a6e2d0949c243ea764467cd00ce9012b8efd9c0ce0c85b",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": ["acquisitionCostId", "amount"]
+    },
+    "POST /api/v1/acquisitions/:acquisitionId/payments/:paymentId/unlink": {
+      "requests": 2,
+      "sha256": "5c87e8c917b625893a19739e86e29c7f7b4a293673a3b3533282d5ba03aa5736",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": []
+    },
+    "POST /api/v1/construction-period-interest": {
+      "requests": 352,
+      "sha256": "b62982da950e7dfa7f4db1b6b1479f6cd3cb9e8fd2b49cfb40137f91fb9e043a",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": ["loanId", "propertyReferenceIds", "herstellungUntil", "sourceReferences", "notes"]
+    },
+    "POST /api/v1/construction-period-interest/:recordId/amend": {
+      "requests": 702,
+      "sha256": "ad690846c6286e9aa0fb96646889bf0b25b4737991d8eeb49e2069b2cacbf32a",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": [
+        "propertyReferenceIds",
+        "measure",
+        "herstellungFrom",
+        "herstellungUntil",
+        "useIntent",
+        "advanceExpenseDeductible",
+        "buildingFundsShare",
+        "earlierYearsTreatment",
+        "sourceReferences",
+        "notes"
+      ]
+    },
+    "POST /api/v1/construction-period-interest/:recordId/confirm": {
+      "requests": 72,
+      "sha256": "f744e743fb869cbd11f108ea489f21ec7dfe8d03c876a4ca437f660e908cca8d",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": ["advisorPartyId"]
+    },
+    "POST /api/v1/construction-period-interest/:recordId/void": {
+      "requests": 2,
+      "sha256": "11ccc799171db3c1e68ea6659ae1205e3ea696fd418f464f9c579231963ec459",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": []
+    },
+    "POST /api/v1/depreciation-assets": {
+      "requests": 3642,
+      "sha256": "3eed597880ee30b8ad25cd08cb2b7ae0ade97cdf3a680234859212dca50a7f02",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": [
+        "assetType",
+        "buildingCompletionYear",
+        "description",
+        "usefulLifeYears",
+        "usefulLifeBasis",
+        "acquiredOn",
+        "items",
+        "items.0.sourceType",
+        "items.0.sourceId",
+        "items.0.sourcePosition",
+        "sourceReferences",
+        "depreciationMethod",
+        "reviewState",
+        "advisorPartyId",
+        "shorterUsefulLives",
+        "shorterUsefulLives.0.acquisitionId",
+        "shorterUsefulLives.0.usefulLifeYears",
+        "shorterUsefulLives.0.evidence",
+        "shorterUsefulLives.0.evidence.source",
+        "shorterUsefulLives.0.evidence.date",
+        "shorterUsefulLives.0.evidence.valuationDate",
+        "shorterUsefulLives.0.evidence.documentReference",
+        "shorterUsefulLives.0.evidence.documentId",
+        "shorterUsefulLives.0.reviewState",
+        "shorterUsefulLives.0.advisorPartyId",
+        "shorterUsefulLives.0.releaseNote",
+        "shorterUsefulLives.0.declaredAfa",
+        "shorterUsefulLives.0.declaredAfa.0.partyId",
+        "shorterUsefulLives.0.declaredAfa.0.throughYear",
+        "shorterUsefulLives.0.declaredAfa.0.amount",
+        "shorterUsefulLives.0.declaredAfa.0.amount.amount",
+        "shorterUsefulLives.0.declaredAfa.0.amount.currency",
+        "shorterUsefulLives.0.declaredAfa.0.evidenceReference",
+        "purchaseMethods",
+        "purchaseMethods.0.acquisitionId",
+        "purchaseMethods.0.consideration",
+        "purchaseMethods.0.method",
+        "purchaseMethods.0.specialDepreciation",
+        "purchaseMethods.0.subsidiesReceived",
+        "purchaseMethods.0.newBuildingByConversion",
+        "purchaseMethods.0.otherSpecialCase",
+        "purchaseMethods.0.otherSpecialCaseNote",
+        "purchaseMethods.0.evidence",
+        "purchaseMethods.0.evidence.source",
+        "purchaseMethods.0.evidence.date",
+        "purchaseMethods.0.evidence.documentReference",
+        "purchaseMethods.0.evidence.documentId",
+        "purchaseMethods.0.reviewState",
+        "purchaseMethods.0.advisorPartyId",
+        "purchaseMethods.0.notes",
+        "notes",
+        "documentIds"
+      ]
+    },
+    "POST /api/v1/depreciation-assets/:assetId/amend": {
+      "requests": 3502,
+      "sha256": "e8ca37849e64fd6997b6e00ab39780f7335da60b7dee1506326e05e1b76b63aa",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": [
+        "buildingCompletionYear",
+        "usefulLifeYears",
+        "usefulLifeBasis",
+        "acquiredOn",
+        "items",
+        "items.0.sourceType",
+        "items.0.sourceId",
+        "items.0.sourcePosition",
+        "sourceReferences",
+        "notes",
+        "shorterUsefulLives",
+        "shorterUsefulLives.0.acquisitionId",
+        "shorterUsefulLives.0.usefulLifeYears",
+        "shorterUsefulLives.0.evidence",
+        "shorterUsefulLives.0.evidence.source",
+        "shorterUsefulLives.0.evidence.date",
+        "shorterUsefulLives.0.evidence.valuationDate",
+        "shorterUsefulLives.0.evidence.documentReference",
+        "shorterUsefulLives.0.evidence.documentId",
+        "shorterUsefulLives.0.reviewState",
+        "shorterUsefulLives.0.advisorPartyId",
+        "shorterUsefulLives.0.releaseNote",
+        "shorterUsefulLives.0.declaredAfa",
+        "shorterUsefulLives.0.declaredAfa.0.partyId",
+        "shorterUsefulLives.0.declaredAfa.0.throughYear",
+        "shorterUsefulLives.0.declaredAfa.0.amount",
+        "shorterUsefulLives.0.declaredAfa.0.amount.amount",
+        "shorterUsefulLives.0.declaredAfa.0.amount.currency",
+        "shorterUsefulLives.0.declaredAfa.0.evidenceReference",
+        "purchaseMethods",
+        "purchaseMethods.0.acquisitionId",
+        "purchaseMethods.0.consideration",
+        "purchaseMethods.0.method",
+        "purchaseMethods.0.specialDepreciation",
+        "purchaseMethods.0.subsidiesReceived",
+        "purchaseMethods.0.newBuildingByConversion",
+        "purchaseMethods.0.otherSpecialCase",
+        "purchaseMethods.0.otherSpecialCaseNote",
+        "purchaseMethods.0.evidence",
+        "purchaseMethods.0.evidence.source",
+        "purchaseMethods.0.evidence.date",
+        "purchaseMethods.0.evidence.documentReference",
+        "purchaseMethods.0.evidence.documentId",
+        "purchaseMethods.0.reviewState",
+        "purchaseMethods.0.advisorPartyId",
+        "purchaseMethods.0.notes",
+        "reviewState",
+        "propertyReferenceId",
+        "assetType",
+        "depreciationMethod"
+      ]
+    },
+    "POST /api/v1/depreciation-assets/:assetId/confirm": {
+      "requests": 142,
+      "sha256": "1f5a6ce57bf104f33b8cbc33cdba920c5fe7a86d22d6920b17de00c542571c61",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": ["advisorPartyId", "note"]
+    },
+    "POST /api/v1/depreciation-assets/:assetId/schedule-versions": {
+      "requests": 72,
+      "sha256": "64e5999c8edad668560ef6a789ea3f4ab4598bb242b1e173fe3200dde93e8a57",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": ["acceptChangedYears"]
+    },
+    "POST /api/v1/depreciation-assets/:assetId/void": {
+      "requests": 2,
+      "sha256": "677774c7b7be2731957db98ab0984471e921580723d5b7e20090fde8e1b45baa",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": []
+    },
+    "POST /api/v1/financial-accounts": {
+      "requests": 72,
+      "sha256": "c8d3b2aec8cd69f7af28b7f44d61b8ebdd73527784c6685dfa2e98c8b6453fb2",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": ["iban"]
+    },
+    "POST /api/v1/financial-accounts/:financialAccountId/close": {
+      "requests": 2,
+      "sha256": "33352afd10ae5a86f471c4f5812a40ee6773ef9e7ec4933b527e01ce1ba891f2",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": []
+    },
+    "POST /api/v1/imports/:importBatchId/review-items/:reviewItemId/resolve": {
+      "requests": 2,
+      "sha256": "630e0ba860160c50e2a8da6f9380de6f87b7acae0c7f800bf85ca775e18035aa",
+      "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Request body is too large.\"}}",
+      "last": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Request body is too large.\"}}",
+      "paths": []
+    },
+    "POST /api/v1/loans": {
+      "requests": 632,
+      "sha256": "ce55a8d4871a935b852b558f30df898d9d88d7464a85d5fd08eeccf714f127d3",
+      "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"borrowerPartyIds.0\",\"code\":\"LENDER_IS_BORROWER\"}]}}}",
+      "last": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"borrowerPartyIds.0\",\"code\":\"LENDER_IS_BORROWER\"}]}}}",
+      "paths": [
+        "borrowerPartyIds",
+        "principalOriginal",
+        "disbursementDate",
+        "maturityDate",
+        "acquisitionId",
+        "contractNumber",
+        "sourceReferences",
+        "notes",
+        "documentIds"
+      ]
+    },
+    "POST /api/v1/loans/:loanId/allocations": {
+      "requests": 492,
+      "sha256": "cb3bd0939feba4661a44ff38ca13c7c5f941650df52de9d89682819df283b935",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": ["basis", "allocations", "allocations.0.acquisitionId", "notes", "outsideLetting", "outsideLetting.share", "useEvidence"]
+    },
+    "POST /api/v1/loans/:loanId/allocations/:allocationSetId/tax-confirmations": {
+      "requests": 72,
+      "sha256": "18fa205111ccf7b1326045f2127019e55584de6b47c2191481bd53929e6bb6f2",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": ["advisorPartyId"]
+    },
+    "POST /api/v1/loans/:loanId/allocations/:allocationSetId/tax-confirmations/:confirmationId/withdraw": {
+      "requests": 2,
+      "sha256": "d90f25beda2988c646f3e336533ba7ac60b54b553ea2990b59d71d6d245e525f",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": []
+    },
+    "POST /api/v1/loans/:loanId/allocations/:allocationSetId/void": {
+      "requests": 2,
+      "sha256": "724e850385bc19ebc820d385423131b74aae59c5e645c0e4d9ff415f57b358a9",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": []
+    },
+    "POST /api/v1/loans/:loanId/amend": {
+      "requests": 632,
+      "sha256": "a620970ead0b67f6d51741c41773d90aab49c7d5288cbf072728d45c38c595b0",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": [
+        "lenderPartyId",
+        "borrowerPartyIds",
+        "maturityDate",
+        "contractNumber",
+        "sourceReferences",
+        "principalOriginal",
+        "startDate",
+        "disbursementDate",
+        "acquisitionId"
+      ]
+    },
+    "POST /api/v1/loans/:loanId/balance-statements": {
+      "requests": 142,
+      "sha256": "01a4581a4d9503b4dcc85e2893d3e044989b02a83e2fb72f96782f8b5cc4d4be",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": ["balance", "notes"]
+    },
+    "POST /api/v1/loans/:loanId/balance-statements/:statementId/void": {
+      "requests": 2,
+      "sha256": "2f14c02210ee98ac424cb4a11eab9548ec1261d881187f2aa49cc73778f2a611",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": []
+    },
+    "POST /api/v1/loans/:loanId/close": {
+      "requests": 142,
+      "sha256": "c4500cf1e2e488eba4151e5ccb237caa7c289b4e13b007fd6629d843c764eca1",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": ["refinancedByLoanId", "closingNote"]
+    },
+    "POST /api/v1/loans/:loanId/terms": {
+      "requests": 772,
+      "sha256": "30ab33681a6712851fb5bf9e2e22cead899839b3390860af587f205131a4adb9",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": [
+        "scheduledPayment",
+        "principalAtStart",
+        "principalAtStart.amount",
+        "principalAtStart.currency",
+        "fixedRateUntil",
+        "initialRepaymentRate",
+        "specialRepaymentLimit",
+        "specialRepaymentLimit.amount",
+        "specialRepaymentLimit.currency",
+        "notes",
+        "paymentIntervalMonths"
+      ]
+    },
+    "POST /api/v1/loans/:loanId/terms/:termsId/void": {
+      "requests": 2,
+      "sha256": "c319805cb13cd85a4263eb8f9809f55ab342287ea15425445eeb1f18d409ff7a",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": []
+    },
+    "POST /api/v1/loans/:loanId/void": {
+      "requests": 2,
+      "sha256": "9706b9c3bbc50a0e77e3d48e8799edd49050a9e160541f36ed64689c2b08fa44",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": []
+    },
+    "POST /api/v1/ownerships": {
+      "requests": 282,
+      "sha256": "540fad4291ae1a279612789e644c833d5aecae2569888a7b662bc170e0738567",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": ["validUntil", "acquisitionId", "sourceReferences", "notes"]
+    },
+    "POST /api/v1/ownerships/:ownershipId/close": {
+      "requests": 2,
+      "sha256": "ff9dcec8774f433072a8c32684f59056a92f8bf3bf26724a43f63a8bf3fde8c1",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": []
+    },
+    "POST /api/v1/ownerships/:ownershipId/void": {
+      "requests": 2,
+      "sha256": "7df7fd43ec25868fbe08becc7a764e887037320972ffa36193c800e24c220243",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": []
+    },
+    "POST /api/v1/parties": {
+      "requests": 422,
+      "sha256": "51d2c8b0f31e477c0736a6b9e27cc15fcf3f5a30061b6d6bbcc0fc06d338bffa",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": ["firstName", "lastName", "legalName", "registrationNumber", "email", "phone"]
+    },
+    "POST /api/v1/parties/:partyId/amend": {
+      "requests": 422,
+      "sha256": "af8f56a50ca871f6b8471562595fa61510a75f1deb57b7b55008bdc51cd4f35e",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": ["firstName", "lastName", "legalName", "registrationNumber", "email", "phone"]
+    },
+    "POST /api/v1/parties/:partyId/deactivate": {
+      "requests": 2,
+      "sha256": "a564dc55d49d1183f6e63cfd095eb20d24312481ee946b32abef54618dc9f4a7",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": []
+    },
+    "POST /api/v1/parties/:partyId/external-references": {
+      "requests": 72,
+      "sha256": "36da08ee8b9ede10584f1a3b9ac03dec3bf76b7a4465d570e7661f6dff215587",
+      "first": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"entityType\",\"code\":\"INVALID_FORMAT\"}]}}}",
+      "last": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"entityType\",\"code\":\"INVALID_FORMAT\"}]}}}",
+      "paths": ["entityType"]
+    },
+    "POST /api/v1/parties/:partyId/external-references/:externalReferenceId/end": {
+      "requests": 2,
+      "sha256": "79c39a160df9cdb4da63b200b142deb49ee81e310909e982ce34d2ec39498843",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": []
+    },
+    "POST /api/v1/property-references/:propertyReferenceId/ownership-changes": {
+      "requests": 352,
+      "sha256": "bd5f1005e39e760ee41c5b2af369795abc36da7de9fa9d254621b86ecf3f225d",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": ["close", "create", "create.0.sourceReferences", "create.0.notes", "acquisitionId"]
+    },
+    "POST /api/v1/property-references/:propertyReferenceId/refresh": {
+      "requests": 2,
+      "sha256": "cb97e943f634f384dcb150321bff6bde80a8134cf150c2e47ac805476a4a2f64",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": []
+    },
+    "POST /api/v1/property-references/:propertyReferenceId/tax-years/:year/acknowledgements": {
+      "requests": 72,
+      "sha256": "9250a7296cc664548f15c53f0bba92d9cfe27d24199a6c805c6902abcdfd34ea",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": ["kind"]
+    },
+    "POST /api/v1/property-references/:propertyReferenceId/tax-years/:year/acknowledgements/:acknowledgementId/withdraw": {
+      "requests": 2,
+      "sha256": "041fef8945c075699322325ad48bdef4e57a9449e86fcc2e6401732596331791",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": []
+    },
+    "POST /api/v1/property-references/link": {
+      "requests": 2,
+      "sha256": "626a1b883459d138bde92992bd4de9db3d1f3319a6389abbce803e5dc0e92c5b",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": []
+    },
+    "POST /api/v1/rent-reconciliations": {
+      "requests": 142,
+      "sha256": "f040600df1d2519515750b3ec542c96496b4ba7b77d6a133a759511ccaf1ddc3",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": ["matchedAmount", "notes"]
+    },
+    "POST /api/v1/rent-reconciliations/:reconciliationId/confirm": {
+      "requests": 212,
+      "sha256": "a20b190d405e83aa9a638de4a1cd2a569f62bb4aa33bcb227e6acd93d17e8c3a",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": ["matchedAmount", "matchedAmount.amount", "matchedAmount.currency"]
+    },
+    "POST /api/v1/rent-reconciliations/:reconciliationId/reject": {
+      "requests": 2,
+      "sha256": "294a2f50a8fd52af1af1d33fbf49048ace3221b2139eb64581bacbab7482a553",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": []
+    },
+    "POST /api/v1/rent-reconciliations/:reconciliationId/release": {
+      "requests": 2,
+      "sha256": "e146143eaba7f1c3731ed6f6759dd87bf4cb03b7c9ed7c39b67740b7b9b0d16f",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": []
+    },
+    "POST /api/v1/rent-reconciliations/:reconciliationId/remove-from-mre": {
+      "requests": 2,
+      "sha256": "3eda36a4629c7f7e998cdfb5c1e407e1e7ecb6a6b2930632ce1dc846b9a39c8d",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": []
+    },
+    "POST /api/v1/rent-reconciliations/:reconciliationId/write-back-to-mre": {
+      "requests": 2,
+      "sha256": "bce2b328a4b0ff67d7c01747aa6640d602b044d285d253de4a339bc70ba7f123",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": []
+    },
+    "POST /api/v1/rent-reconciliations/suggest": {
+      "requests": 2,
+      "sha256": "c6708aa46da4353dc13d9c5913ac8aaf0ed79b4e3f06523b7c0e9132853f6774",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": []
+    },
+    "POST /api/v1/rental-contract-references": {
+      "requests": 422,
+      "sha256": "ab3edbb1091918197dcf9f0e8c39e8567a4f40de36806e9319e8904fb0c85268",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": ["rentDueDays", "rentDueDays.0.validFrom", "rentDueDays.0.day", "rentDueDays.0.evidenceReference", "notes", "sourceReferences"]
+    },
+    "POST /api/v1/rental-contract-references/:rentalContractReferenceId/amend": {
+      "requests": 492,
+      "sha256": "c046e1dba998f38f494555f78d18541ab33727d8ff1b49e196a56ab3c083d222",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": ["rentDueDays", "rentDueDays.0.validFrom", "rentDueDays.0.day", "rentDueDays.0.evidenceReference", "notes", "sourceReferences", "mreTenantId"]
+    },
+    "POST /api/v1/security-deposits": {
+      "requests": 422,
+      "sha256": "3a435c33389e7b16c03d42f6ed56175a7c67f5fe234ed63e9abc266505de596d",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": ["expectedAmount", "expectedAmount.amount", "expectedAmount.currency", "holdingFinancialAccountId", "interestBearing", "notes"]
+    },
+    "POST /api/v1/security-deposits/:securityDepositId/amend": {
+      "requests": 422,
+      "sha256": "792f181bad64474adc7d824a1701aebbe34fbeec6cedb720b1cf3ba1e66a0e08",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": ["expectedAmount", "expectedAmount.amount", "expectedAmount.currency", "holdingFinancialAccountId", "interestBearing", "mreTenantId"]
+    },
+    "POST /api/v1/security-deposits/:securityDepositId/close": {
+      "requests": 72,
+      "sha256": "bcd2744b4585d2903d29ef5bc3ec4431685af32200d6a82f0273ed06dd071386",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": ["closingNote"]
+    },
+    "POST /api/v1/security-deposits/:securityDepositId/reopen": {
+      "requests": 2,
+      "sha256": "30a10f7c9d538f9bf74f8eeaebacb3dcddc9e9b4adfc045972a861491ecc5e18",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": []
+    },
+    "POST /api/v1/security-deposits/:securityDepositId/void": {
+      "requests": 2,
+      "sha256": "72adc7d7a24b2ab5edc8112324b8d5c76c16eeda34602f7243e82494102c979c",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": []
+    },
+    "POST /api/v1/tax-classifications": {
+      "requests": 1962,
+      "sha256": "75b83f5a31799a628d94739b19e407040e6a17158d4415c424643d5c5406e2bb",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": [
+        "reviewState",
+        "supersedes",
+        "notes",
+        "sourceReferences",
+        "taxYear",
+        "refundOfYear",
+        "sourcePosition",
+        "netAmount",
+        "netAmount.amount",
+        "netAmount.currency",
+        "annuallyRecurring",
+        "distributionYears",
+        "mostlyResidentialConfirmed",
+        "anschaffungsnaheAcquisitionId",
+        "constructionPeriodInterestId",
+        "performance",
+        "performance.from",
+        "performance.until",
+        "performance.progress",
+        "performance.progress.0.through",
+        "performance.progress.0.amount",
+        "performance.progress.0.amount.amount",
+        "performance.progress.0.amount.currency",
+        "performance.progressEstimated",
+        "partialTreatment",
+        "interestPeriod",
+        "interestPeriod.from",
+        "interestPeriod.until"
+      ]
+    },
+    "POST /api/v1/tax-classifications/:classificationId/advisor-confirm": {
+      "requests": 142,
+      "sha256": "85c290e7efa87ee684ca6a12de9a3b0582f939157b2089a67eb22eb6e9e2efea",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": ["advisorPartyId", "note"]
+    },
+    "POST /api/v1/tax-classifications/:classificationId/confirm": {
+      "requests": 2,
+      "sha256": "11c918c1905e3d2e7013ff8652ceafd85060f86ff25972eac5fc71879513f0af",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": []
+    },
+    "POST /api/v1/tax-classifications/:classificationId/mark-needs-review": {
+      "requests": 2,
+      "sha256": "31e1ace4ea9c55a8d7f438832ce8a56a13440785cc21a439b32c0b505818ce68",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": []
+    },
+    "POST /api/v1/transactions": {
+      "requests": 422,
+      "sha256": "8d02cdee5ff1e6dc9a6d2d9647581518a0a4a8bee242d84c8602eb14d5cd1d66",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": ["amount", "valueDate", "description", "propertyReferenceId", "rentalContractReferenceId", "provenance"]
+    },
+    "POST /api/v1/transactions/:transactionId/amend": {
+      "requests": 562,
+      "sha256": "33ee217f7fd0d4b6e2b54333065c20ad31710d74d2c3ba78a62e190dae99d4d4",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": ["financialAccountId", "amount", "amount.amount", "amount.currency", "direction", "bookingDate", "valueDate", "propertyReferenceId"]
+    },
+    "POST /api/v1/transactions/:transactionId/confirm": {
+      "requests": 2,
+      "sha256": "9ec9a51631106288eee06cb2cb13366f6bc2ef92058b081d06d6605235691f1d",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": []
+    },
+    "POST /api/v1/transactions/:transactionId/correct": {
+      "requests": 1822,
+      "sha256": "df1831dfcc380ba5971501fae31c8e7436f6776db0e78070abce1984a0fadb64",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": [
+        "replacement.financialAccountId",
+        "replacement.amount",
+        "replacement.amount.amount",
+        "replacement.amount.currency",
+        "replacement.direction",
+        "replacement.bookingDate",
+        "replacement.valueDate",
+        "replacement.description",
+        "replacement.propertyReferenceId",
+        "replacement.splits",
+        "replacement.splits.0.amount",
+        "replacement.splits.0.amount.amount",
+        "replacement.splits.0.amount.currency",
+        "replacement.splits.0.financialCategoryCode",
+        "replacement.splits.0.propertyReferenceId",
+        "replacement.splits.0.loanId",
+        "replacement.splits.0.securityDepositId",
+        "replacement.splits.0.wegAnnualStatementId",
+        "replacement.splits.0.wegSpecialAssessmentId",
+        "replacement.splits.0.description",
+        "replacement.splits.0.direction",
+        "replacement.splits.0.rentalContractReferenceId",
+        "replacement.splits.0.wegId",
+        "replacement.splits.0.maintenanceProjectId",
+        "replacement.splits.0.acquisitionId",
+        "replacement.splits.0.taxClassificationId"
+      ]
+    },
+    "POST /api/v1/transactions/:transactionId/ignore": {
+      "requests": 2,
+      "sha256": "8519d9212add192686ffee843079e657763c3519848443771a42a3ff5bc4704c",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": []
+    },
+    "POST /api/v1/transactions/:transactionId/restore": {
+      "requests": 2,
+      "sha256": "345c3e5a474444c0fe5f6c8a5d283e00f27c3daeab9757468b4b5f79be8b3a3a",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": []
+    },
+    "POST /api/v1/transactions/:transactionId/reverse": {
+      "requests": 2,
+      "sha256": "86a432cd746b13cf2df09beece9a7872cec14738c46e5ad76ac08fbd7746d84c",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": []
+    },
+    "PUT /api/v1/transactions/:transactionId/splits": {
+      "requests": 982,
+      "sha256": "cfa46b8bdf9f6724353061c0be5048f58d3e1ef6d38a9e88f5a57c93272e8f1b",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": [
+        "splits",
+        "splits.0.amount",
+        "splits.0.propertyReferenceId",
+        "splits.0.loanId",
+        "splits.0.securityDepositId",
+        "splits.0.wegAnnualStatementId",
+        "splits.0.wegSpecialAssessmentId",
+        "splits.0.description",
+        "splits.0.direction",
+        "splits.0.rentalContractReferenceId",
+        "splits.0.wegId",
+        "splits.0.maintenanceProjectId",
+        "splits.0.acquisitionId",
+        "splits.0.taxClassificationId"
+      ]
+    },
+    "PUT /api/v1/weg-annual-statements/:statementId": {
+      "requests": 3712,
+      "sha256": "8598fc3516373641b8cb6c889fdfa6109549a685c2dbe4d82457ba2e0c6fedd7",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": [
+        "documentDate",
+        "resolutionDate",
+        "dueDate",
+        "supersedes",
+        "costLines",
+        "costLines.0.allocationTotal",
+        "costLines.0.allocationShare",
+        "costLines.0.totalAmount",
+        "costLines.0.unitShare",
+        "costLines.0.classification",
+        "recoverableSubtotal",
+        "nonRecoverableSubtotal",
+        "totalCosts",
+        "hausgeldRequested",
+        "hausgeldPaid",
+        "reserveRequested",
+        "reserveRequested.amount",
+        "reserveRequested.currency",
+        "reservePaid",
+        "reservePaid.amount",
+        "reservePaid.currency",
+        "settlementPeak",
+        "settlementResult",
+        "settlementResult.amount",
+        "settlementResult.currency",
+        "reserve",
+        "reserve.source",
+        "reserve.lines",
+        "reserve.lines.0.position",
+        "reserve.lines.0.description",
+        "reserve.lines.0.kind",
+        "reserve.lines.0.opening",
+        "reserve.lines.0.opening.amount",
+        "reserve.lines.0.opening.currency",
+        "reserve.lines.0.addition",
+        "reserve.lines.0.addition.amount",
+        "reserve.lines.0.addition.currency",
+        "reserve.lines.0.withdrawal",
+        "reserve.lines.0.withdrawal.amount",
+        "reserve.lines.0.withdrawal.currency",
+        "reserve.lines.0.closing",
+        "reserve.lines.0.closing.amount",
+        "reserve.lines.0.closing.currency",
+        "reserve.lines.0.date",
+        "reserve.unitShareOpening",
+        "reserve.unitShareOpening.amount",
+        "reserve.unitShareOpening.currency",
+        "reserve.unitShareClosing",
+        "reserve.unitShareClosing.amount",
+        "reserve.unitShareClosing.currency",
+        "sourceReferences",
+        "notes",
+        "documentId"
+      ]
+    },
+    "POST /api/v1/weg-annual-statements/:statementId/confirm": {
+      "requests": 2,
+      "sha256": "5cfcebdaf7f21e0f1c2808ab56cfcff1cdb280b297bb39a99e197daeda325ebf",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": []
+    },
+    "POST /api/v1/weg-annual-statements/:statementId/void": {
+      "requests": 2,
+      "sha256": "8b4c319cddbf0675a036846b4b5846acbaaf0e649a19f0e427d4abe3af068f5f",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": []
+    },
+    "POST /api/v1/weg-economic-plans/:planId/void": {
+      "requests": 2,
+      "sha256": "14bb7c432e8a10bee072dc624512e65407471159e0f55e97950fd057abaf3de4",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": []
+    },
+    "POST /api/v1/weg-memberships/:membershipId/amend": {
+      "requests": 422,
+      "sha256": "1641d29c1e6734f062b6f2d5812b619780e6b2371faa9d89ca850466e92fd9b6",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": ["sourceReferences", "wegId", "propertyReferenceId", "miteigentumsanteil", "validFrom", "validUntil"]
+    },
+    "POST /api/v1/weg-memberships/:membershipId/annual-statements": {
+      "requests": 3712,
+      "sha256": "7c6c84fadd487e2362e21c1621409f110f73ab5307dee4160028d9bae7e42dc1",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": [
+        "documentDate",
+        "resolutionDate",
+        "dueDate",
+        "supersedes",
+        "costLines",
+        "costLines.0.allocationTotal",
+        "costLines.0.allocationShare",
+        "costLines.0.totalAmount",
+        "costLines.0.unitShare",
+        "costLines.0.classification",
+        "recoverableSubtotal",
+        "nonRecoverableSubtotal",
+        "totalCosts",
+        "hausgeldRequested",
+        "hausgeldPaid",
+        "reserveRequested",
+        "reserveRequested.amount",
+        "reserveRequested.currency",
+        "reservePaid",
+        "reservePaid.amount",
+        "reservePaid.currency",
+        "settlementPeak",
+        "settlementResult",
+        "settlementResult.amount",
+        "settlementResult.currency",
+        "reserve",
+        "reserve.source",
+        "reserve.lines",
+        "reserve.lines.0.position",
+        "reserve.lines.0.description",
+        "reserve.lines.0.kind",
+        "reserve.lines.0.opening",
+        "reserve.lines.0.opening.amount",
+        "reserve.lines.0.opening.currency",
+        "reserve.lines.0.addition",
+        "reserve.lines.0.addition.amount",
+        "reserve.lines.0.addition.currency",
+        "reserve.lines.0.withdrawal",
+        "reserve.lines.0.withdrawal.amount",
+        "reserve.lines.0.withdrawal.currency",
+        "reserve.lines.0.closing",
+        "reserve.lines.0.closing.amount",
+        "reserve.lines.0.closing.currency",
+        "reserve.lines.0.date",
+        "reserve.unitShareOpening",
+        "reserve.unitShareOpening.amount",
+        "reserve.unitShareOpening.currency",
+        "reserve.unitShareClosing",
+        "reserve.unitShareClosing.amount",
+        "reserve.unitShareClosing.currency",
+        "sourceReferences",
+        "notes",
+        "documentId"
+      ]
+    },
+    "POST /api/v1/weg-memberships/:membershipId/economic-plans": {
+      "requests": 1822,
+      "sha256": "431a68576d7694b7f0ef30c8626b2a00ef4e2bbd5053c4bea9b90ea3d9eb4050",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": [
+        "resolutionDate",
+        "advanceDueDay",
+        "monthlyHausgeld",
+        "monthlyReserveContribution",
+        "recoverableCosts",
+        "nonRecoverableCosts",
+        "income",
+        "income.amount",
+        "income.currency",
+        "annualReserveContribution",
+        "annualReserveContribution.amount",
+        "annualReserveContribution.currency",
+        "costLines",
+        "costLines.0.position",
+        "costLines.0.description",
+        "costLines.0.allocationKey",
+        "costLines.0.totalAmount",
+        "costLines.0.totalAmount.amount",
+        "costLines.0.totalAmount.currency",
+        "costLines.0.unitShare",
+        "costLines.0.unitShare.amount",
+        "costLines.0.unitShare.currency",
+        "costLines.0.group",
+        "sourceReferences",
+        "notes",
+        "documentId"
+      ]
+    },
+    "POST /api/v1/weg-memberships/:membershipId/end": {
+      "requests": 2,
+      "sha256": "16ebfed57dc7f669c0514d8f54dcd4596a36cc934f8327d01f24039ba2cd16fd",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": []
+    },
+    "POST /api/v1/weg-memberships/:membershipId/special-assessments": {
+      "requests": 632,
+      "sha256": "2df9859c8c0104943bf32a9dd82e62219161c7e6df721c93e615c07d4742ff02",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": [
+        "totalAmount",
+        "totalAmount.amount",
+        "totalAmount.currency",
+        "unitShare",
+        "instalments",
+        "instalments.0.amount",
+        "sourceReferences",
+        "notes",
+        "documentId"
+      ]
+    },
+    "POST /api/v1/weg-memberships/:membershipId/void": {
+      "requests": 2,
+      "sha256": "70b5c0a2b7740d834d73a3490c231f2a49decec3724573940edae46fe008396c",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": []
+    },
+    "POST /api/v1/weg-special-assessments/:assessmentId/amend": {
+      "requests": 562,
+      "sha256": "4f7aefdc005f9146680fd569220835e71ca0acc1bdd0677cd9e0bdc548822bbc",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": ["totalAmount", "totalAmount.amount", "totalAmount.currency", "unitShare", "instalments", "instalments.0.amount", "sourceReferences", "notes"]
+    },
+    "PUT /api/v1/weg-special-assessments/:assessmentId/uses": {
+      "requests": 422,
+      "sha256": "75145c68904c6dcb08972020d44048e306801983881a281df10d7ae68a561235",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": ["uses.0.position", "uses.0.date", "uses.0.description", "uses.0.unitShare", "uses.0.unitShare.amount", "uses.0.unitShare.currency"]
+    },
+    "POST /api/v1/weg-special-assessments/:assessmentId/void": {
+      "requests": 2,
+      "sha256": "ef8b9d44ac25fed5d28deb0c9db396d298ba7c78210bec28cf8429a30fcbfc5b",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": []
+    },
+    "POST /api/v1/wegs": {
+      "requests": 282,
+      "sha256": "fb6241394eb54a8e4a52e0b67c7fcdf32ecacea961d96b03eecef736712c33a2",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": ["administratorPartyId", "financialYearStartMonth", "notes", "administratorContractDocumentId"]
+    },
+    "POST /api/v1/wegs/:wegId/amend": {
+      "requests": 212,
+      "sha256": "8dd61f4fecc07c434ed63fef1251dd08ae395647b4c4425ead020812ac76b7b8",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": ["administratorPartyId", "financialYearStartMonth", "notes"]
+    },
+    "POST /api/v1/wegs/:wegId/memberships": {
+      "requests": 282,
+      "sha256": "5bf186b7d3959e5812b75aef131f98f4a0886d13c68afeef7a9005726f4a6b0a",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": ["validUntil", "sourceReferences", "notes", "sourceDocumentId"]
+    },
+    "POST /api/v1/wegs/:wegId/void": {
+      "requests": 2,
+      "sha256": "74622554aa1f1b4ebeb581111b2cf5372fa169bed92ce2eabb8532d53689543c",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "paths": []
+    }
+  },
+  "queries": {
+    "GET /api/v1/acquisitions": {
+      "requests": 1,
+      "sha256": "30e5420a82f975d5caf45a182531520e01bc127d0b4af9e9fe1994cc46262a9d",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": ["status", "page", "pageSize", "propertyReferenceId", "partyId"],
+      "paths": []
+    },
+    "GET /api/v1/acquisitions/:acquisitionId": {
+      "requests": 1,
+      "sha256": "513868856acf28199008e167cac67a2329e7faf14494454e506fcc210f0b4f1a",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": [],
+      "paths": []
+    },
+    "GET /api/v1/acquisitions/:acquisitionId/anschaffungsnahe-herstellungskosten": {
+      "requests": 1,
+      "sha256": "d5906ef17fdd3aec9f48165a066984570b54ad257097866c33f9b873727f3bb7",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": [],
+      "paths": []
+    },
+    "GET /api/v1/acquisitions/:acquisitionId/costs": {
+      "requests": 1,
+      "sha256": "2c8b312655a7952aab6826aabe1dc4981841e92e51a7b6e45afd1f8631486f2e",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": ["status"],
+      "paths": []
+    },
+    "GET /api/v1/acquisitions/:acquisitionId/costs/:costId/classifications": {
+      "requests": 1,
+      "sha256": "ac204e71f679ab108246ebf7fc8428802a05b2c884a955a2462382601aec530f",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": [],
+      "paths": []
+    },
+    "GET /api/v1/acquisitions/:acquisitionId/land-building-allocations": {
+      "requests": 1,
+      "sha256": "78794dcf0f7bb8c810ef6845ac129b88a1ff66fc185cedbc834730b0c1696298",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": [],
+      "paths": []
+    },
+    "GET /api/v1/acquisitions/:acquisitionId/owner-allocation": {
+      "requests": 1,
+      "sha256": "1e94721ef9bd0562ebfc3eab0e429a3e8fe73bce664e4e025c484515f4b934f8",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": [],
+      "paths": []
+    },
+    "GET /api/v1/acquisitions/:acquisitionId/payments": {
+      "requests": 1,
+      "sha256": "bc0c8eb62a39cb610c69eebef63632fc4da5840259b1e718cacde07bab0d8424",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": ["acquisitionCostId", "counting"],
+      "paths": []
+    },
+    "GET /api/v1/construction-period-interest": {
+      "requests": 1,
+      "sha256": "6a450c25a73a0e3a4db577c63416fb7f48109527bf05cac1db80c29812bb7743",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": ["loanId", "propertyReferenceId"],
+      "paths": []
+    },
+    "GET /api/v1/construction-period-interest/:recordId": {
+      "requests": 1,
+      "sha256": "ae35cece12d603efd62652561ae78eb67747b17ae003f6eab830b6c66bc86117",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": [],
+      "paths": []
+    },
+    "GET /api/v1/depreciation-assets/:assetId": {
+      "requests": 1,
+      "sha256": "5a13bbe45553652d88f85181437ded029c8791d1816de2f92b827b193f68d889",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": ["year"],
+      "paths": []
+    },
+    "GET /api/v1/depreciation-assets/:assetId/schedule": {
+      "requests": 1,
+      "sha256": "59bd8b2db8d3492023358a3337e70027d1e933c1af76aa27557edfd4bceac492",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": ["from", "to", "ownerPartyId"],
+      "paths": []
+    },
+    "GET /api/v1/depreciation-assets/:assetId/schedule-versions": {
+      "requests": 1,
+      "sha256": "5c37254c0cff46d7cb18fc8ed600be007890c5c7de63e46ecc81f26adc84b09c",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": ["status"],
+      "paths": []
+    },
+    "GET /api/v1/depreciation-assets/:assetId/schedule-versions/:versionId": {
+      "requests": 1,
+      "sha256": "4c8252752ee2a7a54b9ebfde3f9136912a08189f197b38b893deacc73c47908c",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": [],
+      "paths": []
+    },
+    "GET /api/v1/exports/transactions.csv": {
+      "requests": 1,
+      "sha256": "351a93da17110f5325f1312334638fda91ef0fb93d8e429924afbec25f662822",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": [
+        "financialAccountId",
+        "status",
+        "provenance",
+        "reviewable",
+        "current",
+        "propertyReferenceId",
+        "financialCategoryCode",
+        "bookingDateFrom",
+        "bookingDateTo",
+        "rows",
+        "dialect"
+      ],
+      "paths": []
+    },
+    "GET /api/v1/financial-accounts": {
+      "requests": 1,
+      "sha256": "fa7251f00a45f5b31f3231119a485eedd2e54653befba21406baaafe3c458992",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": ["status", "accountType", "page", "pageSize"],
+      "paths": []
+    },
+    "GET /api/v1/financial-accounts/:financialAccountId": {
+      "requests": 1,
+      "sha256": "c578c5f70877c63b549421a0a76c93c74104b829393fadaefb5a253fb617b459",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": [],
+      "paths": []
+    },
+    "GET /api/v1/financial-categories": {
+      "requests": 1,
+      "sha256": "e8eaa900fe489b4921e057a44eddfbc3e83faab8961409324a4e9df63abfe1b6",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": [],
+      "paths": []
+    },
+    "GET /api/v1/financial-categories/:code": {
+      "requests": 1,
+      "sha256": "09ff493c38e3dbddc2f4608c3f2e950d883c2fc696ebcee3f2616cdc16fc2261",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": [],
+      "paths": []
+    },
+    "GET /api/v1/health": {
+      "requests": 1,
+      "sha256": "13ef534b75a30c40b043192dfd07249b09358d785928fb03ef1af705b6cc5d1e",
+      "first": "{\"status\":\"ok\",\"mreRealmId\":\"64b0c0ffee0000000000000a\"}",
+      "last": "{\"status\":\"ok\",\"mreRealmId\":\"64b0c0ffee0000000000000a\"}",
+      "known": [],
+      "paths": []
+    },
+    "GET /api/v1/imports/:importBatchId": {
+      "requests": 1,
+      "sha256": "0bb27823d2a09a29ebad4874f4c47f7b40fb504d820ffba305330ac91151cf85",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": [],
+      "paths": []
+    },
+    "GET /api/v1/imports/:importBatchId/review-items": {
+      "requests": 1,
+      "sha256": "dfe86bd821701cf2b7bda19be74026d6fb31bcda904eb85d8f077020ad408de4",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": ["status"],
+      "paths": []
+    },
+    "GET /api/v1/loans": {
+      "requests": 1,
+      "sha256": "139de47cb55d292ec95e109604da5c5e2d55431b40058c7600e3a708301084ce",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": ["status", "partyId", "acquisitionId", "page", "pageSize"],
+      "paths": []
+    },
+    "GET /api/v1/loans/:loanId": {
+      "requests": 1,
+      "sha256": "47d434ec21abd74f38bc994afcd8afbe5acaf213724f4c931d7231c33ec1e904",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": [],
+      "paths": []
+    },
+    "GET /api/v1/loans/:loanId/allocations": {
+      "requests": 1,
+      "sha256": "96842c5f94b1146d41f15b675f0525062bf237bde95d2f15b89806a3b7be1fa0",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": ["status", "asOf"],
+      "paths": []
+    },
+    "GET /api/v1/loans/:loanId/allocations/:allocationSetId/tax-confirmations": {
+      "requests": 1,
+      "sha256": "ccaad3d63e823b50c394c42edf70f76913e5d88ed26cbc4cda2b09838e9445b5",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": [],
+      "paths": []
+    },
+    "GET /api/v1/loans/:loanId/balance-statements": {
+      "requests": 1,
+      "sha256": "43d23cd64b8fd80d38caf3c1bde7ff229d3c0a0416f4ef79f14d6ae43b22bb4e",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": ["status"],
+      "paths": []
+    },
+    "GET /api/v1/loans/:loanId/payment-proposal": {
+      "requests": 1,
+      "sha256": "a59bd31629c5a271d2794e01519cea56f8d93eb5db9a290780828000d3f6479a",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": ["transactionId"],
+      "paths": []
+    },
+    "GET /api/v1/loans/:loanId/payments": {
+      "requests": 1,
+      "sha256": "d05ccbe0cceffe26531df528b7e81eabac4af73e49a685a5e7638270d94e8a14",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": ["year", "perProperty"],
+      "paths": []
+    },
+    "GET /api/v1/loans/:loanId/remaining-debt": {
+      "requests": 1,
+      "sha256": "03b21943925cba488368e18c7859bff39d0df3454c3f1defafba5136450b8537",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": ["asOf", "perProperty"],
+      "paths": []
+    },
+    "GET /api/v1/loans/:loanId/schedule": {
+      "requests": 1,
+      "sha256": "548a962f4ccb74cb0c082b87059ce7e81142bdff06e938daf6da093482809e8e",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": ["from", "to"],
+      "paths": []
+    },
+    "GET /api/v1/loans/:loanId/terms": {
+      "requests": 1,
+      "sha256": "aaecfe35621718f40716b27c71db3a64eaaa9331f68e0248b3b9c1078c913fad",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": ["status"],
+      "paths": []
+    },
+    "GET /api/v1/ownerships/:ownershipId": {
+      "requests": 1,
+      "sha256": "5fcaa501b02717bbd9bcf8eed2eb37e4a90d9ad77f75f884a8d94266f0be1f9c",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": [],
+      "paths": []
+    },
+    "GET /api/v1/parties": {
+      "requests": 1,
+      "sha256": "67581b32615dd3da6c91bedc6a1dd3d9f9bad498a1243b3ccf781c4d80a452ac",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": ["partyType", "status", "name", "externalSystem", "externalId", "page", "pageSize"],
+      "paths": []
+    },
+    "GET /api/v1/parties/:partyId": {
+      "requests": 1,
+      "sha256": "28f3ea57acd0b45263612ac551eb71220e080aa3484a17fbd658e8543846ad05",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": [],
+      "paths": []
+    },
+    "GET /api/v1/parties/:partyId/external-references": {
+      "requests": 1,
+      "sha256": "dc067c60a4c28c5b48decaa7621ae038160b4519a772fa2406f9832b6b7649b6",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": ["status", "page", "pageSize"],
+      "paths": []
+    },
+    "GET /api/v1/property-references": {
+      "requests": 1,
+      "sha256": "d8e6d00f1e6a26803f96af5cdff3a3ff5b9b4b5e1304ae262f84bb140c3ee48f",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": ["externalReferenceState", "page", "pageSize"],
+      "paths": []
+    },
+    "GET /api/v1/property-references/:propertyReferenceId": {
+      "requests": 1,
+      "sha256": "dfce63461ce625bab724702d87916e1d339fef56cd561f1384546f50147b0e49",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": [],
+      "paths": []
+    },
+    "GET /api/v1/property-references/:propertyReferenceId/acquisitions": {
+      "requests": 1,
+      "sha256": "c03001c9bc5db51587c55c1e7d653627966d8052cac3dde9a3dfacd3c8ed5d33",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": ["status", "page", "pageSize"],
+      "paths": []
+    },
+    "GET /api/v1/property-references/:propertyReferenceId/depreciation-assets": {
+      "requests": 1,
+      "sha256": "b447bac36fd0b80d030f1196b85dcc7a831a0a67e09f7a86e35a44ea002a8ea9",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": ["status", "year"],
+      "paths": []
+    },
+    "GET /api/v1/property-references/:propertyReferenceId/export.json": {
+      "requests": 1,
+      "sha256": "23ca2b0ddb2e960d7fe411b3438be6c71a73a3c1830d109fa8aecb5397f2001c",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": [],
+      "paths": []
+    },
+    "GET /api/v1/property-references/:propertyReferenceId/loans": {
+      "requests": 1,
+      "sha256": "653fcbad70d7a33db1ee28c4bed070c885bfd96d1e864ce89de761518edc564b",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": ["asOf"],
+      "paths": []
+    },
+    "GET /api/v1/property-references/:propertyReferenceId/ownerships": {
+      "requests": 1,
+      "sha256": "3b1da1ccb69d37a3fdbd43f780cdaeae7498496f5e2af120a42eaaa3f0826865",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": ["asOf", "page", "pageSize"],
+      "paths": []
+    },
+    "GET /api/v1/property-references/:propertyReferenceId/tax-meanings": {
+      "requests": 1,
+      "sha256": "f830d89f7f0a7fe0710f4f7d64d9be5164d8804ec73ba836ed03f2d93ea20eb6",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": ["year", "reviewState", "origin", "taxCategory", "sourceType", "page", "pageSize"],
+      "paths": []
+    },
+    "GET /api/v1/property-references/:propertyReferenceId/tax-years/:year": {
+      "requests": 1,
+      "sha256": "8456aa3ecc19f55533740f295135526b4f018432c8cbd0730d28515d4fbe2af0",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": ["ownerPartyId"],
+      "paths": []
+    },
+    "GET /api/v1/property-references/:propertyReferenceId/tax-years/:year/acknowledgements": {
+      "requests": 1,
+      "sha256": "cfaadf02abfa9c3cc437c8996c065b6609ca6cee7041ae516a3e29c96e4f499a",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": ["status"],
+      "paths": []
+    },
+    "GET /api/v1/property-references/:propertyReferenceId/transactions": {
+      "requests": 1,
+      "sha256": "da6b754df299ecf29e6a814910171818bbd480545d233102ade1cee0f5a264d9",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": [
+        "financialAccountId",
+        "status",
+        "provenance",
+        "reviewable",
+        "current",
+        "financialCategoryCode",
+        "bookingDateFrom",
+        "bookingDateTo",
+        "page",
+        "pageSize"
+      ],
+      "paths": []
+    },
+    "GET /api/v1/property-references/:propertyReferenceId/weg-memberships": {
+      "requests": 1,
+      "sha256": "0c49b8e17dd43632473ba1e238c3bf09fc39f009d05b03ce56d671297095457e",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": ["asOf", "page", "pageSize"],
+      "paths": []
+    },
+    "GET /api/v1/rent-reconciliations": {
+      "requests": 1,
+      "sha256": "758438e4a10bdd1349734665a1bdb38a7f62675816e42c4b54b5d28bc5b0ef1f",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": ["status", "transactionId", "mreTenantId", "mreRentTerm", "page", "pageSize"],
+      "paths": []
+    },
+    "GET /api/v1/rent-reconciliations/:reconciliationId": {
+      "requests": 1,
+      "sha256": "c95d3a3d0aa23fcc53b6af47fcdc21b992d4489ea4c61f903780e828e77730d8",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": ["checkMre"],
+      "paths": []
+    },
+    "GET /api/v1/rent-reconciliations/split-proposal": {
+      "requests": 1,
+      "sha256": "90272d85cb22ccf967b036057948c070215023b85df1b44501bd15191c72ab2f",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": ["transactionId", "mreTenantId", "mreRentTerm"],
+      "paths": []
+    },
+    "GET /api/v1/rent-reconciliations/terms/:mreTenantId/:mreRentTerm": {
+      "requests": 1,
+      "sha256": "3afa7971b05a41c0fb87f503eafefa85d8a8bb5862397b20cc333f2b90fc98bb",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": [],
+      "paths": []
+    },
+    "GET /api/v1/rental-contract-references": {
+      "requests": 1,
+      "sha256": "8fb37e5646aa1034c14ee17a10bf198fe346e8b2c1c3b4f595bedf828c22ab21",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": ["mreTenantId"],
+      "paths": []
+    },
+    "GET /api/v1/rental-contract-references/:rentalContractReferenceId": {
+      "requests": 1,
+      "sha256": "982bd4f0551d87e8dd04a4c2b4740f717a3c07a4d72a8d76bd338991bdef0003",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": [],
+      "paths": []
+    },
+    "GET /api/v1/security-deposits": {
+      "requests": 1,
+      "sha256": "d489d58030cd4ac1d2a200bc299e79e4d601a8283a1273623cdfbae6f7f3ddc3",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": ["status", "state", "mreTenantId", "holdingFinancialAccountId", "page", "pageSize"],
+      "paths": []
+    },
+    "GET /api/v1/security-deposits/:depositId/tax-meaning": {
+      "requests": 1,
+      "sha256": "2367e6217d0b262e983c8092358da7ebe9c82256ce1aeb8566483e14c3d803e3",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": [],
+      "paths": []
+    },
+    "GET /api/v1/security-deposits/:securityDepositId": {
+      "requests": 1,
+      "sha256": "d8da18e718cecd39d2226cdc70dcff464203b68c4dbe5d2cf0522999720af7d5",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": ["checkMre"],
+      "paths": []
+    },
+    "GET /api/v1/tax-classifications": {
+      "requests": 1,
+      "sha256": "fec5cfebd5d3657c939d194856fb9b1e6b7675e8a21b01fe744848327859c8f8",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": ["sourceType", "sourceId", "sourcePosition"],
+      "paths": []
+    },
+    "GET /api/v1/tax-classifications/:classificationId": {
+      "requests": 1,
+      "sha256": "e4f1275417b561fd7a9bf5fd1f7564bfcfb788c8c4de6751970c3a1f076b3489",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": [],
+      "paths": []
+    },
+    "GET /api/v1/tax-rules": {
+      "requests": 1,
+      "sha256": "1212eea53e3a09ee91966ebb6bba4771f71a85668011cf18f13203f724d9cadf",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": [],
+      "paths": []
+    },
+    "GET /api/v1/tax-rules/:ruleCode": {
+      "requests": 1,
+      "sha256": "f939c28513dc76b1b4e079b0dec0275cc75ab110746bd0afd32f322f45ee4be4",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": [],
+      "paths": []
+    },
+    "GET /api/v1/transaction-splits/:splitId/tax-meaning": {
+      "requests": 1,
+      "sha256": "9ec5e33da547ace0449452426fff99454168afb5c47a90c6a53079d3be0358d1",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": [],
+      "paths": []
+    },
+    "GET /api/v1/transactions": {
+      "requests": 1,
+      "sha256": "c4ef541abcfaa936da6643100153ed49e2699ad4d75d4f1a6b7911ab0ca4f82d",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": [
+        "financialAccountId",
+        "status",
+        "provenance",
+        "reviewable",
+        "current",
+        "propertyReferenceId",
+        "financialCategoryCode",
+        "bookingDateFrom",
+        "bookingDateTo",
+        "page",
+        "pageSize"
+      ],
+      "paths": []
+    },
+    "GET /api/v1/transactions/:transactionId": {
+      "requests": 1,
+      "sha256": "8653c1328511e17cb66a70179106965045c096725220e10c7a29390cb4288e73",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": [],
+      "paths": []
+    },
+    "GET /api/v1/transactions/:transactionId/hausgeld-proposal": {
+      "requests": 1,
+      "sha256": "4376a48717d90e0d78b283dfce1728d1b146ba36832b8e7aa13b184114c23fb7",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": ["propertyReferenceId"],
+      "paths": []
+    },
+    "GET /api/v1/transactions/:transactionId/rent-reconciliations": {
+      "requests": 1,
+      "sha256": "915f9929585e007d2239e504867a2d3d64b102341a58b7618a068d7a02b33e70",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": [],
+      "paths": []
+    },
+    "GET /api/v1/transactions/:transactionId/settlement-proposal": {
+      "requests": 1,
+      "sha256": "017db2563dd32732b269ef93750a240a38edc8520a29bcb281d848e07ee033cc",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": ["statementId"],
+      "paths": []
+    },
+    "GET /api/v1/weg-annual-statements/:statementId": {
+      "requests": 1,
+      "sha256": "a316cfaa314f5f059f046ab6dca3297d4cf02a2539f8da92ee7933afdb9795b9",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": [],
+      "paths": []
+    },
+    "GET /api/v1/weg-annual-statements/:statementId/comparison": {
+      "requests": 1,
+      "sha256": "5ef444e31666c1c9b6dd69f8f4810d7a9b20f3afb1a1cf2dcedc450022038f0a",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": [],
+      "paths": []
+    },
+    "GET /api/v1/weg-annual-statements/:statementId/reserve-withdrawals/:position/tax-meaning": {
+      "requests": 1,
+      "sha256": "9188407b627679707bd026cea7001a4097b871e92b0c9f5e52b10838f12b3467",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": [],
+      "paths": []
+    },
+    "GET /api/v1/weg-economic-plans/:planId": {
+      "requests": 1,
+      "sha256": "50c3892ce70a8242cca6e71626212a9885f806b6553d141705eb478e1bbe85ad",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": [],
+      "paths": []
+    },
+    "GET /api/v1/weg-memberships/:membershipId": {
+      "requests": 1,
+      "sha256": "b2b425e9f21e531ae54d3aeac548b0d28049071c2362acdd322abefb5b5ffdb8",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": [],
+      "paths": []
+    },
+    "GET /api/v1/weg-memberships/:membershipId/annual-statements": {
+      "requests": 1,
+      "sha256": "084658f6211ae60174c2a0bf843d3e5df67a909372feb05914463afd8d46569f",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": ["status", "financialYear", "page", "pageSize"],
+      "paths": []
+    },
+    "GET /api/v1/weg-memberships/:membershipId/economic-plans": {
+      "requests": 1,
+      "sha256": "6cca3800c3057dd55516fa57811aa93b07ea4f506a6276eaa1573142fc614b75",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": ["status", "financialYear", "page", "pageSize"],
+      "paths": []
+    },
+    "GET /api/v1/weg-memberships/:membershipId/special-assessments": {
+      "requests": 1,
+      "sha256": "f4442d6af7970051919730111647b9fb74ad5fbc705ea4a8d4695115d67590d5",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": ["status", "purpose", "asOf", "page", "pageSize"],
+      "paths": []
+    },
+    "GET /api/v1/weg-special-assessments/:assessmentId": {
+      "requests": 1,
+      "sha256": "8558c7096fdffafb33326a768f74de6cf141509a8b204f103a4bdfe3fcb77906",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": ["asOf"],
+      "paths": []
+    },
+    "GET /api/v1/weg-special-assessments/:assessmentId/uses/:position/tax-meaning": {
+      "requests": 1,
+      "sha256": "458dee3e27c5dbdd2a437f281729363df91e253cf2b52750c4cba9f0c0f51176",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": [],
+      "paths": []
+    },
+    "GET /api/v1/wegs": {
+      "requests": 1,
+      "sha256": "dd09db7b0c9e8cc1887caf5a23adcc765e9ce56d6a9f7a647b5d06c1cc807baa",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": ["status", "administratorPartyId", "propertyReferenceId", "page", "pageSize"],
+      "paths": []
+    },
+    "GET /api/v1/wegs/:wegId": {
+      "requests": 1,
+      "sha256": "4dc3c76dbd68ad844e45638f039b1e297348d60f20c080299d03c76f83b267bf",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": [],
+      "paths": []
+    },
+    "GET /api/v1/wegs/:wegId/memberships": {
+      "requests": 1,
+      "sha256": "4f0f0d89697e83f60db912616dc502e6f8b28a098ad866b328dda3347faf20b6",
+      "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
+      "known": ["status", "propertyReferenceId", "page", "pageSize"],
+      "paths": []
+    }
+  }
+}

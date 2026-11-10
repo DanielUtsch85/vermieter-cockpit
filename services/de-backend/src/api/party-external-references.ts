@@ -9,7 +9,7 @@ import {
   type PartyExternalReference,
 } from '../application/index.js';
 import { principalOf } from './access-middleware.js';
-import { EMPTY_BODY, NO_QUERY, PAGING, readBody, readIfMatch, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
+import { EMPTY_BODY, jsonBody, NO_QUERY, PAGING, readBody, readIfMatch, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
 
 /** Phase 2: MRE Tenants only (api-design.md §20.1); `metadata` is not accepted yet. */
 const createBody = z
@@ -36,7 +36,7 @@ export interface ExternalReferenceCommands {
 export function externalReferenceRoutes(commands: ExternalReferenceCommands): Router {
   const router = express.Router();
 
-  router.post('/parties/:partyId/external-references', express.json({ limit: '16kb' }), (req, res, next) => {
+  router.post('/parties/:partyId/external-references', jsonBody('16kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const partyId = readId(req.params['partyId'], 'partyId', res);
     if (partyId === undefined) return;
@@ -60,7 +60,7 @@ export function externalReferenceRoutes(commands: ExternalReferenceCommands): Ro
   });
 
   // Takes no body: ending only sets the status (§20.1); no body, an empty one or `{}`, a field is unknown (§58X rule 3).
-  router.post('/parties/:partyId/external-references/:externalReferenceId/end', express.json({ limit: '16kb' }), (req, res, next) => {
+  router.post('/parties/:partyId/external-references/:externalReferenceId/end', jsonBody('16kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const partyId = readId(req.params['partyId'], 'partyId', res);
     if (partyId === undefined) return;

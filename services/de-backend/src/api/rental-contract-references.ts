@@ -16,7 +16,7 @@ import {
 import { zod3 } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
 import { businessDate, optionalText, readId } from './acquisitions.js';
-import { dayOfMonth, NO_QUERY, readBody, readIdempotencyKey, readIfMatch, readQuery, refuseQuery, sendValidationError } from './validation.js';
+import { dayOfMonth, jsonBody, NO_QUERY, readBody, readIdempotencyKey, readIfMatch, readQuery, refuseQuery, sendValidationError } from './validation.js';
 
 const mreTenantId = z.string().regex(MRE_EXTERNAL_ID);
 
@@ -66,7 +66,7 @@ export interface RentalContractReferenceCommands {
 export function rentalContractReferenceRoutes(commands: RentalContractReferenceCommands): Router {
   const router = express.Router();
 
-  router.post('/rental-contract-references', express.json({ limit: '32kb' }), (req, res, next) => {
+  router.post('/rental-contract-references', jsonBody('32kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
@@ -115,7 +115,7 @@ export function rentalContractReferenceRoutes(commands: RentalContractReferenceC
       .catch(next);
   });
 
-  router.post('/rental-contract-references/:rentalContractReferenceId/amend', express.json({ limit: '32kb' }), (req, res, next) => {
+  router.post('/rental-contract-references/:rentalContractReferenceId/amend', jsonBody('32kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const rentalContractReferenceId = readId(req.params['rentalContractReferenceId'], 'rentalContractReferenceId', res);
     if (rentalContractReferenceId === undefined) return;

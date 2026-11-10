@@ -27,7 +27,7 @@ import {
 } from './depreciation-asset-dto.js';
 import { depreciationScheduleRoutes } from './depreciation-schedule.js';
 import { scheduleVersionRoutes, type ScheduleVersionCommands } from './depreciation-schedule-versions.js';
-import { NO_QUERY, readBody, readIdempotencyKey, readIfMatch, readQuery, refuseQuery, sendValidationError } from './validation.js';
+import { jsonBody, NO_QUERY, readBody, readIdempotencyKey, readIfMatch, readQuery, refuseQuery, sendValidationError } from './validation.js';
 
 export interface DepreciationAssetCommands {
   readonly create: CreateDepreciationAsset;
@@ -46,7 +46,7 @@ export type DepreciationAssetCommandsWithVersions = DepreciationAssetCommands & 
 export function depreciationAssetRoutes(commands: DepreciationAssetCommandsWithVersions): Router {
   const router = express.Router();
 
-  router.post('/depreciation-assets', express.json({ limit: '64kb' }), (req, res, next) => {
+  router.post('/depreciation-assets', jsonBody('64kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
@@ -125,7 +125,7 @@ export function depreciationAssetRoutes(commands: DepreciationAssetCommandsWithV
       .catch(next);
   });
 
-  router.post('/depreciation-assets/:assetId/amend', express.json({ limit: '64kb' }), (req, res, next) => {
+  router.post('/depreciation-assets/:assetId/amend', jsonBody('64kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const assetId = readId(req.params['assetId'], 'assetId', res);
     if (assetId === undefined) return;
@@ -159,7 +159,7 @@ export function depreciationAssetRoutes(commands: DepreciationAssetCommandsWithV
       .catch(next);
   });
 
-  router.post('/depreciation-assets/:assetId/confirm', express.json({ limit: '32kb' }), (req, res, next) => {
+  router.post('/depreciation-assets/:assetId/confirm', jsonBody('32kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const assetId = readId(req.params['assetId'], 'assetId', res);
     if (assetId === undefined) return;
@@ -184,7 +184,7 @@ export function depreciationAssetRoutes(commands: DepreciationAssetCommandsWithV
       .catch(next);
   });
 
-  router.post('/depreciation-assets/:assetId/void', express.json({ limit: '32kb' }), (req, res, next) => {
+  router.post('/depreciation-assets/:assetId/void', jsonBody('32kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const assetId = readId(req.params['assetId'], 'assetId', res);
     if (assetId === undefined) return;

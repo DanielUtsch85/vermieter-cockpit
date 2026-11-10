@@ -231,8 +231,8 @@ const PROPERTY_2 = '6512f0c2a1b2c3d4e5f63902';
 const PHASE_3 = /^[A-Z]+ \/loans\b(?!.*\/tax-confirmations)|^[A-Z]+ \/property-references\/:propertyReferenceId\/loans$/;
 
 /**
- * Every route the app serves, from Express' router stack, relative to its mount point. This reads Express 4
- * internals (`app._router.stack`), as ACC2 does; on Express 5 it finds no routes and the comparison fails loudly.
+ * Every route the app serves, from Express' router stack, relative to its mount point. This reads Express 5
+ * internals (`app.router.stack`, VC-X-66), as ACC2 does; on another major it may find no routes and the comparison fails loudly.
  */
 function routesOf(app: Express): string[] {
   type Layer = { route?: { path: string; methods: Record<string, boolean> }; name?: string; handle: { stack?: Layer[] } };
@@ -241,7 +241,7 @@ function routesOf(app: Express): string[] {
       if (layer.route !== undefined) return Object.keys(layer.route.methods).map((method) => `${method.toUpperCase()} ${layer.route?.path}`);
       return layer.name === 'router' && layer.handle.stack !== undefined ? walk(layer.handle.stack) : [];
     });
-  return walk((app as unknown as { _router: { stack: Layer[] } })._router.stack);
+  return walk((app as unknown as { router: { stack: Layer[] } }).router.stack);
 }
 
 describe.skipIf(databaseUrl === undefined)('Phase 3 acceptance (roadmap exit)', () => {

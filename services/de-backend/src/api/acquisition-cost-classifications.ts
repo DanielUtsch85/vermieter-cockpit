@@ -11,7 +11,7 @@ import {
 import { Money, zod3 } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
 import { optionalText, readId } from './acquisitions.js';
-import { money, NO_QUERY, readBody, readIdempotencyKey, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
+import { jsonBody, money, NO_QUERY, readBody, readIdempotencyKey, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
 
 const uuid = zod3.transform(z.string().regex(RESOURCE_ID), (id) => id.toLowerCase());
 
@@ -65,7 +65,7 @@ export interface CostClassificationCommands {
 export function costClassificationRoutes(commands: CostClassificationCommands): Router {
   const router = express.Router();
 
-  router.post('/acquisitions/:acquisitionId/costs/:costId/classifications', express.json({ limit: '32kb' }), (req, res, next) => {
+  router.post('/acquisitions/:acquisitionId/costs/:costId/classifications', jsonBody('32kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const acquisitionId = readId(req.params['acquisitionId'], 'acquisitionId', res);
     if (acquisitionId === undefined) return;

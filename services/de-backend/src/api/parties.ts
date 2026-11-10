@@ -13,7 +13,18 @@ import {
   type Party,
 } from '../application/index.js';
 import { principalOf } from './access-middleware.js';
-import { NO_QUERY, PAGING, readBody, readIdempotencyKey, readIfMatch, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
+import {
+  jsonBody,
+  NO_QUERY,
+  PAGING,
+  readBody,
+  readIdempotencyKey,
+  readIfMatch,
+  readQuery,
+  refuseQuery,
+  RESOURCE_ID,
+  sendValidationError,
+} from './validation.js';
 
 /** Trimmed, at most `max`; empty (or null) becomes null (api-design.md §19.1). */
 const optionalText = (max: number) => zod3.transform(z.string().trim().max(max).nullable(), (value) => (value === '' ? null : value));
@@ -77,7 +88,7 @@ export interface PartyCommands {
 export function partyRoutes(commands: PartyCommands): Router {
   const router = express.Router();
 
-  router.post('/parties', express.json({ limit: '16kb' }), (req, res, next) => {
+  router.post('/parties', jsonBody('16kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
@@ -142,7 +153,7 @@ export function partyRoutes(commands: PartyCommands): Router {
       .catch(next);
   });
 
-  router.post('/parties/:partyId/amend', express.json({ limit: '16kb' }), (req, res, next) => {
+  router.post('/parties/:partyId/amend', jsonBody('16kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const partyId = readPartyId(req.params['partyId'], res);
     if (partyId === undefined) return;
@@ -165,7 +176,7 @@ export function partyRoutes(commands: PartyCommands): Router {
       .catch(next);
   });
 
-  router.post('/parties/:partyId/deactivate', express.json({ limit: '16kb' }), (req, res, next) => {
+  router.post('/parties/:partyId/deactivate', jsonBody('16kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const partyId = readPartyId(req.params['partyId'], res);
     if (partyId === undefined) return;

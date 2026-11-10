@@ -45,6 +45,9 @@ updates:
       # parsing rules are kept in shared/zod3.ts, and a new major needs the golden of every answer again.
       - dependency-name: zod
         update-types: ['version-update:semver-major']
+      # Express 5 is in (VC-X-66, with @types/express 5); these two entries now hold back the next major (Express 6,
+      # @types/express 6), planned work like Express 5 was: Express 4's answers are kept in api/express-compat.ts and
+      # jsonBody, and a new major needs the goldens of every answer and of Express's own answers again.
       - dependency-name: express
         update-types: ['version-update:semver-major']
       - dependency-name: '@types/express'

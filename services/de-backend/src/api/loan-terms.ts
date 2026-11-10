@@ -22,7 +22,18 @@ import { Money, zod3 } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
 import { eurCents, signedEurCents } from './cents.js';
 import { businessDate, optionalText, readId } from './acquisitions.js';
-import { money, NO_QUERY, readBody, readIdempotencyKey, readIfMatch, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
+import {
+  jsonBody,
+  money,
+  NO_QUERY,
+  readBody,
+  readIdempotencyKey,
+  readIfMatch,
+  readQuery,
+  refuseQuery,
+  RESOURCE_ID,
+  sendValidationError,
+} from './validation.js';
 
 /** Percent p.a. as a decimal string, at most three decimals, `0 ≤ r < 100`; a JSON number is refused (no float in transit). */
 const rate = zod3.transform(z.string(), (value, ctx) => {
@@ -108,7 +119,7 @@ export interface LoanTermsCommands {
 export function loanTermsRoutes(commands: LoanTermsCommands): Router {
   const router = express.Router();
 
-  router.post('/loans/:loanId/terms', express.json({ limit: '16kb' }), (req, res, next) => {
+  router.post('/loans/:loanId/terms', jsonBody('16kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const loanId = readId(req.params['loanId'], 'loanId', res);
     if (loanId === undefined) return;
@@ -145,7 +156,7 @@ export function loanTermsRoutes(commands: LoanTermsCommands): Router {
       .catch(next);
   });
 
-  router.post('/loans/:loanId/terms/:termsId/void', express.json({ limit: '16kb' }), (req, res, next) => {
+  router.post('/loans/:loanId/terms/:termsId/void', jsonBody('16kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const loanId = readId(req.params['loanId'], 'loanId', res);
     if (loanId === undefined) return;

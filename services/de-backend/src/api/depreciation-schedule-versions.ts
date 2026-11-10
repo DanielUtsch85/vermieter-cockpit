@@ -15,7 +15,7 @@ import {
 } from '../application/index.js';
 import { principalOf } from './access-middleware.js';
 import { readId } from './acquisitions.js';
-import { integerIn, NO_QUERY, readBody, readIdempotencyKey, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
+import { integerIn, jsonBody, NO_QUERY, readBody, readIdempotencyKey, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
 
 /**
  * Recorded depreciation schedule versions (api-design.md §60, backlog VC-8-04): the record command and the two reads.
@@ -65,7 +65,7 @@ const listQuery = z.object({
 export function scheduleVersionRoutes(commands: ScheduleVersionCommands): Router {
   const router = express.Router();
 
-  router.post('/depreciation-assets/:assetId/schedule-versions', express.json({ limit: '32kb' }), (req, res, next) => {
+  router.post('/depreciation-assets/:assetId/schedule-versions', jsonBody('32kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const errors: { field: string; code: string }[] = [];
     const rawId = req.params['assetId'];

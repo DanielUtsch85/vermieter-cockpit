@@ -65,7 +65,7 @@ function routesOf(app: Express): string[] {
       if (layer.route !== undefined) return Object.keys(layer.route.methods).map((method) => `${method.toUpperCase()} ${layer.route?.path}`);
       return layer.name === 'router' && layer.handle.stack !== undefined ? walk(layer.handle.stack) : [];
     });
-  return walk((app as unknown as { _router: { stack: Layer[] } })._router.stack);
+  return walk((app as unknown as { router: { stack: Layer[] } }).router.stack);
 }
 
 describe.skipIf(databaseUrl === undefined)('the DepreciationAsset (VC-8-01) end to end', () => {

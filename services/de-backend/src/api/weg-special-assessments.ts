@@ -16,7 +16,7 @@ import {
 import { Money, zod3 } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
 import { businessDate, definedOnly, optionalText, readId } from './acquisitions.js';
-import { money, NO_QUERY, PAGING, readBody, readIdempotencyKey, readIfMatch, readQuery, refuseQuery, sendValidationError } from './validation.js';
+import { jsonBody, money, NO_QUERY, PAGING, readBody, readIdempotencyKey, readIfMatch, readQuery, refuseQuery, sendValidationError } from './validation.js';
 
 const positive = money.superRefine((m, ctx) => {
   if (m instanceof Money && !m.isPositive()) ctx.addIssue({ code: 'custom', params: { code: 'NOT_POSITIVE' } });
@@ -104,7 +104,7 @@ export interface WegSpecialAssessmentCommands {
 export function wegSpecialAssessmentRoutes(commands: WegSpecialAssessmentCommands): Router {
   const router = express.Router();
 
-  router.post('/weg-memberships/:membershipId/special-assessments', express.json({ limit: '64kb' }), (req, res, next) => {
+  router.post('/weg-memberships/:membershipId/special-assessments', jsonBody('64kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const membershipId = readId(req.params['membershipId'], 'membershipId', res);
     if (membershipId === undefined) return;
@@ -168,7 +168,7 @@ export function wegSpecialAssessmentRoutes(commands: WegSpecialAssessmentCommand
       .catch(next);
   });
 
-  router.post('/weg-special-assessments/:assessmentId/amend', express.json({ limit: '64kb' }), (req, res, next) => {
+  router.post('/weg-special-assessments/:assessmentId/amend', jsonBody('64kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const assessmentId = readId(req.params['assessmentId'], 'assessmentId', res);
     if (assessmentId === undefined) return;
@@ -191,7 +191,7 @@ export function wegSpecialAssessmentRoutes(commands: WegSpecialAssessmentCommand
       .catch(next);
   });
 
-  router.post('/weg-special-assessments/:assessmentId/void', express.json({ limit: '16kb' }), (req, res, next) => {
+  router.post('/weg-special-assessments/:assessmentId/void', jsonBody('16kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const assessmentId = readId(req.params['assessmentId'], 'assessmentId', res);
     if (assessmentId === undefined) return;
@@ -214,7 +214,7 @@ export function wegSpecialAssessmentRoutes(commands: WegSpecialAssessmentCommand
       .catch(next);
   });
 
-  router.put('/weg-special-assessments/:assessmentId/uses', express.json({ limit: '64kb' }), (req, res, next) => {
+  router.put('/weg-special-assessments/:assessmentId/uses', jsonBody('64kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const assessmentId = readId(req.params['assessmentId'], 'assessmentId', res);
     if (assessmentId === undefined) return;

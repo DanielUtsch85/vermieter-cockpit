@@ -107,7 +107,7 @@ const JANUARY = '2028010100';
 const PHASE_7 =
   /^[A-Z]+ \/(?:(?:tax-rules|tax-classifications|rental-contract-references)\b|.*\/(?:tax-meaning|tax-meanings|anschaffungsnahe-herstellungskosten|tax-years\/:year)$)/;
 
-/** Every route the app serves, from Express' router stack (Express 4 internals, as ACC2–ACC6). */
+/** Every route the app serves, from Express' router stack (Express 5 internals `app.router.stack` since VC-X-66, as ACC2–ACC6). */
 function routesOf(app: Express): string[] {
   type Layer = { route?: { path: string; methods: Record<string, boolean> }; name?: string; handle: { stack?: Layer[] } };
   const walk = (stack: readonly Layer[]): string[] =>
@@ -115,7 +115,7 @@ function routesOf(app: Express): string[] {
       if (layer.route !== undefined) return Object.keys(layer.route.methods).map((method) => `${method.toUpperCase()} ${layer.route?.path}`);
       return layer.name === 'router' && layer.handle.stack !== undefined ? walk(layer.handle.stack) : [];
     });
-  return walk((app as unknown as { _router: { stack: Layer[] } })._router.stack);
+  return walk((app as unknown as { router: { stack: Layer[] } }).router.stack);
 }
 
 describe.skipIf(databaseUrl === undefined)('Phase 7 acceptance (roadmap exit)', () => {

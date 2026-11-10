@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { CurrencyMismatchError, FinancialCategoryNotFoundError, type SplitTransaction, type TransactionSplit } from '../application/index.js';
 import { zod3 } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
-import { NO_QUERY, readBody, readIfMatch, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
+import { jsonBody, NO_QUERY, readBody, readIfMatch, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
 import { split, toSplitInput, setVersionTag, toSplitDto, splitFieldCode, sendLoanSplitError } from './transaction-dto.js';
 import type { TransactionCommands } from './transactions.js';
 
@@ -25,7 +25,7 @@ function toSplitsDto(transaction: SplitTransaction, splits: readonly Transaction
 export function transactionSplitRoutes(commands: TransactionCommands): Router {
   const router = express.Router();
 
-  router.put('/transactions/:transactionId/splits', express.json({ limit: '64kb' }), (req, res, next) => {
+  router.put('/transactions/:transactionId/splits', jsonBody('64kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const id = req.params['transactionId'] ?? '';
     if (!RESOURCE_ID.test(id)) {

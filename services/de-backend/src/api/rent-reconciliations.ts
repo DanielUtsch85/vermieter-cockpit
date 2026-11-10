@@ -29,6 +29,7 @@ import { principalOf } from './access-middleware.js';
 import { definedOnly, optionalText, readId } from './acquisitions.js';
 import {
   fieldErrors,
+  jsonBody,
   money,
   NO_QUERY,
   PAGING,
@@ -127,7 +128,7 @@ export interface RentReconciliationCommands {
 export function rentReconciliationRoutes(commands: RentReconciliationCommands): Router {
   const router = express.Router();
 
-  router.post('/rent-reconciliations', express.json({ limit: '16kb' }), (req, res, next) => {
+  router.post('/rent-reconciliations', jsonBody('16kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
@@ -156,7 +157,7 @@ export function rentReconciliationRoutes(commands: RentReconciliationCommands): 
       .catch(next);
   });
 
-  router.post('/rent-reconciliations/suggest', express.json({ limit: '16kb' }), (req, res, next) => {
+  router.post('/rent-reconciliations/suggest', jsonBody('16kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     if (refuseQuery(res, query)) return;
     const parsed = readBody(suggestBody, req);
@@ -180,7 +181,7 @@ export function rentReconciliationRoutes(commands: RentReconciliationCommands): 
       .catch(next);
   });
 
-  router.post('/rent-reconciliations/:reconciliationId/confirm', express.json({ limit: '16kb' }), (req, res, next) => {
+  router.post('/rent-reconciliations/:reconciliationId/confirm', jsonBody('16kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const reconciliationId = readId(req.params['reconciliationId'], 'reconciliationId', res);
     if (reconciliationId === undefined) return;
@@ -204,7 +205,7 @@ export function rentReconciliationRoutes(commands: RentReconciliationCommands): 
       .catch(next);
   });
 
-  router.post('/rent-reconciliations/:reconciliationId/reject', express.json({ limit: '16kb' }), (req, res, next) => {
+  router.post('/rent-reconciliations/:reconciliationId/reject', jsonBody('16kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const reconciliationId = readId(req.params['reconciliationId'], 'reconciliationId', res);
     if (reconciliationId === undefined) return;
@@ -284,7 +285,7 @@ export function rentReconciliationRoutes(commands: RentReconciliationCommands): 
     ['write-back-to-mre', commands.writeBack],
     ['remove-from-mre', commands.removeFromMre],
   ] as const) {
-    router.post(`/rent-reconciliations/:reconciliationId/${path}`, express.json({ limit: '16kb' }), (req, res, next) => {
+    router.post(`/rent-reconciliations/:reconciliationId/${path}`, jsonBody('16kb'), (req, res, next) => {
       const query = readQuery(NO_QUERY, req);
       const reconciliationId = readId(req.params['reconciliationId'], 'reconciliationId', res);
       if (reconciliationId === undefined) return;
@@ -307,7 +308,7 @@ export function rentReconciliationRoutes(commands: RentReconciliationCommands): 
     });
   }
 
-  router.post('/rent-reconciliations/:reconciliationId/release', express.json({ limit: '16kb' }), (req, res, next) => {
+  router.post('/rent-reconciliations/:reconciliationId/release', jsonBody('16kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const reconciliationId = readId(req.params['reconciliationId'], 'reconciliationId', res);
     if (reconciliationId === undefined) return;

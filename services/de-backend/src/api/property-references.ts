@@ -13,7 +13,7 @@ import {
 } from '../application/index.js';
 import { principalOf } from './access-middleware.js';
 import { sendError } from './errors.js';
-import { EMPTY_BODY, NO_QUERY, PAGING, readBody, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
+import { EMPTY_BODY, jsonBody, NO_QUERY, PAGING, readBody, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
 
 /** A malformed MRE id would end in a 500 upstream, so it is rejected here (mre-integration.md §21.1). */
 const linkBody = z
@@ -43,7 +43,7 @@ export interface PropertyReferenceCommands {
 export function propertyReferenceRoutes(commands: PropertyReferenceCommands): Router {
   const router = express.Router();
 
-  router.post('/property-references/link', express.json({ limit: '16kb' }), (req, res, next) => {
+  router.post('/property-references/link', jsonBody('16kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     if (refuseQuery(res, query)) return;
     const parsed = readBody(linkBody, req);
@@ -105,7 +105,7 @@ export function propertyReferenceRoutes(commands: PropertyReferenceCommands): Ro
   });
 
   // Takes no body (no body, an empty one or `{}`; a field is unknown, §58X rule 3); a refresh only re-reads MRE (VC-1-02).
-  router.post('/property-references/:propertyReferenceId/refresh', express.json({ limit: '16kb' }), (req, res, next) => {
+  router.post('/property-references/:propertyReferenceId/refresh', jsonBody('16kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const { propertyReferenceId } = req.params;
     if (!RESOURCE_ID.test(propertyReferenceId)) {

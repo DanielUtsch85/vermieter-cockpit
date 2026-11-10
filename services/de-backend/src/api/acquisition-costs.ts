@@ -17,7 +17,18 @@ import { Money, zod3 } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
 import { classificationDto } from './acquisition-cost-classifications.js';
 import { businessDate, definedOnly, optionalText, readId } from './acquisitions.js';
-import { money, NO_QUERY, readBody, readIdempotencyKey, readIfMatch, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
+import {
+  jsonBody,
+  money,
+  NO_QUERY,
+  readBody,
+  readIdempotencyKey,
+  readIfMatch,
+  readQuery,
+  refuseQuery,
+  RESOURCE_ID,
+  sendValidationError,
+} from './validation.js';
 
 const uuid = zod3.transform(z.string().regex(RESOURCE_ID), (id) => id.toLowerCase());
 
@@ -74,7 +85,7 @@ export interface AcquisitionCostCommands {
 export function acquisitionCostRoutes(commands: AcquisitionCostCommands): Router {
   const router = express.Router();
 
-  router.post('/acquisitions/:acquisitionId/costs', express.json({ limit: '32kb' }), (req, res, next) => {
+  router.post('/acquisitions/:acquisitionId/costs', jsonBody('32kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const acquisitionId = readId(req.params['acquisitionId'], 'acquisitionId', res);
     if (acquisitionId === undefined) return;
@@ -106,7 +117,7 @@ export function acquisitionCostRoutes(commands: AcquisitionCostCommands): Router
       .catch(next);
   });
 
-  router.post('/acquisitions/:acquisitionId/costs/:costId/void', express.json({ limit: '16kb' }), (req, res, next) => {
+  router.post('/acquisitions/:acquisitionId/costs/:costId/void', jsonBody('16kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const acquisitionId = readId(req.params['acquisitionId'], 'acquisitionId', res);
     if (acquisitionId === undefined) return;
@@ -143,7 +154,7 @@ export function acquisitionCostRoutes(commands: AcquisitionCostCommands): Router
       .catch(next);
   });
 
-  router.post('/acquisitions/:acquisitionId/payments', express.json({ limit: '16kb' }), (req, res, next) => {
+  router.post('/acquisitions/:acquisitionId/payments', jsonBody('16kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const acquisitionId = readId(req.params['acquisitionId'], 'acquisitionId', res);
     if (acquisitionId === undefined) return;
@@ -171,7 +182,7 @@ export function acquisitionCostRoutes(commands: AcquisitionCostCommands): Router
       .catch(next);
   });
 
-  router.post('/acquisitions/:acquisitionId/payments/:paymentId/unlink', express.json({ limit: '16kb' }), (req, res, next) => {
+  router.post('/acquisitions/:acquisitionId/payments/:paymentId/unlink', jsonBody('16kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const acquisitionId = readId(req.params['acquisitionId'], 'acquisitionId', res);
     if (acquisitionId === undefined) return;

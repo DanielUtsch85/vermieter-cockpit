@@ -16,6 +16,7 @@ import {
 } from '../application/index.js';
 import { principalOf } from './access-middleware.js';
 import {
+  jsonBody,
   NO_QUERY,
   OPTIONAL_PAGING,
   readBody,
@@ -128,7 +129,7 @@ export interface OwnershipCommands {
 export function ownershipRoutes(commands: OwnershipCommands): Router {
   const router = express.Router();
 
-  router.post('/ownerships', express.json({ limit: '32kb' }), (req, res, next) => {
+  router.post('/ownerships', jsonBody('32kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
@@ -170,7 +171,7 @@ export function ownershipRoutes(commands: OwnershipCommands): Router {
       .catch(next);
   });
 
-  router.post('/ownerships/:ownershipId/close', express.json({ limit: '16kb' }), (req, res, next) => {
+  router.post('/ownerships/:ownershipId/close', jsonBody('16kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const ownershipId = readId(req.params['ownershipId'], 'ownershipId', res);
     if (ownershipId === undefined) return;
@@ -193,7 +194,7 @@ export function ownershipRoutes(commands: OwnershipCommands): Router {
       .catch(next);
   });
 
-  router.post('/ownerships/:ownershipId/void', express.json({ limit: '16kb' }), (req, res, next) => {
+  router.post('/ownerships/:ownershipId/void', jsonBody('16kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const ownershipId = readId(req.params['ownershipId'], 'ownershipId', res);
     if (ownershipId === undefined) return;
@@ -216,7 +217,7 @@ export function ownershipRoutes(commands: OwnershipCommands): Router {
       .catch(next);
   });
 
-  router.post('/property-references/:propertyReferenceId/ownership-changes', express.json({ limit: '64kb' }), (req, res, next) => {
+  router.post('/property-references/:propertyReferenceId/ownership-changes', jsonBody('64kb'), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const propertyReferenceId = readId(req.params['propertyReferenceId'], 'propertyReferenceId', res);
     if (propertyReferenceId === undefined) return;

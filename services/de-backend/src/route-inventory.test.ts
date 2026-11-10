@@ -36,9 +36,21 @@ describe('the route inventory (ui-guide §2; review on #175)', () => {
   });
 
   it('a mount path it cannot read fails loudly instead of listing the route under a wrong path', () => {
-    expect(mountPathOf({ regexp: Object.assign(/^\/api\/v1\/?(?=\/|$)/i, { fast_slash: false }) })).toBe('/api/v1');
-    expect(mountPathOf({ regexp: Object.assign(/^\/?(?=\/|$)/i, { fast_slash: true }) })).toBe('');
-    expect(() => mountPathOf({ regexp: Object.assign(/^\/items\/(?:([^/]+?))\/?(?=\/|$)/i, { fast_slash: false }) })).toThrow(/cannot read/);
+    // Express 5 keeps a matcher only: the mount path is the one known candidate the layer matches as a whole.
+    const layerOf = (mount: string | undefined) => {
+      const app = express();
+      const inner = express.Router();
+      if (mount === undefined) app.use(inner);
+      else app.use(mount, inner);
+      return (app as unknown as { router: { stack: Parameters<typeof mountPathOf>[0][] } }).router.stack.at(-1) as Parameters<typeof mountPathOf>[0];
+    };
+    expect(mountPathOf(layerOf('/api/v1'))).toBe('/api/v1');
+    expect(mountPathOf(layerOf(undefined))).toBe('');
+    expect(() => mountPathOf(layerOf('/api'))).toThrow(/cannot read/);
+    expect(() => mountPathOf(layerOf('/api/v1/x'))).toThrow(/cannot read/);
+    expect(() => mountPathOf(layerOf('/items/:id'))).toThrow(/cannot read/);
+    expect(() => mountPathOf(layerOf('/api/v1'), ['/api/v1', '/API/V1'])).toThrow(/cannot read \(2 of/);
+    expect(() => mountPathOf({ name: 'router' })).toThrow(/without one matcher/);
   });
 
   it('a route path that is not a string (a regular expression or a list) fails loudly', () => {

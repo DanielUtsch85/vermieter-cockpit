@@ -15,24 +15,37 @@ const METHOD_ORDER = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
 
 interface Layer {
   readonly name?: string;
-  readonly regexp?: RegExp & { fast_slash?: boolean };
+  /** Express 5 (router 2): `true` for a layer mounted without a path (`router.use(fn)`). */
+  readonly slash?: boolean;
+  /** Express 5 (router 2): the layer's path matchers; a mount path is no longer kept as text. */
+  readonly matchers?: readonly ((path: string) => false | { readonly path: string })[];
   readonly route?: { readonly path: unknown; readonly methods: Record<string, boolean> };
   readonly handle?: { readonly stack?: readonly Layer[] };
 }
 
-/** The mount path of a router layer (`app.use('/api/v1', router)`), from Express 4's matcher; fails on anything else. */
-export function mountPathOf(layer: Layer): string {
-  const regexp = layer.regexp;
-  if (!regexp) throw new Error('route inventory: a router layer without a matcher');
-  if (regexp.fast_slash) return '';
-  const match = /^\^((?:\\\/[A-Za-z0-9_-]+)+)\\\/\?\(\?=\\\/\|\$\)$/.exec(regexp.source);
-  if (!match) throw new Error(`route inventory: a mount path it cannot read: ${regexp.source}`);
-  return (match[1] ?? '').replace(/\\\//g, '/');
+/** The mount paths the app uses (`app.use('/api/v1', api)`); a router layer mounted elsewhere fails the inventory. */
+export const MOUNT_PATHS: readonly string[] = ['/api/v1'];
+
+/**
+ * The mount path of a router layer (`app.use('/api/v1', router)`). Express 5 keeps only a matcher, so the path is the one
+ * candidate of `MOUNT_PATHS` the layer matches exactly (as a whole, not a prefix of it); none or more than one fails.
+ */
+export function mountPathOf(layer: Layer, candidates: readonly string[] = MOUNT_PATHS): string {
+  if (layer.slash === true) return '';
+  const matchers = layer.matchers;
+  if (matchers === undefined || matchers.length !== 1) throw new Error('route inventory: a router layer without one matcher');
+  const matcher = matchers[0] as NonNullable<Layer['matchers']>[number];
+  const found = candidates.filter((candidate) => {
+    const match = matcher(candidate);
+    return match !== false && match.path === candidate;
+  });
+  if (found.length !== 1) throw new Error(`route inventory: a mount path it cannot read (${found.length} of ${candidates.join(', ')} match)`);
+  return found[0] as string;
 }
 
 /** Every route of the app's router stack, nested routers included, sorted by path and method. */
 export function listRoutes(app: Express): InventoryRoute[] {
-  const stack = (app as unknown as { _router?: { stack: readonly Layer[] } })._router?.stack;
+  const stack = (app as unknown as { router?: { stack?: readonly Layer[] } }).router?.stack;
   if (!stack) throw new Error('route inventory: the app has no router');
   const routes: InventoryRoute[] = [];
   const walk = (layers: readonly Layer[], prefix: string): void => {
