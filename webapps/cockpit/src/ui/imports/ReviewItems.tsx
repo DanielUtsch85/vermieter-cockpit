@@ -5,6 +5,7 @@ import type { MoneyValue } from '../../format/money';
 import { onLinkClick } from '../../navigation';
 import { importBatchPath, transactionPath } from '../../routing';
 import { DateText, MoneyText, TimestampText } from '../format';
+import { ConfirmStep, useConfirmStep } from '../ConfirmStep';
 import type { Loadable } from '../RealmChoice';
 import { buttonClass, ErrorState, isRetryable, LoadingState, Notice, ReadProblem, secondaryButtonClass } from '../states';
 import { directionLabel } from '../transactions/labels';
@@ -17,6 +18,23 @@ export const RESOLUTIONS: readonly (readonly [Resolution, string])[] = [
   ['CREATE', 'Als eigenständige Buchung übernehmen'],
   ['SKIP', 'Nicht als neue Buchung übernehmen'],
 ];
+
+/**
+ * The confirmation step of each decision (Entscheidung des Projektinhabers, 2026-11-11: a dialog before `CREATE` and
+ * `SKIP`, after the pattern of „Buchung bestätigen“): what will happen, and the button that sends it.
+ */
+const QUESTIONS: Readonly<Record<Resolution, { readonly title: string; readonly text: string; readonly confirm: string }>> = {
+  CREATE: {
+    title: 'Als eigenständige Buchung übernehmen?',
+    text: 'Aus der neuen Zeile wird eine eigene Buchung angelegt, neben den vorhandenen Buchungen. Die Entscheidung ist endgültig; Zusammenführen gibt es nicht.',
+    confirm: 'Jetzt übernehmen',
+  },
+  SKIP: {
+    title: 'Nicht als neue Buchung übernehmen?',
+    text: 'Aus der neuen Zeile wird keine Buchung angelegt; die vorhandenen Buchungen bleiben unverändert. Die Entscheidung ist endgültig.',
+    confirm: 'Jetzt nicht übernehmen',
+  },
+};
 
 /** The values both sides show; a review item's `normalizedRow` is stored JSON and read defensively. */
 interface Side {
@@ -149,6 +167,7 @@ function ReviewItemCard(props: {
   const inFlight = useRef(false);
   const mounted = useRef(true);
   const answer = useRef<HTMLDivElement>(null);
+  const step = useConfirmStep<Resolution>();
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -168,11 +187,14 @@ function ReviewItemCard(props: {
       .then(
         (resolved) => {
           if (!mounted.current) return;
+          step.close();
           setStage({ kind: 'done', item: resolved });
           props.onResolved();
         },
         (error: unknown) => {
-          if (mounted.current) setStage({ kind: 'refused', error, retry: isRetryable(error) ? resolution : undefined });
+          if (!mounted.current) return;
+          step.close();
+          setStage({ kind: 'refused', error, retry: isRetryable(error) ? resolution : undefined });
         },
       )
       .finally(() => {
@@ -275,19 +297,37 @@ function ReviewItemCard(props: {
               </ErrorState>
             )}
             <p className="text-label text-muted">Die Entscheidung ist endgültig. Zusammenführen gibt es nicht.</p>
-            <div className="mt-2 flex flex-wrap gap-4">
-              {RESOLUTIONS.map(([resolution, label]) => (
-                <button
-                  key={resolution}
-                  type="button"
-                  className={resolution === 'CREATE' ? buttonClass : secondaryButtonClass}
-                  disabled={stage.kind === 'sending' || props.stale}
-                  onClick={() => send(resolution)}
+            {step.asking !== undefined ? (
+              <div className="mt-2">
+                <ConfirmStep
+                  id={`klaerfall-${item.reviewItemId}-frage`}
+                  title={QUESTIONS[step.asking].title}
+                  confirmLabel={QUESTIONS[step.asking].confirm}
+                  sendingLabel="Wird gesendet …"
+                  sending={stage.kind === 'sending'}
+                  disabled={props.stale}
+                  onConfirm={() => step.asking !== undefined && send(step.asking)}
+                  onCancel={step.cancel}
                 >
-                  {stage.kind === 'sending' && stage.resolution === resolution ? 'Wird gesendet …' : label}
-                </button>
-              ))}
-            </div>
+                  <p>{QUESTIONS[step.asking].text}</p>
+                </ConfirmStep>
+              </div>
+            ) : (
+              <div className="mt-2 flex flex-wrap gap-4">
+                {RESOLUTIONS.map(([resolution, label]) => (
+                  <button
+                    key={resolution}
+                    ref={step.trigger(resolution)}
+                    type="button"
+                    className={resolution === 'CREATE' ? buttonClass : secondaryButtonClass}
+                    disabled={stage.kind === 'sending' || props.stale}
+                    onClick={() => step.ask(resolution)}
+                  >
+                    {stage.kind === 'sending' && stage.resolution === resolution ? 'Wird gesendet …' : label}
+                  </button>
+                ))}
+              </div>
+            )}
           </>
         )}
       </div>

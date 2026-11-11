@@ -61,6 +61,7 @@ interface Setup {
   readonly calls: Call[];
   readonly reload: ReturnType<typeof vi.fn<() => Promise<TransactionRead>>>;
   readonly onSaved: ReturnType<typeof vi.fn<(saved: SplitsSaved) => void>>;
+  readonly onDraftChange: ReturnType<typeof vi.fn<(unsaved: boolean) => void>>;
   readonly unmount: () => void;
 }
 
@@ -76,6 +77,7 @@ function setup(
   const de = createDeClient({ tokens: countingTokens(), realmId: REALM_A, fetch });
   const reload = vi.fn<() => Promise<TransactionRead>>(options.reload ?? (() => Promise.reject(new Error('no reload in this test'))));
   const onSaved = vi.fn<(saved: SplitsSaved) => void>();
+  const onDraftChange = vi.fn<(unsaved: boolean) => void>();
   const view = render(
     <SplitEditor
       transaction={options.transaction ?? detail()}
@@ -84,9 +86,10 @@ function setup(
       save={(body, ifMatch) => putSplits(de, TX, body, ifMatch)}
       reload={reload}
       onSaved={onSaved}
+      onDraftChange={onDraftChange}
     />,
   );
-  return { calls, reload, onSaved, unmount: view.unmount };
+  return { calls, reload, onSaved, onDraftChange, unmount: view.unmount };
 }
 
 const control = (id: string) => {
@@ -538,5 +541,66 @@ describe('step 3, references (ui-guide.md §6.4)', () => {
       financialCategoryCode: 'RENT_BASE',
       propertyReferenceId: PROPERTY,
     });
+  });
+});
+
+describe('the unsaved draft and Entwurf verwerfen (Entscheidung des Projektinhabers, 2026-11-11)', () => {
+  const stored = () => detail({ status: 'CLASSIFIED', version: 3, splits: STORED });
+  const last = (mock: Setup['onDraftChange']) => mock.mock.calls.at(-1)?.[0];
+
+  it('reports a clean draft, a change, and the change typed back; Entwurf verwerfen only while it differs', () => {
+    const { onDraftChange } = setup({ transaction: stored(), etag: '"3"' });
+    expect(last(onDraftChange)).toBe(false);
+    expect(screen.queryByRole('button', { name: 'Entwurf verwerfen' })).toBeNull();
+    fireEvent.change(document.getElementById('split-0-amount') as HTMLInputElement, { target: { value: '650,00' } });
+    expect(last(onDraftChange)).toBe(true);
+    expect(screen.getByRole('button', { name: 'Entwurf verwerfen' })).toBeTruthy();
+    fireEvent.change(document.getElementById('split-0-amount') as HTMLInputElement, { target: { value: '700' } });
+    expect(last(onDraftChange)).toBe(false);
+    expect(screen.queryByRole('button', { name: 'Entwurf verwerfen' })).toBeNull();
+  });
+
+  it('Entwurf verwerfen restores the stored set row for row, clears a refusal and sends nothing', async () => {
+    const { calls, onDraftChange } = setup({ transaction: stored(), etag: '"3"', answers: [envelope(409, 'CONFLICT', { reason: 'SPLIT_SUM_MISMATCH' })] });
+    fireEvent.change(document.getElementById('split-0-amount') as HTMLInputElement, { target: { value: '600,00' } });
+    fireEvent.change(document.getElementById('split-1-amount') as HTMLInputElement, { target: { value: '250,00' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Teilbetrag hinzufügen' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Teilbetrag 3 entfernen' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Aufteilung speichern' }));
+    await settle();
+    expect(screen.getByRole('alert')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Entwurf verwerfen' }));
+    expect(['split-0-amount', 'split-1-amount'].map((id) => (document.getElementById(id) as HTMLInputElement).value)).toEqual(['700,00', '150,00']);
+    expect(document.getElementById('split-2-amount')).toBeNull();
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(last(onDraftChange)).toBe(false);
+    expect(calls.filter((call) => call.method === 'PUT')).toHaveLength(1);
+  });
+
+  it('a save makes the draft the stored set (clean); leaving the editor reports clean', async () => {
+    const { onDraftChange, unmount } = setup({
+      transaction: stored(),
+      etag: '"3"',
+      answers: [
+        json(
+          200,
+          answer(
+            { version: 4 },
+            STORED.map((s, i) => (i === 0 ? { ...s, amount: { amount: '600.00', currency: 'EUR' } } : { ...s, amount: { amount: '250.00', currency: 'EUR' } })),
+          ),
+          { etag: '"4"' },
+        ),
+      ],
+    });
+    fireEvent.change(document.getElementById('split-0-amount') as HTMLInputElement, { target: { value: '600,00' } });
+    fireEvent.change(document.getElementById('split-1-amount') as HTMLInputElement, { target: { value: '250,00' } });
+    expect(last(onDraftChange)).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Aufteilung speichern' }));
+    await screen.findByText(/Aufteilung gespeichert \(Version 4/);
+    expect(last(onDraftChange)).toBe(false);
+    fireEvent.change(document.getElementById('split-0-amount') as HTMLInputElement, { target: { value: '1,00' } });
+    expect(last(onDraftChange)).toBe(true);
+    unmount();
+    expect(last(onDraftChange)).toBe(false);
   });
 });

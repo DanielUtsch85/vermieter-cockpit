@@ -4,6 +4,7 @@ import {
   addRow,
   bindSplitFieldErrors,
   checkDraft,
+  draftDiffers,
   draftFromDetail,
   firstBoundControl,
   MAX_SPLITS,
@@ -180,5 +181,53 @@ describe('step 3, field errors bound to the row controls (§58X dotted paths, ui
     expect(bound.get('split-1-amount')?.map((e) => e.code)).toEqual(['SCALE_EXCEEDED', 'CURRENCY_MISMATCH']);
     expect(firstBoundControl(bound, 2)).toBe('split-0-category');
     expect(firstBoundControl(new Map(), 2)).toBeUndefined();
+  });
+});
+
+describe('the unsaved draft that locks Buchung bestaetigen (Entscheidung des Projektinhabers, 2026-11-11)', () => {
+  const stored = [
+    split({ description: 'Kaltmiete' }),
+    split({ position: 2, financialCategoryCode: 'RENT_OPERATING_COST_ADVANCE', propertyReferenceId: null, amount: { amount: '150.00', currency: 'EUR' } }),
+  ];
+  const fresh = () => draftFromDetail(detail({ splits: stored }), newKey);
+
+  it('the draft of the stored set is no change; the same amount typed otherwise and blanks around the text neither', () => {
+    expect(draftDiffers(fresh(), stored, '850.00')).toBe(false);
+    const [first, second] = fresh();
+    if (first === undefined || second === undefined) throw new Error('two rows expected');
+    expect(
+      draftDiffers(
+        [
+          { ...first, amount: '700', description: ' Kaltmiete ' },
+          { ...second, amount: '150,0' },
+        ],
+        stored,
+        '850.00',
+      ),
+    ).toBe(false);
+  });
+
+  it('a changed amount, category, reference, description, an added, removed or swapped row is a change', () => {
+    const [first, second] = fresh();
+    if (first === undefined || second === undefined) throw new Error('two rows expected');
+    for (const rows of [
+      [{ ...first, amount: '699,99' }, second],
+      [{ ...first, financialCategoryCode: 'RENT_OPERATING_COST_ADVANCE' }, second],
+      [{ ...first, reference: { kind: 'none' as const } }, second],
+      [first, { ...second, description: 'Nebenkosten' }],
+      [first, second, row({ amount: '0,00' })],
+      [first],
+      [second, first],
+      [{ ...first, amount: '7oo' }, second],
+    ]) {
+      expect(draftDiffers(rows, stored, '850.00')).toBe(true);
+    }
+  });
+
+  it('without stored splits, the untouched draft over the whole amount is no change; a category chosen is one', () => {
+    const [only] = draftFromDetail(detail({ splits: [] }), newKey);
+    if (only === undefined) throw new Error('one row expected');
+    expect(draftDiffers([only], [], '850.00')).toBe(false);
+    expect(draftDiffers([{ ...only, financialCategoryCode: 'RENT_BASE' }], [], '850.00')).toBe(true);
   });
 });

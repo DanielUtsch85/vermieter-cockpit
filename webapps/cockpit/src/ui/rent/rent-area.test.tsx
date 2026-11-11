@@ -184,13 +184,19 @@ describe('no MRE write by rendering, refetch, tab change or remount (ui-guide.md
     await screen.findAllByText('Zuordnung bestätigt');
     link('Zuordnung öffnen');
     await screen.findByRole('button', { name: 'An MRE übertragen' });
+    // An open confirmation step is gone with the remount; it never sends by itself.
+    await waitFor(() => expect(screen.getByRole<HTMLButtonElement>('button', { name: 'An MRE übertragen' }).disabled).toBe(false));
+    click('An MRE übertragen');
+    expect(screen.getByRole('dialog', { name: 'Zahlung jetzt an MRE übertragen?' })).toBeTruthy();
     unmount();
     remount();
     await screen.findByRole('button', { name: 'An MRE übertragen' });
+    expect(screen.queryByRole('dialog')).toBeNull();
     await settle();
     expect(count(calls, DETAIL)).toBeGreaterThanOrEqual(3);
     expect(posts(calls)).toEqual([]);
     click('An MRE übertragen');
+    click('Jetzt an MRE übertragen');
     await settle();
     expect(posts(calls)).toEqual([COMMAND('write-back-to-mre')]);
   });
@@ -246,6 +252,7 @@ describe('the three separate confirmations in one flow (ui-guide.md §6.6, §4.4
     expect(screen.getAllByText('Zuordnung bestätigt').length).toBeGreaterThan(0);
     expect(posts(calls)).toEqual([COMMAND('confirm')]);
     click('An MRE übertragen');
+    click('Jetzt an MRE übertragen');
     await screen.findByText('MRE: übertragen');
     expect(screen.getByText(/Zahlung in MRE: 01\.03\.2026/)).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Aus MRE entfernen' })).toBeNull();
@@ -256,6 +263,7 @@ describe('the three separate confirmations in one flow (ui-guide.md §6.6, §4.4
     expect(screen.getByText('Zuordnung aufgehoben')).toBeTruthy();
     expect(posts(calls)).toEqual([COMMAND('confirm'), COMMAND('write-back-to-mre'), COMMAND('release')]);
     click('Aus MRE entfernen');
+    click('Jetzt aus MRE entfernen');
     await screen.findByText('MRE: entfernt');
     expect(posts(calls)).toEqual([COMMAND('confirm'), COMMAND('write-back-to-mre'), COMMAND('release'), COMMAND('remove-from-mre')]);
     expect(count(calls, DETAIL)).toBe(5);
@@ -277,6 +285,7 @@ describe('the three separate confirmations in one flow (ui-guide.md §6.6, §4.4
     );
     await screen.findByRole('button', { name: 'An MRE übertragen' });
     click('An MRE übertragen');
+    click('Jetzt an MRE übertragen');
     expect(await screen.findByText('Antwort eines anderen Bestands')).toBeTruthy();
     expect(screen.queryByText(/die Zahlung steht jetzt im Termin in MRE/)).toBeNull();
     expect(count(calls, COMMAND('write-back-to-mre'))).toBe(1);

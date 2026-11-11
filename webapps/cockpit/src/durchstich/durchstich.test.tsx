@@ -14,11 +14,13 @@ import {
   IMPORT,
   importCsv,
   MIETABGLEICH,
+  mreWrite,
   openApp,
   openTransaction,
   release,
   requests,
   resolveCreate,
+  showAllRows,
   splitRent,
   suggestOctober,
   twice,
@@ -37,6 +39,11 @@ import {
 
 const backend = useDurchstich();
 const json = (body: string | undefined) => JSON.parse(body ?? 'null') as unknown;
+const rowOutcomes = () =>
+  screen
+    .getAllByRole('row')
+    .slice(1)
+    .map((row) => row.querySelectorAll('td')[1]?.textContent);
 
 /** The whole walk; `press` is how each command button is clicked (once, or twice in one event batch). */
 async function walk(press: (name: string) => unknown) {
@@ -44,8 +51,10 @@ async function walk(press: (name: string) => unknown) {
 
   // 1. Import: one POST, the result at its own URL, the colliding row as a review item of this batch; decided once.
   await importCsv(csvFile(), press);
-  const rows = screen.getAllByRole('row').slice(1);
-  expect(rows.map((row) => row.querySelectorAll('td')[1]?.textContent)).toEqual(['Neu angelegt', 'Neu angelegt', 'Klärfall']);
+  // By default only the row with a hint (the review item); every row with „Alle Zeilen“.
+  expect(rowOutcomes()).toEqual(['Klärfall']);
+  showAllRows();
+  expect(rowOutcomes()).toEqual(['Neu angelegt', 'Neu angelegt', 'Klärfall']);
   const [upload] = requests(backend(), 'POST', '/api/v1/imports/bank-transactions');
   expect(JSON.parse(upload?.form?.get('metadata') as string)).toEqual({
     financialAccountId: '0b8f2c1e-3d4a-4b5c-8d6e-7f8091a2b3c4',
@@ -85,15 +94,13 @@ async function walk(press: (name: string) => unknown) {
   expect(backend().counters.mreWrites).toBe(0);
 
   // 4. Write back, release, remove: three separate clicks; MRE holds DE's payment in between, and only then.
-  await screen.findByRole('button', { name: 'An MRE übertragen' });
-  await press('An MRE übertragen');
+  await mreWrite('An MRE übertragen', press);
   await screen.findByText('MRE: übertragen');
   expect(backend().mreTerm.payments.map((p) => p.reference)).toEqual([null, `DE-RPR-${rec.id}`]);
   await release(undefined, press);
   await screen.findByText('MRE: Entfernen erforderlich');
   expect(backend().mreTerm.payments).toHaveLength(2);
-  await screen.findByRole('button', { name: 'Aus MRE entfernen' });
-  await press('Aus MRE entfernen');
+  await mreWrite('Aus MRE entfernen', press);
   await screen.findByText('MRE: entfernt');
   expect(backend().mreTerm.payments.map((p) => p.reference)).toEqual([null]);
 

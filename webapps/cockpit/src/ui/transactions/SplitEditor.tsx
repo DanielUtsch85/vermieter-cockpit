@@ -7,6 +7,7 @@ import {
   bindSplitFieldErrors,
   checkDraft,
   draftFromDetail,
+  draftDiffers,
   draftFromSplits,
   firstBoundControl,
   MAX_SPLITS,
@@ -47,6 +48,11 @@ export interface SplitEditorProps {
   /** Reads the Transaction again (after a `412`). */
   readonly reload: () => Promise<TransactionRead>;
   readonly onSaved?: (saved: SplitsSaved) => void;
+  /**
+   * Whether the draft differs from the stored split set (`draftDiffers`), on every change and `false` when the editor
+   * goes; the page locks „Buchung bestätigen“ while it does (Entscheidung des Projektinhabers, 2026-11-11).
+   */
+  readonly onDraftChange?: (unsaved: boolean) => void;
 }
 
 /**
@@ -55,7 +61,8 @@ export interface SplitEditorProps {
  * only when the amounts cover the Transaction's amount exactly, to the cent, without tolerance and without a direction
  * per split. Saving sends the whole set with `If-Match` (§7.3, §8) and takes the `ETag` of the answer for the next one.
  * A `412` keeps the draft and lets the user decide (§11); a lost answer offers to send the same set again, never a new
- * one. The draft is the only state of the browser and ends with the page (§11).
+ * one. The draft is the only state of the browser and ends with the page (§11). „Entwurf verwerfen“ puts the stored
+ * split set back into the draft; it sends nothing.
  */
 export function SplitEditor(props: SplitEditorProps) {
   const keys = useRef(0);
@@ -82,6 +89,18 @@ export function SplitEditor(props: SplitEditorProps) {
   const bound = refusal?.bound ?? NO_BINDING;
   const blocked = sending || (conflict !== undefined && conflict.stage !== 'kept');
   const canSave = editable && check.complete && !blocked;
+  const unsaved = useMemo(() => draftDiffers(rows, transaction.splits, transaction.amount.amount), [rows, transaction.splits, transaction.amount.amount]);
+  const onDraftChange = useRef(props.onDraftChange);
+  onDraftChange.current = props.onDraftChange;
+  useEffect(() => {
+    onDraftChange.current?.(unsaved);
+  }, [unsaved]);
+  useEffect(
+    () => () => {
+      onDraftChange.current?.(false);
+    },
+    [],
+  );
 
   useEffect(() => {
     const id = firstBoundControl(bound, rows.length);
@@ -141,6 +160,14 @@ export function SplitEditor(props: SplitEditorProps) {
   const restructure = (next: readonly DraftRow[]) => {
     setRows(next);
     setRefusal(undefined);
+    setSavedVersion(undefined);
+  };
+
+  /** Back to the stored split set as the editor knows it; any refusal or kept conflict of the old draft goes with it. */
+  const discard = () => {
+    setRows(draftFromDetail(transaction, newKey));
+    setRefusal(undefined);
+    setConflict(undefined);
     setSavedVersion(undefined);
   };
 
@@ -233,6 +260,11 @@ export function SplitEditor(props: SplitEditorProps) {
           <button type="submit" className={buttonClass} disabled={!canSave} aria-describedby="split-rest">
             {sending ? 'Wird gespeichert …' : 'Aufteilung speichern'}
           </button>
+          {unsaved && (
+            <button type="button" className={secondaryButtonClass} disabled={blocked} onClick={discard}>
+              Entwurf verwerfen
+            </button>
+          )}
           <span className="text-label text-muted">{`Gesendet wird mit If-Match ${base}.`}</span>
         </div>
       </form>

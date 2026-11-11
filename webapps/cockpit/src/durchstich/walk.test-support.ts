@@ -123,11 +123,27 @@ export async function importCsv(file = csvFile(), press: (name: string) => unkno
   await screen.findByRole('heading', { name: 'Ergebnis des Imports' });
 }
 
+/** CREATE as the user decides it: the button opens the confirmation step, „Jetzt übernehmen“ sends (2026-11-11). */
 export async function resolveCreate(press: (name: string) => unknown = click) {
   await screen.findByRole('button', { name: 'Als eigenständige Buchung übernehmen' });
   await press('Als eigenständige Buchung übernehmen');
+  await press('Jetzt übernehmen');
   await screen.findByText(/Entschieden: /);
 }
+
+/** The confirm buttons of the confirmation steps before the two MRE writes (Entscheidung des Projektinhabers, 2026-11-11). */
+export const WRITE_BACK_NOW = 'Jetzt an MRE übertragen';
+export const REMOVE_NOW = 'Jetzt aus MRE entfernen';
+
+/** Opens the step of an MRE write with its button and sends it with the step's confirm button. */
+export async function mreWrite(action: 'An MRE übertragen' | 'Aus MRE entfernen', press: (name: string) => unknown = click) {
+  await screen.findByRole('button', { name: action });
+  await press(action);
+  await press(action === 'An MRE übertragen' ? WRITE_BACK_NOW : REMOVE_NOW);
+}
+
+/** Only the rows with a hint are shown by default; this shows every row of the import result. */
+export const showAllRows = () => fireEvent.click(screen.getByRole('button', { name: 'Alle Zeilen' }));
 
 export const openTransaction = (backend: Backend, description: string) => go(transactionPath(REALM_A, backend.tx(description).id));
 

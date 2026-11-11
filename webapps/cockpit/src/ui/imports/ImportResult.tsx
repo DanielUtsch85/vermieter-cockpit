@@ -1,10 +1,12 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import type { ImportBatchDto, ImportRowDto } from '../../api/imports';
 import type { FinancialAccountDto } from '../../api/transactions';
 import { formatDecimal, formatMoney } from '../../format/money';
+import { rowHasHint } from '../../imports/row-hints';
 import { onLinkClick } from '../../navigation';
 import { importBatchPath, transactionPath } from '../../routing';
 import { TimestampText } from '../format';
+import { secondaryButtonClass } from '../states';
 import { ambiguityText, batchStatusText, orderText, previousExportText, resolutionText, rowErrorText } from './import-labels';
 
 function Link({ href, children }: { readonly href: string; readonly children: ReactNode }) {
@@ -27,7 +29,9 @@ function Balance({ amount, currency }: { readonly amount: string; readonly curre
 /**
  * Step 3 of the import (ui-guide.md §6.5): the batch as the server answered it, never recomputed: its id, file,
  * account, adapter, status and counters, the continuity report and every row's outcome in file order (api-design.md
- * §32.1a). A row that refers to a review item of an earlier batch links that batch, where the item is decided.
+ * §32.1a). A row that refers to a review item of an earlier batch links that batch, where the item is decided. The row
+ * table shows the rows with a hint (`rowHasHint`) unless „Alle Zeilen“ is on; the counters always count every row
+ * (Entscheidung des Projektinhabers, 2026-11-11).
  */
 export function ImportResult(props: { readonly realmId: string; readonly batch: ImportBatchDto; readonly accounts: readonly FinancialAccountDto[] }) {
   const b = props.batch;
@@ -78,32 +82,61 @@ export function ImportResult(props: { readonly realmId: string; readonly batch: 
         <h2 id="import-zeilen" className="mb-2 text-section font-semibold">
           Zeilen der Datei
         </h2>
-        {b.rows.length === 0 ? (
-          <p className="text-muted">Die Datei enthielt keine Datenzeile.</p>
-        ) : (
-          <table className="w-full text-left">
-            <thead>
-              <tr>
-                <th scope="col" className="pr-4">
-                  Zeile
-                </th>
-                <th scope="col" className="pr-4">
-                  Ergebnis
-                </th>
-                <th scope="col">Einzelheiten</th>
-              </tr>
-            </thead>
-            <tbody>
-              {b.rows.map((row) => (
-                <tr key={row.position} className="border-t border-border align-top">
-                  <td className="pr-4 tabular-nums">{row.position}</td>
-                  <RowOutcome realmId={props.realmId} batchId={b.importBatchId} row={row} />
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+        <RowTable realmId={props.realmId} batch={b} />
       </section>
+    </>
+  );
+}
+
+function RowTable({ realmId, batch: b }: { readonly realmId: string; readonly batch: ImportBatchDto }) {
+  const [all, setAll] = useState(false);
+  if (b.rows.length === 0) return <p className="text-muted">Die Datei enthielt keine Datenzeile.</p>;
+  const hinted = b.rows.filter(rowHasHint);
+  const shown = all ? b.rows : hinted;
+  const rowsWord = (count: number) => (count === 1 ? '1 Zeile' : `${count} Zeilen`);
+  return (
+    <>
+      <div className="mb-3 flex flex-wrap items-center gap-4">
+        <button
+          type="button"
+          className={secondaryButtonClass}
+          aria-pressed={all}
+          aria-controls="import-zeilen-tabelle"
+          onClick={() => setAll((current) => !current)}
+        >
+          Alle Zeilen
+        </button>
+        <p aria-live="polite" className="text-label">
+          {all
+            ? `Angezeigt: alle ${rowsWord(b.rows.length)}, davon ${hinted.length} mit Hinweis.`
+            : `Angezeigt: ${hinted.length} von ${rowsWord(b.rows.length)}, nur Zeilen mit Hinweis.`}
+        </p>
+      </div>
+      {shown.length === 0 ? (
+        <p id="import-zeilen-tabelle">{`Keine Zeilen mit Hinweis. Die Datei hat ${rowsWord(b.rows.length)}; „Alle Zeilen“ zeigt sie.`}</p>
+      ) : (
+        <table id="import-zeilen-tabelle" className="w-full text-left">
+          <thead>
+            <tr>
+              <th scope="col" className="pr-4">
+                Zeile
+              </th>
+              <th scope="col" className="pr-4">
+                Ergebnis
+              </th>
+              <th scope="col">Einzelheiten</th>
+            </tr>
+          </thead>
+          <tbody>
+            {shown.map((row) => (
+              <tr key={row.position} className="border-t border-border align-top">
+                <td className="pr-4 tabular-nums">{row.position}</td>
+                <RowOutcome realmId={realmId} batchId={b.importBatchId} row={row} />
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </>
   );
 }

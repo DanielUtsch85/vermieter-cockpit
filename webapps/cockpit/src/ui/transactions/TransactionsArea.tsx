@@ -116,6 +116,9 @@ function TransactionDetailPage(props: {
   const [confirmedHere, setConfirmedHere] = useState(false);
   // The correction form stays once shown, as the editor does: a draft is not taken away by a later read (§11).
   const [correctionShown, setCorrectionShown] = useState(false);
+  // The editor's draft differs from the stored split set: „Buchung bestätigen“ waits until it is saved or discarded
+  // (Entscheidung des Projektinhabers, 2026-11-11).
+  const [draftUnsaved, setDraftUnsaved] = useState(false);
   const first = read.data;
   if (!editorShown && first !== undefined && read.status === 'success' && splitsEditable(first.transaction.status)) setEditorShown(true);
   if (!correctionShown && first !== undefined && read.status === 'success' && correctable(first.transaction)) setCorrectionShown(true);
@@ -151,6 +154,7 @@ function TransactionDetailPage(props: {
             invalidate();
           }}
           reload={() => void read.refetch()}
+          draftUnsaved={draftUnsaved}
         />
       )}
       {editorShown && !confirmedHere && first !== undefined && (
@@ -162,6 +166,7 @@ function TransactionDetailPage(props: {
           save={(body, ifMatch) => putSplits(props.client, props.transactionId, body, ifMatch)}
           reload={reload}
           onSaved={invalidate}
+          onDraftChange={setDraftUnsaved}
         />
       )}
       {correctionShown && first !== undefined && (

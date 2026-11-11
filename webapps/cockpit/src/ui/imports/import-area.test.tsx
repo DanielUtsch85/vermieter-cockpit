@@ -69,6 +69,13 @@ const settle = () =>
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 const card = () => screen.getByRole('article', { name: /Klärfall Zeile/ });
+const TRIGGER = { CREATE: 'Als eigenständige Buchung übernehmen', SKIP: 'Nicht als neue Buchung übernehmen' } as const;
+const NOW = { CREATE: 'Jetzt übernehmen', SKIP: 'Jetzt nicht übernehmen' } as const;
+/** A decision as the user makes it: the button opens the confirmation step, its confirm button sends (2026-11-11). */
+const decide = async (resolution: 'CREATE' | 'SKIP') => {
+  fireEvent.click(await screen.findByRole('button', { name: TRIGGER[resolution] }));
+  fireEvent.click(screen.getByRole('button', { name: NOW[resolution] }));
+};
 
 beforeEach(() => window.history.pushState(null, '', '/'));
 afterEach(cleanup);
@@ -106,6 +113,15 @@ describe('import, result and the re-read (ui-guide.md §6.5)', () => {
     expect(screen.getByText('Reihenfolge der Datei: älteste Buchung zuerst.')).toBeTruthy();
     const breaks = screen.getByRole('list', { name: 'Saldosprünge' });
     expect(breaks.textContent).toBe(`Zeile 5: erwartet 1.234.567.890.123.456,78${NBSP}€, in der Datei -12,50${NBSP}€`);
+    // By default only the rows with a hint; the counters stay as they are.
+    expect(
+      screen
+        .getAllByRole('row')
+        .slice(1)
+        .map((row) => row.querySelectorAll('td')[0]?.textContent),
+    ).toEqual(['3', '4', '5', '6']);
+    fireEvent.click(screen.getByRole('button', { name: 'Alle Zeilen' }));
+    expect([...counters.querySelectorAll('dd')].map((dd) => dd.textContent)).toEqual(['11', '12', '13', '14', '15']);
     // Rows in file order with their outcome.
     const rows = screen.getAllByRole('row').slice(1);
     expect(rows.map((row) => row.querySelectorAll('td')[1]?.textContent)).toEqual([
@@ -204,7 +220,7 @@ describe('a review item (ui-guide.md §6.5: side by side, CREATE or SKIP, no mer
     );
     await screen.findByRole('article', { name: 'Klärfall Zeile 3' });
     expect(listInvalidated()).toBe(false);
-    fireEvent.click(screen.getByRole('button', { name: 'Als eigenständige Buchung übernehmen' }));
+    await decide('CREATE');
     await screen.findByText(/Entschieden: Als eigenständige Buchung übernommen von vermieter@example.invalid/);
     const call = calls.find((c) => routeOf(c) === RESOLVE(BATCH, ITEM));
     expect(call?.body).toBe('{"resolution":"CREATE"}');
@@ -234,7 +250,7 @@ describe('a review item (ui-guide.md §6.5: side by side, CREATE or SKIP, no mer
     fireEvent.click(await screen.findByRole('link', { name: /Klärfall im früheren Import 7d6f0c9b öffnen/ }));
     expect(window.location.pathname).toBe(`/cockpit/r/${REALM_A}/import/${EARLIER_BATCH}`);
     await screen.findByText(EARLIER_BATCH);
-    fireEvent.click(await screen.findByRole('button', { name: 'Nicht als neue Buchung übernehmen' }));
+    await decide('SKIP');
     await screen.findByText(/Entschieden: Nicht als neue Buchung übernommen/);
     expect(calls.filter((c) => c.method === 'POST').map(routeOf)).toEqual([RESOLVE(EARLIER_BATCH, EARLIER_ITEM)]);
     expect(calls.find((c) => c.method === 'POST')?.body).toBe('{"resolution":"SKIP"}');
@@ -271,6 +287,7 @@ describe('a review item (ui-guide.md §6.5: side by side, CREATE or SKIP, no mer
       />,
     );
     fireEvent.click(screen.getByRole('button', { name: 'Als eigenständige Buchung übernehmen' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Jetzt übernehmen' }));
     view.unmount();
     await act(() => answer(resolved('CREATE')));
     await settle();
@@ -286,7 +303,13 @@ describe('a review item (ui-guide.md §6.5: side by side, CREATE or SKIP, no mer
     await act(() => {
       fireEvent.click(create);
       fireEvent.click(create);
-      fireEvent.click(screen.getByRole('button', { name: 'Nicht als neue Buchung übernehmen' }));
+    });
+    // The step replaces both decisions: SKIP cannot be pressed while CREATE is asked.
+    expect(screen.queryByRole('button', { name: 'Nicht als neue Buchung übernehmen' })).toBeNull();
+    const now = screen.getByRole('button', { name: 'Jetzt übernehmen' });
+    await act(() => {
+      fireEvent.click(now);
+      fireEvent.click(now);
     });
     await settle();
     expect(calls.filter((c) => c.method === 'POST')).toHaveLength(1);
@@ -300,7 +323,7 @@ describe('a review item (ui-guide.md §6.5: side by side, CREATE or SKIP, no mer
       },
       `/cockpit/r/${REALM_A}/import/${BATCH}`,
     );
-    fireEvent.click(await screen.findByRole('button', { name: 'Als eigenständige Buchung übernehmen' }));
+    await decide('CREATE');
     await screen.findByText(/Ob die Entscheidung gespeichert wurde, ist unklar/);
     expect(screen.queryByText(/Entschieden:/)).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Erneut senden' }));
@@ -314,7 +337,7 @@ describe('a review item (ui-guide.md §6.5: side by side, CREATE or SKIP, no mer
       { ...routes(resolved('SKIP')), [RESOLVE(BATCH, ITEM)]: [() => envelope(503, 'SERVICE_UNAVAILABLE')] },
       `/cockpit/r/${REALM_A}/import/${BATCH}`,
     );
-    fireEvent.click(await screen.findByRole('button', { name: 'Nicht als neue Buchung übernehmen' }));
+    await decide('SKIP');
     fireEvent.click(await screen.findByRole('button', { name: 'Stand neu laden' }));
     await waitFor(() => expect(count(calls, ITEMS_GET(BATCH))).toBe(2));
     expect(count(calls, BATCH_GET(BATCH))).toBe(2);
@@ -333,14 +356,13 @@ describe('a review item (ui-guide.md §6.5: side by side, CREATE or SKIP, no mer
       },
       `/cockpit/r/${REALM_A}/import/${BATCH}`,
     );
-    const create = await screen.findByRole('button', { name: 'Als eigenständige Buchung übernehmen' });
-    fireEvent.click(create);
+    await decide('CREATE');
     await screen.findByText(/bereits anders entschieden \(„Nicht als neue Buchung übernommen“\)/);
     expect(screen.queryByRole('button', { name: 'Erneut senden' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Stand neu laden' })).toBeTruthy();
-    fireEvent.click(create);
+    await decide('CREATE');
     await screen.findByText(/nach dem Schließtag des Kontos/);
-    fireEvent.click(create);
+    await decide('CREATE');
     await screen.findByText('Grund NEW_REASON.');
   });
 });
@@ -379,9 +401,100 @@ describe('Realm isolation (ui-guide.md §7.3)', () => {
       },
       `/cockpit/r/${REALM_A}/import/${BATCH}`,
     );
-    fireEvent.click(await screen.findByRole('button', { name: 'Als eigenständige Buchung übernehmen' }));
+    await decide('CREATE');
     await screen.findByText('Antwort eines anderen Bestands');
     expect(screen.queryByText(/Entschieden:/)).toBeNull();
     expect(calls.map((call) => call.headers.get('organizationid'))).toEqual(calls.map(() => REALM_A));
+  });
+});
+
+describe('the confirmation step before CREATE and SKIP (Entscheidung des Projektinhabers, 2026-11-11)', () => {
+  const routes = (after: 'CREATE' | 'SKIP') => ({
+    [BATCH_GET(BATCH)]: [() => json(200, batch({ status: 'NEEDS_REVIEW', needsReviewCount: 1 })), () => json(200, batch())],
+    [ITEMS_GET(BATCH)]: [items(BATCH, [reviewItem()]), items(BATCH, [{ ...resolved(after), conflictingTransactions: [conflict()] }])],
+    [RESOLVE(BATCH, ITEM)]: [() => json(200, resolved(after))],
+  });
+  const QUESTION = { CREATE: 'Als eigenständige Buchung übernehmen?', SKIP: 'Nicht als neue Buchung übernehmen?' } as const;
+  const SAYS = { CREATE: 'wird eine eigene Buchung angelegt', SKIP: 'wird keine Buchung angelegt' } as const;
+
+  for (const resolution of ['CREATE', 'SKIP'] as const) {
+    it(`${resolution}: the button opens a dialog that says what happens, with the focus on its question; nothing is sent`, async () => {
+      const { calls } = area(routes(resolution), `/cockpit/r/${REALM_A}/import/${BATCH}`);
+      fireEvent.click(await screen.findByRole('button', { name: TRIGGER[resolution] }));
+      const dialog = within(card()).getByRole('dialog', { name: QUESTION[resolution] });
+      expect(document.activeElement).toBe(within(dialog).getByRole('heading', { name: QUESTION[resolution] }));
+      expect(dialog.textContent).toContain(SAYS[resolution]);
+      expect(dialog.textContent).toContain('Die Entscheidung ist endgültig');
+      expect(
+        within(card())
+          .getAllByRole('button')
+          .map((b) => b.textContent),
+      ).toEqual([NOW[resolution], 'Abbrechen']);
+      await settle();
+      expect(calls.filter((c) => c.method === 'POST')).toEqual([]);
+    });
+
+    it(`${resolution}: Abbrechen and Escape send nothing and give the focus back to the button`, async () => {
+      const { calls, listInvalidated } = area(routes(resolution), `/cockpit/r/${REALM_A}/import/${BATCH}`);
+      fireEvent.click(await screen.findByRole('button', { name: TRIGGER[resolution] }));
+      fireEvent.click(screen.getByRole('button', { name: 'Abbrechen' }));
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: TRIGGER[resolution] }));
+      fireEvent.click(screen.getByRole('button', { name: TRIGGER[resolution] }));
+      fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: TRIGGER[resolution] }));
+      await settle();
+      expect(calls.filter((c) => c.method === 'POST')).toEqual([]);
+      expect(count(calls, BATCH_GET(BATCH))).toBe(1);
+      expect(listInvalidated()).toBe(false);
+    });
+
+    it(`${resolution}: only the confirm button sends, one POST with the body and headers as before; the answer takes the focus`, async () => {
+      const { calls } = area(routes(resolution), `/cockpit/r/${REALM_A}/import/${BATCH}`);
+      await decide(resolution);
+      await screen.findByText(/Entschieden: /);
+      const posts = calls.filter((c) => c.method === 'POST');
+      expect(posts.map(routeOf)).toEqual([RESOLVE(BATCH, ITEM)]);
+      expect(posts[0]?.body).toBe(`{"resolution":"${resolution}"}`);
+      expect(posts[0]?.headers.get('content-type')).toBe('application/json');
+      expect(posts[0]?.headers.has('if-match')).toBe(false);
+      expect(posts[0]?.headers.has('idempotency-key')).toBe(false);
+      expect(posts[0]?.headers.get('organizationid')).toBe(REALM_A);
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(document.activeElement?.textContent).toMatch(/^Entschieden: /);
+    });
+  }
+
+  it('while the result is read again, the open step cannot send; Abbrechen still works', async () => {
+    const pending = () => new Promise<Response>(() => undefined) as unknown as Response;
+    const { calls } = area(
+      { [BATCH_GET(BATCH)]: [() => json(200, batch()), pending], [ITEMS_GET(BATCH)]: [items(BATCH, [reviewItem()]), pending] },
+      `/cockpit/r/${REALM_A}/import/${BATCH}`,
+    );
+    const create = await screen.findByRole<HTMLButtonElement>('button', { name: TRIGGER.CREATE });
+    await waitFor(() => expect(create.disabled).toBe(false));
+    fireEvent.click(create);
+    fireEvent.click(screen.getByRole('button', { name: 'Ergebnis neu laden' }));
+    const now = screen.getByRole<HTMLButtonElement>('button', { name: NOW.CREATE });
+    await waitFor(() => expect(now.disabled).toBe(true));
+    fireEvent.click(now);
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Abbrechen' }).disabled).toBe(false);
+    await settle();
+    expect(calls.filter((c) => c.method === 'POST')).toEqual([]);
+  });
+
+  it('a lost answer: Erneut senden sends the same decision again without a second dialog', async () => {
+    const { calls } = area(
+      { ...routes('CREATE'), [RESOLVE(BATCH, ITEM)]: [() => envelope(504, 'GATEWAY_TIMEOUT'), () => json(200, resolved('CREATE'))] },
+      `/cockpit/r/${REALM_A}/import/${BATCH}`,
+    );
+    await decide('CREATE');
+    await screen.findByText(/Ob die Entscheidung gespeichert wurde, ist unklar/);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Erneut senden' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    await screen.findByText(/Entschieden: Als eigenständige Buchung übernommen/);
+    expect(calls.filter((c) => routeOf(c) === RESOLVE(BATCH, ITEM)).map((c) => c.body)).toEqual(['{"resolution":"CREATE"}', '{"resolution":"CREATE"}']);
   });
 });
