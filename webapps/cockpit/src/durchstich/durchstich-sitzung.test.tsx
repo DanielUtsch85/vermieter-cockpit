@@ -5,7 +5,22 @@ import { rentTermPath } from '../routing';
 import { TENANT } from '../rent/fixtures.test-support';
 import { PROPERTY, REALM_A, REALM_B } from '../transactions/fixtures.test-support';
 import { EMAIL, TERM_OCT } from './fake-backend.test-support';
-import { act, click, commands, control, go, MRE_COMMANDS, openApp, requests, settle, splitRent, type, useDurchstich } from './walk.test-support';
+import {
+  act,
+  button,
+  click,
+  commands,
+  control,
+  go,
+  MRE_COMMANDS,
+  openApp,
+  requests,
+  settle,
+  splitRent,
+  type,
+  useDurchstich,
+  WRITE_BACK_NOW,
+} from './walk.test-support';
 
 /**
  * Step 7 (ui-guide.md §10, §11, §12 point 5): the session and the Realm across the Durchstich. An expired token in the
@@ -63,10 +78,12 @@ describe('an expired token in the middle of a step: the sign-in, then the same U
     await screen.findByRole('button', { name: 'An MRE übertragen' });
     backend().expireSession();
     click('An MRE übertragen');
+    click(WRITE_BACK_NOW);
     expect(await screen.findByText(EXPIRED)).toBeTruthy();
     expect(backend().counters.mreWrites).toBe(0);
     signInAgain();
     fireEvent.click(await screen.findByRole('button', { name: 'An MRE übertragen' }));
+    click(WRITE_BACK_NOW);
     expect(await screen.findByText('MRE: übertragen')).toBeTruthy();
     expect(here()).toBe(url);
     // One refused (old token), one written on the user's new click; MRE written once.
@@ -106,6 +123,7 @@ describe('a token refused within the session: renewed once, the same request onc
     await screen.findByRole('button', { name: 'An MRE übertragen' });
     backend().expireAccessTokens();
     click('An MRE übertragen');
+    click(WRITE_BACK_NOW);
     expect(await screen.findByText('MRE: übertragen')).toBeTruthy();
     const sent = requests(backend(), 'POST', MRE_COMMANDS);
     expect(sent).toHaveLength(2);
@@ -138,6 +156,7 @@ describe('a token refused within the session: renewed once, the same request onc
     backend().expireAccessTokens();
     backend().authenticatorUp = false;
     click('An MRE übertragen');
+    click(WRITE_BACK_NOW);
     expect((await screen.findAllByText('Keine Antwort')).length).toBeGreaterThan(0);
     expect(screen.queryByText('MRE: übertragen')).toBeNull();
     expect(backend().counters.mreWrites).toBe(0);
@@ -146,6 +165,7 @@ describe('a token refused within the session: renewed once, the same request onc
     backend().authenticatorUp = true;
     click('Erneut laden');
     fireEvent.click(await screen.findByRole('button', { name: 'An MRE übertragen' }));
+    click(WRITE_BACK_NOW);
     expect(await screen.findByText('MRE: übertragen')).toBeTruthy();
     expect(backend().counters.mreWrites).toBe(1);
   });
@@ -216,6 +236,10 @@ describe('§11: no MRE write by rendering, a refetch, a change of tab or a remou
     const r = backend().seedReconciliation(t, { status: 'CONFIRMED', version: 2 });
     const { queryClient } = await openApp(backend(), `/cockpit/r/${REALM_A}/mietabgleich/${r.id}`);
     await screen.findByRole('button', { name: 'An MRE übertragen' });
+    // Its confirmation step open (Entscheidung des Projektinhabers, 2026-11-11): a refetch, the tabs and a remount still send nothing.
+    await waitFor(() => expect(button('An MRE übertragen').disabled).toBe(false));
+    click('An MRE übertragen');
+    expect(screen.getByRole('dialog', { name: 'Zahlung jetzt an MRE übertragen?' })).toBeTruthy();
     await act(async () => {
       await queryClient.invalidateQueries();
     });
@@ -237,6 +261,7 @@ describe('§11: no MRE write by rendering, a refetch, a change of tab or a remou
       await queryClient.refetchQueries();
     });
     await waitFor(() => expect(control('aufheben-grund')).toBeTruthy());
+    expect(screen.queryByRole('dialog')).toBeNull();
     expect(commands(backend())).toEqual([]);
     expect(backend().counters.mreWrites).toBe(0);
     expect(backend().sent.some((s) => s.search.includes('checkMre'))).toBe(false);

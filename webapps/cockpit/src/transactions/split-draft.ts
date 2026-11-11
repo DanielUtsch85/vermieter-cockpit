@@ -174,6 +174,25 @@ export function toSplitsRequest(rows: readonly DraftRow[], currency: string): { 
   };
 }
 
+/**
+ * What a row would send, as a comparable string: the amount as a decimal (as typed when it is not readable), the
+ * category, the ids of its reference kind and the trimmed description. Keys and the kept reference are not sent.
+ */
+function rowIntent(row: DraftRow): string {
+  const parsed = parseAmountInput(row.amount);
+  return JSON.stringify([parsed.ok ? parsed.amount : `?${row.amount}`, row.financialCategoryCode, referenceIds(row.reference), row.description.trim()]);
+}
+
+/**
+ * Whether the draft differs from the stored split set: a save would change it (Entscheidung des Projektinhabers,
+ * 2026-11-11: „Buchung bestätigen“ is locked while it does). `700` and `700,00` are the same amount; the order of the
+ * rows counts. Without stored splits, the untouched draft (one row over the whole amount, no category) is no change.
+ */
+export function draftDiffers(rows: readonly DraftRow[], splits: readonly TransactionSplitDto[], transactionAmount: string): boolean {
+  const stored = draftFromSplits(splits, transactionAmount, () => '');
+  return rows.length !== stored.length || rows.some((row, index) => rowIntent(row) !== rowIntent(stored[index] ?? row));
+}
+
 /** The ids a reference sends: exactly those of its kind. */
 function referenceIds(reference: SplitReference): Partial<SplitInputDto> {
   switch (reference.kind) {

@@ -19,11 +19,14 @@ import {
   importCsv,
   MRE_COMMANDS,
   openApp,
+  REMOVE_NOW,
   requests,
   settle,
+  showAllRows,
   splitRent,
   type,
   useDurchstich,
+  WRITE_BACK_NOW,
 } from './walk.test-support';
 
 /**
@@ -52,6 +55,7 @@ describe('409: the action does not fit the server state (ALREADY_*, a write runn
       resolvedAt: new Date('2026-11-11T09:30:00Z'),
     });
     click('Als eigenständige Buchung übernehmen');
+    click('Jetzt übernehmen');
     expect(await screen.findByText(/Der Klärfall ist bereits anders entschieden \(„Nicht als neue Buchung übernommen“\)/)).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Erneut senden' })).toBeNull();
     const before = backend().transactions.size;
@@ -81,6 +85,7 @@ describe('409: the action does not fit the server state (ALREADY_*, a write runn
     backend().startForeignWriteBack(r.id);
     const reads = requests(backend(), 'GET', `/api/v1/rent-reconciliations/${r.id}`).length;
     click('An MRE übertragen');
+    click(WRITE_BACK_NOW);
     expect(await screen.findByText(/Ein Schreibvorgang in MRE läuft bis/)).toBeTruthy();
     expect(screen.getByText('MRE: Übertragung läuft')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'An MRE übertragen' })).toBeNull();
@@ -105,6 +110,7 @@ describe('409: the action does not fit the server state (ALREADY_*, a write runn
     });
     await openApp(backend(), `/cockpit/r/${REALM_A}/mietabgleich/${r.id}`);
     fireEvent.click(await screen.findByRole('button', { name: 'An MRE übertragen' }));
+    click(WRITE_BACK_NOW);
     expect(await screen.findByText(/Bitte warten/)).toBeTruthy();
     expect(button('An MRE übertragen').disabled).toBe(true);
     expect(button('Zuordnung aufheben').disabled).toBe(true);
@@ -122,11 +128,13 @@ describe('409: the action does not fit the server state (ALREADY_*, a write runn
     });
     await openApp(backend(), `/cockpit/r/${REALM_A}/mietabgleich/${r.id}`);
     fireEvent.click(await screen.findByRole('button', { name: 'Aus MRE entfernen' }));
+    click(REMOVE_NOW);
     expect(await screen.findByText(/Bitte warten/)).toBeTruthy();
     expect(button('Aus MRE entfernen').disabled).toBe(true);
     await waitFor(() => expect(button('Aus MRE entfernen').disabled).toBe(false), { timeout: 3000 });
     expect(requests(backend(), 'POST', MRE_COMMANDS)).toHaveLength(1);
     click('Aus MRE entfernen');
+    click(REMOVE_NOW);
     expect(await screen.findByText('MRE: entfernt')).toBeTruthy();
     expect(requests(backend(), 'POST', MRE_COMMANDS)).toHaveLength(2);
   });
@@ -240,6 +248,7 @@ describe('MRE unreachable: no coverage claimed, the write-back refused and recor
     backend().mreUp = false;
     await openApp(backend(), `/cockpit/r/${REALM_A}/mietabgleich/${r.id}`);
     fireEvent.click(await screen.findByRole('button', { name: 'An MRE übertragen' }));
+    click(WRITE_BACK_NOW);
     expect(await screen.findByText('Dienst nicht erreichbar')).toBeTruthy();
     expect(await screen.findByText('MRE: Übertragung fehlgeschlagen')).toBeTruthy();
     expect(screen.queryByText('MRE: übertragen')).toBeNull();
@@ -250,6 +259,7 @@ describe('MRE unreachable: no coverage claimed, the write-back refused and recor
     await waitFor(() => expect(button('An MRE übertragen').disabled).toBe(false), { timeout: 3000 });
     expect(requests(backend(), 'POST', MRE_COMMANDS)).toHaveLength(1);
     click('An MRE übertragen');
+    click(WRITE_BACK_NOW);
     expect(await screen.findByText('MRE: übertragen')).toBeTruthy();
     expect(ifMatches('POST', MRE_COMMANDS)).toEqual(['"2"', '"3"']);
     expect(backend().counters.mreWrites).toBe(1);
@@ -298,8 +308,14 @@ describe('a lost answer: the same intent again, the server deduplicates, nothing
     const after = backend().transactions.size;
     click('Dieselbe Datei erneut senden');
     await screen.findByRole('heading', { name: 'Ergebnis des Imports' });
-    const rows = screen.getAllByRole('row').slice(1);
-    expect(rows.map((row) => row.querySelectorAll('td')[1]?.textContent)).toEqual(['Duplikat', 'Duplikat', 'Klärfall']);
+    const outcomes = () =>
+      screen
+        .getAllByRole('row')
+        .slice(1)
+        .map((row) => row.querySelectorAll('td')[1]?.textContent);
+    expect(outcomes()).toEqual(['Klärfall']);
+    showAllRows();
+    expect(outcomes()).toEqual(['Duplikat', 'Duplikat', 'Klärfall']);
     expect(backend().transactions.size).toBe(after);
     const [first, second] = requests(backend(), 'POST', '/api/v1/imports/bank-transactions');
     expect(second?.form?.get('metadata')).toBe(first?.form?.get('metadata'));
@@ -341,6 +357,7 @@ describe('a lost answer: the same intent again, the server deduplicates, nothing
     backend().fault(`POST /api/v1/rent-reconciliations/${r.id}/write-back-to-mre`, { lose: true });
     await openApp(backend(), `/cockpit/r/${REALM_A}/mietabgleich/${r.id}`);
     fireEvent.click(await screen.findByRole('button', { name: 'An MRE übertragen' }));
+    click(WRITE_BACK_NOW);
     expect(await screen.findByText('Keine Antwort')).toBeTruthy();
     expect(await screen.findByText('MRE: übertragen')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'An MRE übertragen' })).toBeNull();

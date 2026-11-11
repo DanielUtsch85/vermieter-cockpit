@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ifMatchForVersion } from '../../api/client';
 import { ApiError } from '../../api/errors';
 import type { Confirmed, TransactionDetailDto } from '../../api/transactions';
 import { confirmable, needsSplitsBeforeConfirm } from '../../transactions/correction-draft';
+import { ConfirmStep } from '../ConfirmStep';
 import { buttonClass, ErrorState, isRetryable, Notice, secondaryButtonClass } from '../states';
 import { statusLabel } from './labels';
 
@@ -28,6 +29,9 @@ function reasonText(error: unknown): string | undefined {
   }
 }
 
+/** The id of the lock's hint, named by the buttons it disables (`aria-describedby`). */
+const LOCK_HINT = 'bestaetigen-sperre';
+
 type Stage =
   | { readonly kind: 'idle' }
   | { readonly kind: 'asking' }
@@ -41,7 +45,9 @@ type Stage =
  * green before the server's answer (§7.3: no optimistic financial state); after it the page reads the Transaction
  * again. A `412` keeps everything as it is and reads only on request; no answer offers the same request again (a
  * repeated confirm is a no-op). Focus goes into the step, back to the button on „Abbrechen“ or Escape, and to the
- * result after the answer (§11).
+ * result after the answer (§11). While the split editor holds a draft that differs from the stored split set, the
+ * button is locked with „Zuerst Aufteilung speichern oder verwerfen“ (Entscheidung des Projektinhabers, 2026-11-11):
+ * a confirm would freeze the stored set, not the one on the screen.
  */
 export function ConfirmAction(props: {
   readonly transaction: TransactionDetailDto;
@@ -52,6 +58,8 @@ export function ConfirmAction(props: {
   readonly onConfirmed: (confirmed: Confirmed) => void;
   /** Reads the Transaction again (after a `412`), on the user's request only. */
   readonly reload: () => void;
+  /** The split editor holds a draft that differs from the stored split set: nothing can be confirmed until it is saved or discarded. */
+  readonly draftUnsaved?: boolean;
 }) {
   const t = props.transaction;
   const [stage, setStage] = useState<Stage>({ kind: 'idle' });
@@ -59,7 +67,6 @@ export function ConfirmAction(props: {
   const inFlight = useRef(false);
   const mounted = useRef(true);
   const trigger = useRef<HTMLButtonElement>(null);
-  const dialog = useRef<HTMLHeadingElement>(null);
   const result = useRef<HTMLDivElement>(null);
   const returnFocus = useRef(false);
   useEffect(() => {
@@ -69,7 +76,6 @@ export function ConfirmAction(props: {
     };
   }, []);
   useEffect(() => {
-    if (stage.kind === 'asking') dialog.current?.focus();
     if (stage.kind === 'refused' || done !== undefined) result.current?.focus();
     if (stage.kind === 'idle' && returnFocus.current) {
       returnFocus.current = false;
@@ -103,9 +109,7 @@ export function ConfirmAction(props: {
     returnFocus.current = true;
     setStage({ kind: 'idle' });
   };
-  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === 'Escape' && stage.kind === 'asking') cancel();
-  };
+  const draftUnsaved = props.draftUnsaved === true;
 
   if (done !== undefined) {
     return (
@@ -120,7 +124,7 @@ export function ConfirmAction(props: {
   if (!confirmable(t) && stage.kind !== 'refused') return null;
 
   return (
-    <div className="flex flex-col gap-3" onKeyDown={onKeyDown}>
+    <div className="flex flex-col gap-3">
       {stage.kind === 'refused' && (
         <div ref={result} tabIndex={-1}>
           <ErrorState error={stage.error}>
@@ -159,31 +163,42 @@ export function ConfirmAction(props: {
         </div>
       )}
       {stage.kind === 'asking' || stage.kind === 'sending' ? (
-        <div role="dialog" aria-labelledby="bestaetigen-frage" className="rounded-card border border-border bg-surface p-4">
-          <h4 id="bestaetigen-frage" ref={dialog} tabIndex={-1} className="font-semibold">
-            Buchung jetzt bestätigen?
-          </h4>
+        <ConfirmStep
+          id="bestaetigen-frage"
+          title="Buchung jetzt bestätigen?"
+          confirmLabel="Jetzt bestätigen"
+          sendingLabel="Wird bestätigt …"
+          sending={stage.kind === 'sending'}
+          disabled={props.stale || draftUnsaved}
+          describedBy={draftUnsaved ? LOCK_HINT : undefined}
+          onConfirm={() => send(ifMatch)}
+          onCancel={cancel}
+        >
           <p>
-            {`Bestätigt wird die gespeicherte Aufteilung (Version ${t.version}). Danach sind Betrag, Datum, Konto und Aufteilung unveränderlich; ändern lässt sich die Buchung nur noch über eine Korrektur. Nicht gespeicherte Änderungen im Abschnitt „Aufteilung bearbeiten“ werden nicht übernommen.`}
+            {`Bestätigt wird die gespeicherte Aufteilung (Version ${t.version}). Danach sind Betrag, Datum, Konto und Aufteilung unveränderlich; ändern lässt sich die Buchung nur noch über eine Korrektur.`}
           </p>
-          <div className="mt-3 flex flex-wrap gap-4">
-            <button type="button" className={buttonClass} disabled={stage.kind === 'sending' || props.stale} onClick={() => send(ifMatch)}>
-              {stage.kind === 'sending' ? 'Wird bestätigt …' : 'Jetzt bestätigen'}
-            </button>
-            <button type="button" className={secondaryButtonClass} disabled={stage.kind === 'sending'} onClick={cancel}>
-              Abbrechen
-            </button>
-          </div>
-        </div>
+        </ConfirmStep>
       ) : (
         confirmable(t) && (
           <div className="flex flex-wrap items-center gap-4">
-            <button ref={trigger} type="button" className={buttonClass} disabled={props.stale} onClick={() => setStage({ kind: 'asking' })}>
+            <button
+              ref={trigger}
+              type="button"
+              className={buttonClass}
+              disabled={props.stale || draftUnsaved}
+              aria-describedby={draftUnsaved ? LOCK_HINT : undefined}
+              onClick={() => setStage({ kind: 'asking' })}
+            >
               Buchung bestätigen
             </button>
             <span className="text-label text-muted">{`Gesendet wird mit If-Match ${ifMatch}.`}</span>
           </div>
         )
+      )}
+      {draftUnsaved && confirmable(t) && (
+        <p id={LOCK_HINT} className="text-label font-semibold">
+          Zuerst Aufteilung speichern oder verwerfen
+        </p>
       )}
     </div>
   );
