@@ -4,6 +4,7 @@ import type { ImportBatchDto, ReviewItemDto } from '../api/imports';
 import type {
   RentReconciliationDto,
   RentReconciliationReadDto,
+  RentSplitProposalDto,
   SuggestResultDto,
   TermCoverageDto,
   TransactionRentCoverageDto,
@@ -52,6 +53,8 @@ export interface RealMappings {
   readonly suggest: (result: { from: string; to: string; items: readonly unknown[]; skipped: { unconfirmed: number; noRentCash: number } }) => SuggestResultDto;
   readonly term: (t: unknown) => TermCoverageDto;
   readonly transactionRent: (t: unknown) => TransactionRentCoverageDto;
+  /** §37.6's answer (step 8). */
+  readonly splitProposal: (p: unknown) => RentSplitProposalDto;
   readonly schemas: {
     /** One split of `PUT …/splits` and of a correction's replacement. */
     readonly split: Schema;
@@ -63,6 +66,8 @@ export interface RealMappings {
     readonly suggest: Schema;
     readonly confirm: Schema;
     readonly reason: Schema;
+    /** `POST /rent-reconciliations` (§37.1, step 8). */
+    readonly create: Schema;
   };
 }
 
@@ -85,9 +90,11 @@ export async function loadRealMappings(): Promise<RealMappings> {
     toSuggestDto: RealMappings['suggest'];
     toTermDto: RealMappings['term'];
     toTransactionDto: RealMappings['transactionRent'];
+    splitProposalDto: RealMappings['splitProposal'];
     suggestBody: Schema;
     confirmBody: Schema;
     releaseBody: Schema;
+    createBody: Schema;
   }>('api/rent-reconciliations.ts');
   return {
     Money: shared.Money,
@@ -101,6 +108,7 @@ export async function loadRealMappings(): Promise<RealMappings> {
     suggest: rent.toSuggestDto,
     term: rent.toTermDto,
     transactionRent: rent.toTransactionDto,
+    splitProposal: rent.splitProposalDto,
     schemas: {
       split: dto.split,
       correct: dto.correctBody,
@@ -110,6 +118,7 @@ export async function loadRealMappings(): Promise<RealMappings> {
       suggest: rent.suggestBody,
       confirm: rent.confirmBody,
       reason: rent.releaseBody,
+      create: rent.createBody,
     },
   };
 }

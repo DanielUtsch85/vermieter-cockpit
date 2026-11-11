@@ -87,8 +87,8 @@ export interface Rec {
   mreRentTerm: string;
   matchedAmount: Money;
   suggestedAmount: Money;
-  confidence: string;
-  suggestionReason: string;
+  confidence: string | null;
+  suggestionReason: string | null;
   confirmedAt: Date | null;
   confirmedBy: string | null;
   releasedAt: Date | null;
@@ -97,7 +97,7 @@ export interface Rec {
   rejectedAt: Date | null;
   rejectedBy: string | null;
   rejectReason: string | null;
-  notes: null;
+  notes: string | null;
   mreWriteBackState: string;
   mreWriteBackLeaseUntil: Date | null;
   mreWrittenBackAt: Date | null;

@@ -20,13 +20,13 @@ import {
   notFound,
   NOW,
   type Rec,
-  RENT_CATEGORIES,
   type Sent,
   type Split,
   TERM_OCT,
   type Tx,
   unreachable,
 } from './fake-model.test-support';
+import { createRentFake, type MreTermState } from './fake-rent.test-support';
 import type { Money, RealMappings } from './real-mappings.test-support';
 
 export { ACCOUNT_IBAN, CSV_NAME, DURCHSTICH_CSV, EMAIL, TERM_OCT, type Rec, type Sent, type Tx } from './fake-model.test-support';
@@ -55,6 +55,18 @@ export interface Backend {
   readonly forbidden: Set<string>;
   /** Whether MRE answers (term reads, write-back, removal); its authenticator stays reachable. */
   mreUp: boolean;
+  /**
+   * The suggest run's rule (fake-rent.test-support.ts): `ANY_AMOUNT`, the walk's simplification of step 7 (default), or
+   * `EXACT`, §37.3's exact fit on the terms the fake knows (step 8: partial and collective payments are not suggested).
+   */
+  suggestRule: 'ANY_AMOUNT' | 'EXACT';
+  /** A further MRE term with its lease values (§37.6); its amount due is rent + charges + adjustments. */
+  addMreTerm(tenant: string, term: string, lease: { rent: string; charges: string; adjustments?: string }): void;
+  /**
+   * An inflow of Realm A as an import left it (`IMPORTED`, no splits), with synthetic text and counterparty; with
+   * `confirmedRent`, as an earlier step left it: one `RENT_BASE` split over the whole amount, `CONFIRMED`.
+   */
+  seedInflow(description: string, amount: string, bookingDate: string, confirmedRent?: boolean): Tx;
   /** Whether DE can verify tokens with MRE (§47.1); when not, every DE call answers `503` with `Retry-After`. */
   guardUp: boolean;
   /** Whether the MRE authenticator answers a refresh (no answer: `createMreAuthenticator`'s network error). */
@@ -148,7 +160,14 @@ export function createBackend(real: RealMappings): Backend {
   });
   tx({ mreRealmId: REALM_B, amount: eur('99.00'), bookingDate: '2026-10-03', description: 'Buchung aus Bestand B' });
 
-  const mreTerm = { amountDue: eur('850.00'), payments: [{ date: '03/10/2026', amount: eur('50.00'), type: 'cash', reference: null }] as MrePayment[] };
+  const mreTerm: MreTermState = {
+    amountDue: eur('850.00'),
+    payments: [{ date: '03/10/2026', amount: eur('50.00'), type: 'cash', reference: null }] as MrePayment[],
+    rent: eur('700.00'),
+    charges: eur('150.00'),
+    adjustments: eur('0.00'),
+  };
+  const mreTerms = new Map<string, MreTermState>([[`${TENANT}/${TERM_OCT}`, mreTerm]]);
   const counters = { mreWrites: 0, signIns: 0 };
   const forbidden = new Set<string>();
 
@@ -157,17 +176,6 @@ export function createBackend(real: RealMappings): Backend {
     return found?.mreRealmId === realm ? found : undefined;
   };
   const detail = (t: Tx) => json(200, { ...real.transaction(t), splits: t.splits.map(real.split) }, { etag: `"${t.version}"` });
-  const rentCash = (t: Tx) => {
-    const rent = t.splits.filter((s) => RENT_CATEGORIES.has(s.financialCategoryCode)).map((s) => s.amount);
-    return rent.length === 0 ? null : Money.sum(rent, 'EUR');
-  };
-  const confirmedTotal = (recs: readonly Rec[]) =>
-    Money.sum(
-      recs.filter((r) => r.status === 'CONFIRMED').map((r) => r.matchedAmount),
-      'EUR',
-    );
-  const sendRec = (r: Rec) => json(200, real.reconciliation(r), { etag: `"${r.version}"` });
-  const marker = (r: Rec) => `DE-RPR-${r.id}`;
 
   /* ---------------------------------------------------------------- imports (api-design.md §32) */
 
@@ -433,199 +441,17 @@ export function createBackend(real: RealMappings): Backend {
     return json(201, answer);
   };
 
-  /* ---------------------------------------------------------------- rent reconciliation (§37) */
+  /* ---------------------------------------------------------------- rent reconciliation (§37): fake-rent.test-support.ts */
 
-  const suggest = (realm: string, body: unknown): Response => {
-    if (!real.schemas.suggest.safeParse(body).success) return invalid('to');
-    if (!backend.mreUp) return envelope(503, 'EXTERNAL_SYSTEM_ERROR', undefined, { 'retry-after': '10' });
-    const { from, to } = body as { from: string; to: string };
-    const [year = 0, month = 0] = from.split('-').map(Number);
-    const before = month === 1 ? `${year - 1}-12` : `${year}-${String(month - 1).padStart(2, '0')}`;
-    const inWindow = (t: Tx) => t.mreRealmId === realm && t.direction === 'INFLOW' && t.bookingDate >= `${before}-15` && t.bookingDate <= `${to}-31`;
-    const created: Rec[] = [];
-    const skipped = { unconfirmed: 0, noRentCash: 0 };
-    for (const t of transactions.values()) {
-      if (!inWindow(t) || t.correctionRole !== null) continue;
-      if (['IMPORTED', 'UNREVIEWED', 'CLASSIFIED'].includes(t.status)) skipped.unconfirmed += 1;
-      if (t.status !== 'CONFIRMED') continue;
-      const cash = rentCash(t);
-      if (cash === null) {
-        skipped.noRentCash += 1;
-        continue;
-      }
-      if ([...reconciliations.values()].some((r) => r.transactionId === t.id && r.mreRentTerm === TERM_OCT)) continue;
-      const r = newRec(realm, t, cash);
-      created.push(r);
-    }
-    return json(200, real.suggest({ from, to, items: created, skipped }));
-  };
-
-  const newRec = (realm: string, t: Tx, cash: Money, changes: Partial<Rec> = {}): Rec => {
-    const r: Rec = {
-      id: newId(),
-      mreRealmId: realm,
-      status: 'SUGGESTED',
-      transactionId: t.id,
-      mreTenantId: TENANT,
-      mreRentTerm: TERM_OCT,
-      matchedAmount: cash,
-      suggestedAmount: cash,
-      confidence: 'HIGH',
-      suggestionReason: 'EXACT_AMOUNT',
-      confirmedAt: null,
-      confirmedBy: null,
-      releasedAt: null,
-      releasedBy: null,
-      releaseReason: null,
-      rejectedAt: null,
-      rejectedBy: null,
-      rejectReason: null,
-      notes: null,
-      mreWriteBackState: 'NOT_WRITTEN',
-      mreWriteBackLeaseUntil: null,
-      mreWrittenBackAt: null,
-      mreWrittenBackBy: null,
-      mrePayment: null,
-      mreWriteBackError: null,
-      mreWriteBackFailedAt: null,
-      mreLastLeaseUntil: null,
-      mreRemovedAt: null,
-      mreRemovedBy: null,
-      createdAt: NOW,
-      version: 1,
-      ...changes,
-    };
-    reconciliations.set(r.id, r);
-    return r;
-  };
-
-  const versionRefused = (r: Rec, headers: Headers, required: boolean): Response | undefined => {
-    const version = ifMatchVersion(headers);
-    if (version === undefined) return required ? envelope(428, 'PRECONDITION_REQUIRED') : undefined;
-    return version === r.version ? undefined : envelope(412, 'VERSION_CONFLICT', { expectedVersions: [version], currentVersion: r.version });
-  };
-
-  const recCommand = (r: Rec, name: string, headers: Headers, body: unknown): Response => {
-    const step = (changes: Partial<Rec>) => {
-      Object.assign(r, changes, { version: r.version + 1 });
-      return sendRec(r);
-    };
-    switch (name) {
-      case 'confirm': {
-        if (!real.schemas.confirm.safeParse(body ?? {}).success) return invalid('matchedAmount.amount');
-        const amount = eur((body as { matchedAmount: { amount: string } }).matchedAmount.amount);
-        if (r.status === 'CONFIRMED' && r.matchedAmount.equals(amount)) return sendRec(r);
-        const refused = versionRefused(r, headers, true);
-        if (refused !== undefined) return refused;
-        if (r.status !== 'SUGGESTED') return conflict('NOT_CONFIRMABLE', { status: r.status });
-        if (amount.compare(r.suggestedAmount) > 0) return envelope(422, 'VALIDATION_ERROR', { reason: 'ABOVE_SUGGESTION' });
-        return step({ status: 'CONFIRMED', matchedAmount: amount, confirmedAt: NOW, confirmedBy: EMAIL });
-      }
-      case 'release': {
-        if (!real.schemas.reason.safeParse(body).success) return invalid('reason');
-        if (r.status === 'RELEASED') return sendRec(r);
-        const refused = versionRefused(r, headers, true);
-        if (refused !== undefined) return refused;
-        if (r.status !== 'CONFIRMED') return conflict('NOT_RELEASABLE', { status: r.status });
-        if (r.mreWriteBackState === 'PENDING') return conflict('WRITE_BACK_IN_PROGRESS', { reconciliationId: r.id });
-        const state = r.mreWriteBackState === 'NOT_WRITTEN' ? 'NOT_WRITTEN' : 'REMOVAL_REQUIRED';
-        const reason = (body as { reason: string }).reason;
-        return step({ status: 'RELEASED', mreWriteBackState: state, releasedAt: NOW, releasedBy: EMAIL, releaseReason: reason });
-      }
-      case 'write-back-to-mre': {
-        if (body !== undefined) return invalid();
-        if (r.status !== 'CONFIRMED') return conflict('NOT_WRITABLE', { status: r.status });
-        if (r.mreWriteBackState === 'WRITTEN') return sendRec(r);
-        if (r.mreWriteBackState === 'PENDING') return conflict('WRITE_BACK_IN_PROGRESS', { reconciliationId: r.id });
-        const refused = versionRefused(r, headers, false);
-        if (refused !== undefined) return refused;
-        if (!backend.mreUp) {
-          Object.assign(r, { mreWriteBackState: 'FAILED', mreWriteBackError: 'MRE_UNAVAILABLE', mreWriteBackFailedAt: NOW, version: r.version + 1 });
-          return envelope(503, 'EXTERNAL_SYSTEM_ERROR', undefined, { 'retry-after': '1' });
-        }
-        counters.mreWrites += 1;
-        const payment = { date: '01/10/2026', amount: r.matchedAmount, type: 'transfer', reference: marker(r) };
-        mreTerm.payments.push(payment);
-        return step({ mreWriteBackState: 'WRITTEN', mreWrittenBackAt: NOW, mreWrittenBackBy: EMAIL, mrePayment: payment, mreLastLeaseUntil: NOW });
-      }
-      case 'remove-from-mre': {
-        if (body !== undefined) return invalid();
-        if (r.mreWriteBackState === 'REMOVED') return sendRec(r);
-        if (r.status !== 'RELEASED' || !['REMOVAL_REQUIRED', 'REMOVAL_FAILED'].includes(r.mreWriteBackState)) {
-          return conflict('NOT_REMOVABLE', { status: r.status, mreWriteBackState: r.mreWriteBackState });
-        }
-        const refused = versionRefused(r, headers, false);
-        if (refused !== undefined) return refused;
-        if (!backend.mreUp) {
-          Object.assign(r, { mreWriteBackState: 'REMOVAL_FAILED', mreWriteBackError: 'MRE_UNAVAILABLE', version: r.version + 1 });
-          return envelope(503, 'EXTERNAL_SYSTEM_ERROR');
-        }
-        counters.mreWrites += 1;
-        mreTerm.payments = mreTerm.payments.filter((p) => p.reference !== marker(r));
-        return step({ mreWriteBackState: 'REMOVED', mreRemovedAt: NOW, mreRemovedBy: EMAIL });
-      }
-      default:
-        return notFound();
-    }
-  };
-
-  const termCoverage = (realm: string, tenant: string, term: string): Response => {
-    const recs = [...reconciliations.values()].filter((r) => r.mreRealmId === realm && r.mreTenantId === tenant && r.mreRentTerm === term);
-    const matchedTotal = confirmedTotal(recs);
-    if (!backend.mreUp || tenant !== TENANT || term !== TERM_OCT) {
-      return json(
-        200,
-        real.term({
-          mreTenantId: tenant,
-          mreRentTerm: term,
-          reconciliations: recs,
-          matchedTotal,
-          mreStatus: backend.mreUp ? 'NOT_RETURNED' : 'UNAVAILABLE',
-          mre: null,
-          coverage: null,
-          openAmount: null,
-        }),
-      );
-    }
-    const openAmount = mreTerm.amountDue.subtract(matchedTotal);
-    const order = matchedTotal.compare(mreTerm.amountDue);
-    const coverage = order > 0 ? 'OVERPAID' : order === 0 ? 'MATCHED' : matchedTotal.isZero() ? 'UNMATCHED' : 'PARTIALLY_MATCHED';
-    return json(
-      200,
-      real.term({
-        mreTenantId: tenant,
-        mreRentTerm: term,
-        reconciliations: recs,
-        matchedTotal,
-        mreStatus: 'AVAILABLE',
-        mre: { amountDue: mreTerm.amountDue, payments: mreTerm.payments },
-        coverage,
-        openAmount,
-      }),
-    );
-  };
-
-  const transactionRent = (t: Tx): Response => {
-    const recs = [...reconciliations.values()].filter((r) => r.transactionId === t.id);
-    const counted = t.status === 'CONFIRMED' && t.correctionRole !== 'REVERSAL';
-    const cash = rentCash(t);
-    const matchedTotal = confirmedTotal(recs);
-    const available = counted && cash !== null ? cash.subtract(matchedTotal) : null;
-    return json(
-      200,
-      real.transactionRent({
-        transactionId: t.id,
-        status: t.status,
-        direction: t.direction,
-        correctionRole: t.correctionRole,
-        counted,
-        rentCash: cash,
-        matchedTotal,
-        available,
-        reconciliations: recs,
-      }),
-    );
-  };
+  const { rentCash, marker, suggest, newRec, recCommand, termCoverage, transactionRent, splitProposal, createMatch, termKey } = createRentFake({
+    real,
+    transactions,
+    reconciliations,
+    mreTerm,
+    mreTerms,
+    counters,
+    state: () => backend,
+  });
 
   /* ---------------------------------------------------------------- routing */
 
@@ -666,11 +492,14 @@ export function createBackend(real: RealMappings): Backend {
         const list = [...reconciliations.values()].filter((r) => r.mreRealmId === realm && (status === null || r.status === status));
         return json(200, page(list.map(real.reconciliation)));
       }
+      case 'POST rent-reconciliations':
+        return createMatch(realm, headers, body);
       case 'POST rent-reconciliations/{id}':
         return id === 'suggest' ? suggest(realm, body) : notFound();
       default:
         break;
     }
+    if (method === 'GET' && head === 'rent-reconciliations' && id === 'split-proposal' && sub === undefined) return splitProposal(realm, search);
     if (method === 'GET' && head === 'rent-reconciliations' && id === 'terms') return termCoverage(realm, sub ?? '', rest[0] ?? '');
     if (head === 'transactions') {
       const t = of(realm, id);
@@ -745,6 +574,26 @@ export function createBackend(real: RealMappings): Backend {
     counters,
     forbidden,
     mreUp: true,
+    suggestRule: 'ANY_AMOUNT',
+    addMreTerm: (tenant, term, lease) => {
+      const [rent, charges, adjustments] = [eur(lease.rent), eur(lease.charges), eur(lease.adjustments ?? '0.00')];
+      mreTerms.set(termKey(tenant, term), { amountDue: rent.add(charges).add(adjustments), payments: [], rent, charges, adjustments });
+    },
+    seedInflow: (description, amount, bookingDate, confirmedRent = false) => {
+      const t = tx({
+        mreRealmId: REALM_A,
+        amount: eur(amount),
+        bookingDate,
+        description,
+        counterpartyNameRaw: 'Max Muster',
+        counterpartyIbanRaw: 'DE00 0000 0000 0000 0000 05',
+      });
+      if (!confirmedRent) return t;
+      const only = { id: newId(), position: 1, amount: eur(amount), financialCategoryCode: 'RENT_BASE', propertyReferenceId: null, description: null };
+      t.splits = [{ ...only, loanId: null, securityDepositId: null, wegAnnualStatementId: null, wegSpecialAssessmentId: null }];
+      Object.assign(t, { status: 'CONFIRMED', version: 3, confirmedAt: NOW, confirmedBy: EMAIL });
+      return t;
+    },
     guardUp: true,
     authenticatorUp: true,
     expireAccessTokens: () => tokens.clear(),

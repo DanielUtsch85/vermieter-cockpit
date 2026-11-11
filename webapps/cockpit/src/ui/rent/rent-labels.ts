@@ -143,6 +143,8 @@ export function rentRefusalText(error: unknown): string | undefined {
       return 'Hier gibt es in MRE nichts zu entfernen (nicht aufgehoben oder nie übertragen).';
     case 'TRANSACTION_NOT_COUNTED':
       return 'Die Buchung ist nicht (mehr) bestätigt oder wurde korrigiert; sie zählt nicht als Zahlungseingang.';
+    case 'NOT_PROPOSABLE':
+      return 'Einen Aufteilungsvorschlag gibt es nur für einen noch nicht bestätigten Zahlungseingang; die gespeicherte Aufteilung einer bestätigten Buchung ist eingefroren.';
     case 'ALREADY_MATCHED':
       return 'Diese Buchung ist diesem Termin schon zugeordnet.';
     case 'RENT_CASH_EXCEEDED':

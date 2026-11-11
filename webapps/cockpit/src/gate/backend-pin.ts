@@ -53,4 +53,9 @@ export const USED_ROUTES: readonly (readonly [method: string, path: string])[] =
   ['POST', '/api/v1/rent-reconciliations/:reconciliationId/remove-from-mre'],
   ['GET', '/api/v1/rent-reconciliations/terms/:mreTenantId/:mreRentTerm'],
   ['GET', '/api/v1/transactions/:transactionId/rent-reconciliations'],
+  // Step 8 (Entscheidung des Projektinhabers, 2026-11-11; ui-guide.md §6.6 steps 2 and 3): the split proposal of a term
+  // for an unconfirmed inflow, a read applied only through the split editor (api-design.md §37.6), and the manual match,
+  // created `CONFIRMED` with an `Idempotency-Key` of the intent (§37.1). Both routes are in the pinned inventory.
+  ['GET', '/api/v1/rent-reconciliations/split-proposal'],
+  ['POST', '/api/v1/rent-reconciliations'],
 ];

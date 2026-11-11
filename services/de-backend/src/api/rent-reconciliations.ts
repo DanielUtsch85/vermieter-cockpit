@@ -48,7 +48,8 @@ const mreTenantId = z.string().regex(MRE_EXTERNAL_ID);
 /** MRE's term key `YYYYMMDDHH`: only its form (§37.1). */
 const mreRentTerm = z.string().refine(isTermKey, { params: { code: 'INVALID_TERM' } });
 
-const createBody = z
+/** §37.1's manual match body (strict); exported for the client contract's type only. */
+export const createBody = z
   .object({
     transactionId: uuid,
     mreTenantId,
@@ -419,7 +420,8 @@ export function toTransactionDto(t: TransactionCoverage) {
   };
 }
 
-function splitProposalDto(p: RentSplitProposalView) {
+/** §37.6's answer; exported for the client contract's type and the cockpit's Durchstich fake only. */
+export function splitProposalDto(p: RentSplitProposalView) {
   return {
     transactionId: p.transactionId,
     mreTenantId: p.mreTenantId,
