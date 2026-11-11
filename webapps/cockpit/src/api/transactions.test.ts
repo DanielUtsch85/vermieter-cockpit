@@ -4,6 +4,7 @@ import { readListParams, toApiQuery } from '../transactions/list-params';
 import {
   account,
   ACCOUNT,
+  correctionAnswer,
   detail,
   page,
   property,
@@ -19,6 +20,8 @@ import { createDeClient } from './client';
 import { ApiError, CLIENT_CODES } from './errors';
 import { countingTokens, envelope, json, scriptedFetch, type Call } from './fetch.test-support';
 import {
+  confirmTransaction,
+  correctTransaction,
   getTransaction,
   listFinancialAccounts,
   listFinancialCategories,
@@ -213,8 +216,8 @@ describe('step 3 write: PUT /transactions/{transactionId}/splits (api-design.md 
   });
 });
 
-describe('integration gate: steps 2 and 3 call only routes of the pinned inventory', () => {
-  it('every request of the step-2 reads and the step-3 write is a route of USED_ROUTES, and every such route is used', async () => {
+describe('integration gate: steps 2 to 4 call only routes of the pinned inventory', () => {
+  it('every request of the step-2 reads and the step-3 and step-4 writes is a route of USED_ROUTES, and every such route is used', async () => {
     const { client: de, calls } = client(
       json(200, page([transaction()])),
       json(200, detail(), { etag: '"3"' }),
@@ -222,6 +225,8 @@ describe('integration gate: steps 2 and 3 call only routes of the pinned invento
       json(200, page([property()])),
       json(200, { items: [] }),
       json(200, splitsAnswer(), { etag: '"4"' }),
+      json(200, transaction({ status: 'CONFIRMED', version: 5 }), { etag: '"5"' }),
+      json(201, correctionAnswer({ description: 'Neu' })),
     );
     await listTransactions(de, { page: '1', pageSize: '50' });
     await getTransaction(de, TX);
@@ -229,6 +234,8 @@ describe('integration gate: steps 2 and 3 call only routes of the pinned invento
     await listPropertyReferences(de);
     await listFinancialCategories(de);
     await putSplits(de, TX, BODY, '"3"');
+    await confirmTransaction(de, TX, '"4"');
+    await correctTransaction(de, TX, { reason: 'Test', replacement: { description: 'Neu' } }, '"5"', 'key-1');
     const reached = calls.map(routeOf);
     expect(reached).not.toContain(undefined);
     expect(new Set(reached)).toEqual(new Set(USED_ROUTES.filter(([, path]) => path !== '/api/v1/health').map(([method, path]) => `${method} ${path}`)));
@@ -237,7 +244,10 @@ describe('integration gate: steps 2 and 3 call only routes of the pinned invento
   it('counter-check: a route outside USED_ROUTES is found', () => {
     const call = { url: `/api/v1/financial-accounts/${ACCOUNT}`, method: 'GET' } as Call;
     expect(routeOf(call)).toBeUndefined();
-    expect(routeOf({ url: `/api/v1/transactions/${TX}/confirm`, method: 'POST' } as Call)).toBeUndefined();
+    expect(routeOf({ url: `/api/v1/transactions/${TX}/reverse`, method: 'POST' } as Call)).toBeUndefined();
+    expect(routeOf({ url: `/api/v1/transactions/${TX}/amend`, method: 'POST' } as Call)).toBeUndefined();
+    expect(routeOf({ url: `/api/v1/transactions/${TX}/confirm`, method: 'PUT' } as Call)).toBeUndefined();
+    expect(routeOf({ url: `/api/v1/transactions/${TX}/confirm`, method: 'POST' } as Call)).toBe('POST /api/v1/transactions/:transactionId/confirm');
     expect(routeOf({ url: `/api/v1/transactions/${TX}/splits`, method: 'POST' } as Call)).toBeUndefined();
     expect(routeOf({ url: `/api/v1/transactions/${TX}/splits`, method: 'PUT' } as Call)).toBe('PUT /api/v1/transactions/:transactionId/splits');
   });

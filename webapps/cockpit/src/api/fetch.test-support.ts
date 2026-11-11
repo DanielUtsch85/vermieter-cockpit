@@ -63,3 +63,23 @@ const base64url = (value: string) => btoa(value).replace(/\+/g, '-').replace(/\/
 export function fakeJwt(payload: Record<string, unknown>): string {
   return `${base64url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))}.${base64url(JSON.stringify(payload))}.signature`;
 }
+
+/** A fetch that answers by method and path, each route with its own queue of answers; every call is recorded. */
+export function routedFetch(routes: Record<string, (() => Response)[]>): { fetch: FetchLike; calls: Call[] } {
+  const calls: Call[] = [];
+  const fetch: FetchLike = (url, init = {}) => {
+    const call: Call = {
+      url,
+      method: init.method ?? 'GET',
+      headers: new Headers(init.headers),
+      body: typeof init.body === 'string' ? init.body : undefined,
+      credentials: init.credentials,
+      signal: init.signal ?? undefined,
+    };
+    calls.push(call);
+    const key = `${call.method} ${new URL(url, 'https://cockpit.internal').pathname}`;
+    const next = routes[key]?.shift();
+    return next === undefined ? Promise.reject(new Error(`unexpected call ${key}`)) : Promise.resolve(next());
+  };
+  return { fetch, calls };
+}

@@ -10,7 +10,7 @@ import type { toDto as toFinancialAccountDto } from './financial-accounts.js';
 import type { toDto as toFinancialCategoryDto } from './financial-categories.js';
 import type { toDto as toPropertyReferenceDto } from './property-references.js';
 import type { z } from 'zod';
-import type { split, toDto as toTransactionDto, toSplitDto } from './transaction-dto.js';
+import type { correctBody, split, toDto as toTransactionDto, toSplitDto } from './transaction-dto.js';
 import type { toSplitsDto } from './transaction-splits.js';
 
 export type { FieldError } from './validation.js';
@@ -51,3 +51,15 @@ export type FinancialCategoryDto = Wire<ReturnType<typeof toFinancialCategoryDto
 export type SplitInputDto = z.input<typeof split>;
 /** The answer of `PUT /transactions/{id}/splits` (api-design.md §33.2); its `ETag` is the next `If-Match`. */
 export type TransactionSplitsDto = Wire<ReturnType<typeof toSplitsDto>>;
+/** The request of `POST /transactions/{id}/correct` (api-design.md §35.2), as the backend's schema reads it. */
+export type CorrectInputDto = z.input<typeof correctBody>;
+/**
+ * The `201` answer of `POST /transactions/{id}/correct` (api-design.md §35.1, §35.4; `transaction-lifecycle.ts`): the
+ * original (now `CORRECTED`), its reversal and its replacement, each as `toDto` maps it and with its own `version`; no
+ * `ETag`. `replacement` is `null` only for `…/reverse` (§35.9), which shares the route's answer shape.
+ */
+export interface CorrectionResultDto {
+  readonly original: TransactionDto;
+  readonly reversal: TransactionDto;
+  readonly replacement: TransactionDto | null;
+}

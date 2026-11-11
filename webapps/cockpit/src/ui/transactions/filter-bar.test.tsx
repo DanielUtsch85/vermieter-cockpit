@@ -5,6 +5,7 @@ import { readListParams, toSearch, type ListParams } from '../../transactions/li
 import { account, category, page, property } from '../../transactions/fixtures.test-support';
 import { FilterBar } from './FilterBar';
 import type { References } from './references';
+import { TransactionListView } from './TransactionList';
 
 /**
  * „Nur prüfbare“ as a shortcut (Entscheidung des Projektinhabers, 2026-11-10, to #323 F3): while `reviewable` is set,
@@ -120,5 +121,34 @@ describe('the shortcut Nur pruefbare in the filter bar (#323 F3)', () => {
     fireEvent.click(status('Ignoriert'));
     apply();
     expect(applied).toEqual(['?status=CONFIRMED%2CIGNORED&current=true']);
+  });
+});
+
+describe('the bar follows the URL of the list (#334 H1: the key on FilterBar in TransactionList)', () => {
+  it('a list rerendered with another URL shows the new URL selection in the bar, not the one chosen before', () => {
+    const list = (search: string) => (
+      <TransactionListView
+        realmId="64b7f0c2a1b2c3d4e5f60718"
+        params={readListParams(search)}
+        list={{ status: 'success', data: page([]) }}
+        references={loaded}
+        onFilter={() => undefined}
+        onRetry={() => undefined}
+      />
+    );
+    const { rerender } = render(list('?reviewable=true&provenance=BANK_CSV'));
+    expect(shortcut().checked).toBe(true);
+    expect(status('Aus Bankimport (CSV)').checked).toBe(true);
+    // An unapplied choice in the bar: it belongs to the old URL and must not survive the move.
+    fireEvent.click(shortcut());
+    rerender(list('?status=IGNORED,CONFIRMED'));
+    expect(shortcut().checked).toBe(false);
+    expect(status('Ignoriert').checked).toBe(true);
+    expect(status('Bestätigt').checked).toBe(true);
+    expect(statusBoxes().every((box) => !box.disabled)).toBe(true);
+    expect(status('Aus Bankimport (CSV)').checked).toBe(false);
+    rerender(list('?reviewable=true'));
+    expect(shortcut().checked).toBe(true);
+    expect(statusBoxes().every((box) => !box.checked && box.disabled)).toBe(true);
   });
 });

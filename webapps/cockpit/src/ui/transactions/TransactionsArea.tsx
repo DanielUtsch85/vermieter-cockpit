@@ -2,6 +2,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import type { DeClient } from '../../api/client';
 import {
+  confirmTransaction,
+  correctTransaction,
   getTransaction,
   listFinancialAccounts,
   listFinancialCategories,
@@ -14,7 +16,10 @@ import { navigate } from '../../navigation';
 import { realmKey } from '../../query';
 import { AREAS, areaPath } from '../../routing';
 import { readListParams, toApiQuery, toSearch, type ListParams } from '../../transactions/list-params';
+import { correctable } from '../../transactions/correction-draft';
 import { splitsEditable } from '../../transactions/split-draft';
+import { ConfirmAction } from './ConfirmAction';
+import { CorrectionForm } from './CorrectionForm';
 import type { References } from './references';
 import { TransactionDetailView } from './TransactionDetail';
 import { TransactionListView } from './TransactionList';
@@ -27,7 +32,7 @@ import { SplitEditor } from './SplitEditor';
 export const transactionKeys = {
   list: (realmId: string, epoch: number, query: Readonly<Record<string, string>>) => realmKey(realmId, epoch, 'transactions', 'list', query),
   detail: (realmId: string, epoch: number, transactionId: string) => realmKey(realmId, epoch, 'transactions', 'detail', transactionId),
-  /** Every list and detail of the Realm: what a split change invalidates (§7.3: "Buchung und Listen"). */
+  /** Every list and detail of the Realm: what a split change, a confirm or a correction invalidates (§7.3: "Buchung und Listen"). */
   all: (realmId: string, epoch: number) => realmKey(realmId, epoch, 'transactions'),
   accounts: (realmId: string, epoch: number) => realmKey(realmId, epoch, 'financial-accounts', 'picker'),
   properties: (realmId: string, epoch: number) => realmKey(realmId, epoch, 'property-references', 'picker'),
@@ -104,8 +109,16 @@ function TransactionDetailPage(props: {
   // The editor stays once shown: a later read (after a save or a 412) that is refused, or names a status without
   // splits, must not take the unsaved draft away (ui-guide.md §11); the editor says itself when it cannot save.
   const [editorShown, setEditorShown] = useState(false);
+  // Confirmed here: the stored split set is frozen by the user's own decision, so the editor goes (its dialog says so).
+  const [confirmedHere, setConfirmedHere] = useState(false);
+  // The correction form stays once shown, as the editor does: a draft is not taken away by a later read (§11).
+  const [correctionShown, setCorrectionShown] = useState(false);
   const first = read.data;
   if (!editorShown && first !== undefined && read.status === 'success' && splitsEditable(first.transaction.status)) setEditorShown(true);
+  if (!correctionShown && first !== undefined && read.status === 'success' && correctable(first.transaction)) setCorrectionShown(true);
+  // No action on a state that is being read again or whose last read failed (an ETag that may be stale, §7.3).
+  const stale = read.status !== 'success' || read.isFetching;
+  const invalidate = () => void queryClient.invalidateQueries({ queryKey: transactionKeys.all(props.realmId, props.epoch) });
   const reload = async (): Promise<TransactionRead> => {
     const result = await read.refetch();
     if (result.status === 'error' || result.data === undefined) throw result.error ?? new Error('No Transaction read.');
@@ -114,7 +127,20 @@ function TransactionDetailPage(props: {
   return (
     <>
       <TransactionDetailView realmId={props.realmId} read={read} references={props.references} listHref={props.listHref} onRetry={() => void read.refetch()} />
-      {editorShown && first !== undefined && (
+      {first !== undefined && (
+        <ConfirmAction
+          transaction={first.transaction}
+          etag={first.etag}
+          stale={stale}
+          confirm={(ifMatch) => confirmTransaction(props.client, props.transactionId, ifMatch)}
+          onConfirmed={() => {
+            setConfirmedHere(true);
+            invalidate();
+          }}
+          reload={() => void read.refetch()}
+        />
+      )}
+      {editorShown && !confirmedHere && first !== undefined && (
         <SplitEditor
           key={props.transactionId}
           transaction={first.transaction}
@@ -122,7 +148,19 @@ function TransactionDetailPage(props: {
           references={props.references}
           save={(body, ifMatch) => putSplits(props.client, props.transactionId, body, ifMatch)}
           reload={reload}
-          onSaved={() => void queryClient.invalidateQueries({ queryKey: transactionKeys.all(props.realmId, props.epoch) })}
+          onSaved={invalidate}
+        />
+      )}
+      {correctionShown && first !== undefined && (
+        <CorrectionForm
+          realmId={props.realmId}
+          transaction={first.transaction}
+          etag={first.etag}
+          stale={stale}
+          references={props.references}
+          correct={(body, ifMatch, key) => correctTransaction(props.client, props.transactionId, body, ifMatch, key)}
+          onCorrected={invalidate}
+          reload={() => void read.refetch()}
         />
       )}
     </>

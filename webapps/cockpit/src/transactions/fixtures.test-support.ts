@@ -104,3 +104,24 @@ export function property(overrides: Partial<PropertyReferenceDto> = {}): Propert
 export function category(overrides: Partial<FinancialCategoryDto> = {}): FinancialCategoryDto {
   return { code: 'RENT_BASE', name: 'Kaltmiete', categoryType: 'INCOME', active: true, ...overrides };
 }
+
+/**
+ * The `201` answer of `POST …/correct` for `TX` (api-design.md §35.3, `transaction-lifecycle.ts`): the original
+ * `CORRECTED` with its links, the reversal (same amount and dates, opposite direction) and the replacement with the
+ * changes given. Synthetic, as the backend's `toDto` shapes it.
+ */
+export function correctionAnswer(replacement: Partial<TransactionDto> = {}, original: Partial<TransactionDto> = {}) {
+  const base = transaction({ status: 'CONFIRMED', confirmedAt: '2026-03-05T10:00:00.000Z', confirmedBy: 'vermieter@example.invalid', ...original });
+  const linked = {
+    provenance: 'CORRECTION',
+    status: 'CONFIRMED',
+    version: 1,
+    correctionOfTransactionId: base.transactionId,
+    confirmedAt: '2026-04-01T09:00:00.000Z',
+  } as const;
+  return {
+    original: { ...base, status: 'CORRECTED', version: base.version + 1, reversalTransactionId: TX_REVERSAL, replacementTransactionId: TX_REPLACEMENT },
+    reversal: { ...base, ...linked, transactionId: TX_REVERSAL, correctionRole: 'REVERSAL', direction: base.direction === 'INFLOW' ? 'OUTFLOW' : 'INFLOW' },
+    replacement: { ...base, ...linked, transactionId: TX_REPLACEMENT, correctionRole: 'REPLACEMENT', ...replacement },
+  } satisfies { original: TransactionDto; reversal: TransactionDto; replacement: TransactionDto };
+}
