@@ -95,8 +95,8 @@ jobs:
         run: docker compose -f docker-compose.yml -f docker-compose.proxy.yml build cockpit-ui
       # Last on purpose: it adds docker-compose.proxy.yml and recreates authenticator, gateway, emailer and de-backend
       # (all four are overridden there) with the proxy settings (https, the cockpit hostname), which the steps above do
-      # not expect.
-      - name: Cockpit gate through Caddy with curl (/cockpit/ start page and deep link from cockpit-ui with no-store, asset, sign-in, refresh cookie HttpOnly; Secure; SameSite=Strict, /api/v1/health; Entscheidung des Projektinhabers, 2026-11-10)
+      # not expect. At its end it recreates the authenticator once more with MRE_SIGNUP unset (sign-up closed).
+      - name: Cockpit gate through Caddy with curl (/cockpit/ start page and deep link from cockpit-ui with no-store, asset, sign-in, refresh cookie HttpOnly; Secure; SameSite=Strict; Domain=<host>, /api/v1/health, sign-up 404 with the productive default at the end; Entscheidungen des Projektinhabers, 2026-11-10 und 2026-11-11)
         run: .github/scripts/compose-cockpit-gate.sh
       # Only the base stack (docker-compose.yml). The cockpit gate prints the logs of caddy, cockpit-ui and the
       # authenticator itself when it fails (trap in .github/scripts/compose-cockpit-gate.sh).
