@@ -289,9 +289,9 @@ describe('integration gate: step 6 calls only routes of the pinned inventory', (
     expect(rent).toHaveLength(10);
   });
 
-  it('counter-check: the manual match, another method and the reversal are not used routes', () => {
+  it('counter-check: the manual match, another method and the ignore of a Transaction are not used routes', () => {
     expect(routeOf({ url: '/api/v1/rent-reconciliations', method: 'POST' })).toBeUndefined();
     expect(routeOf({ url: `/api/v1/rent-reconciliations/${REC}/write-back-to-mre`, method: 'PUT' })).toBeUndefined();
-    expect(routeOf({ url: `/api/v1/transactions/${TX}/reverse`, method: 'POST' })).toBeUndefined();
+    expect(routeOf({ url: `/api/v1/transactions/${TX}/ignore`, method: 'POST' })).toBeUndefined();
   });
 });

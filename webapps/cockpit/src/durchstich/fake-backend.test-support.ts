@@ -98,6 +98,8 @@ export function createBackend(real: RealMappings): Backend {
   const items = new Map<string, Item>();
   const reconciliations = new Map<string, Rec>();
   const corrections = new Map<string, { fingerprint: string; body: unknown }>();
+  // `reverse` has its own key scope (`transaction.reverse`, api-design.md §35.9): a correction's key never answers it.
+  const reversals = new Map<string, { fingerprint: string; body: unknown }>();
   const faults = new Map<string, Fault[]>();
   const sent: Sent[] = [];
 
@@ -401,6 +403,36 @@ export function createBackend(real: RealMappings): Backend {
     return json(201, answer);
   };
 
+  /** `POST …/reverse` (§35.9): `correct` without a replacement; the same checks in the same order, `{ reason }` only. */
+  const reverse = (t: Tx, headers: Headers, body: unknown): Response => {
+    const key = headers.get('idempotency-key');
+    if (key === null) return envelope(400, 'VALIDATION_ERROR', { fields: [{ field: 'Idempotency-Key', code: 'REQUIRED' }] });
+    if (!real.schemas.reverse.safeParse(body).success) return invalid('reason');
+    const fingerprint = `${t.id}:${(body as { reason: string }).reason.trim()}`;
+    const stored = reversals.get(key);
+    if (stored !== undefined) {
+      return stored.fingerprint === fingerprint ? json(201, stored.body, { 'idempotent-replayed': 'true' }) : envelope(422, 'IDEMPOTENCY_KEY_CONFLICT');
+    }
+    const version = ifMatchVersion(headers);
+    if (version !== t.version)
+      return envelope(412, 'VERSION_CONFLICT', { expectedVersions: version === undefined ? [] : [version], currentVersion: t.version });
+    if (t.status === 'CORRECTED') {
+      return conflict('ALREADY_CORRECTED', { reversalTransactionId: t.reversalTransactionId, replacementTransactionId: t.replacementTransactionId });
+    }
+    if (t.status !== 'CONFIRMED' || t.correctionRole === 'REVERSAL') {
+      return conflict('NOT_CORRECTABLE', { status: t.status, ...(t.correctionRole === 'REVERSAL' ? { correctionRole: 'REVERSAL' } : {}) });
+    }
+    const reconciled = [...reconciliations.values()].filter((r) => r.transactionId === t.id && r.status === 'CONFIRMED').map((r) => r.id);
+    if (reconciled.length > 0) return conflict('TRANSACTION_RENT_RECONCILED', { reconciliationIds: reconciled });
+    const linked = { provenance: 'CORRECTION', status: 'CONFIRMED', version: 1, correctionOfTransactionId: t.id, confirmedAt: NOW, confirmedBy: EMAIL };
+    const direction = t.direction === 'INFLOW' ? 'OUTFLOW' : 'INFLOW';
+    const reversal = tx({ ...t, ...linked, id: newId(), correctionRole: 'REVERSAL', direction, identity: null });
+    Object.assign(t, { status: 'CORRECTED', version: t.version + 1, reversalTransactionId: reversal.id, replacementTransactionId: null });
+    const answer = { original: real.transaction(t), reversal: real.transaction(reversal), replacement: null };
+    reversals.set(key, { fingerprint, body: answer });
+    return json(201, answer);
+  };
+
   /* ---------------------------------------------------------------- rent reconciliation (§37) */
 
   const suggest = (realm: string, body: unknown): Response => {
@@ -647,6 +679,7 @@ export function createBackend(real: RealMappings): Backend {
       if (method === 'PUT' && sub === 'splits') return putSplits(t, headers, body);
       if (method === 'POST' && sub === 'confirm') return confirmTx(t, headers);
       if (method === 'POST' && sub === 'correct') return correct(t, headers, body);
+      if (method === 'POST' && sub === 'reverse') return reverse(t, headers, body);
       if (method === 'GET' && sub === 'rent-reconciliations') return transactionRent(t);
     }
     if (head === 'rent-reconciliations') {

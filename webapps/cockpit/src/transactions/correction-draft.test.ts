@@ -3,12 +3,15 @@ import type { TransactionDetailDto } from '../api/transactions';
 import {
   bindCorrectionFieldErrors,
   checkCorrection,
+  checkReverseReason,
   confirmable,
   correctable,
   correctionDraftFrom,
   intentFor,
   needsSplitsBeforeConfirm,
+  reversible,
   toCorrectRequest,
+  toReverseRequest,
   type CorrectionDraft,
 } from './correction-draft';
 import { detail, PROPERTY, split } from './fixtures.test-support';
@@ -153,5 +156,40 @@ describe('field errors of a refused correction (§58X dotted names)', () => {
     );
     expect([...bound.fields.keys()]).toEqual(['reason', 'amount', 'bookingDate']);
     expect([...bound.rows.keys()]).toEqual(['split-1-category']);
+  });
+});
+
+describe('„Stornieren“ (api-design.md §35.9; Entscheidung des Projektinhabers, 2026-11-11)', () => {
+  it('is offered exactly where „Korrigieren“ is: CONFIRMED and not a reversal', () => {
+    const roles = [null, 'REPLACEMENT', 'REVERSAL', 'SOMETHING_NEW'];
+    for (const status of ['IMPORTED', 'UNREVIEWED', 'CLASSIFIED', 'CONFIRMED', 'RECONCILED', 'CORRECTED', 'IGNORED', 'SOMETHING_NEW']) {
+      for (const correctionRole of roles) {
+        expect(reversible({ status, correctionRole }), `${status} ${String(correctionRole)}`).toBe(correctable({ status, correctionRole }));
+      }
+    }
+    expect(reversible({ status: 'CONFIRMED', correctionRole: null })).toBe(true);
+    expect(reversible({ status: 'CONFIRMED', correctionRole: 'REPLACEMENT' })).toBe(true);
+    expect(reversible({ status: 'CONFIRMED', correctionRole: 'REVERSAL' })).toBe(false);
+  });
+
+  it('the reason: required, trimmed, 1 to 500 characters, counted as it is sent', () => {
+    expect(checkReverseReason('')).toEqual({ length: 0, problems: ['REASON_MISSING'] });
+    expect(checkReverseReason('  \n\t ')).toEqual({ length: 0, problems: ['REASON_MISSING'] });
+    expect(checkReverseReason('x')).toEqual({ length: 1, problems: [] });
+    expect(checkReverseReason(`  ${'x'.repeat(500)}  `)).toEqual({ length: 500, problems: [] });
+    expect(checkReverseReason('x'.repeat(501))).toEqual({ length: 501, problems: ['REASON_TOO_LONG'] });
+  });
+
+  it('the request is the trimmed reason and nothing else; an unsendable reason throws', () => {
+    expect(toReverseRequest('  Doppelt erfasst \n')).toEqual({ reason: 'Doppelt erfasst' });
+    expect(Object.keys(toReverseRequest('Doppelt erfasst'))).toEqual(['reason']);
+    expect(() => toReverseRequest('   ')).toThrow(TypeError);
+    expect(() => toReverseRequest('x'.repeat(501))).toThrow(TypeError);
+  });
+
+  it('the intent: the same reason keeps the key (also typed with other spaces), a changed one gets a new key', () => {
+    const first = intentFor(undefined, toReverseRequest('Doppelt erfasst'), key);
+    expect(intentFor(first, toReverseRequest(' Doppelt erfasst '), key)).toBe(first);
+    expect(intentFor(first, toReverseRequest('Falsches Konto'), key).key).not.toBe(first.key);
   });
 });

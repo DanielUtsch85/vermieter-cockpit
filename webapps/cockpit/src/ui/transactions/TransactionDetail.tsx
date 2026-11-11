@@ -53,7 +53,7 @@ function Breadcrumbs({ listHref, current }: { readonly listHref: string; readonl
  * account with its name, references of the splits, and the correction chain as the visible history (§6.1: no audit
  * timeline in version 1). Read only: the actions are their own sections below it, shown by the page for the statuses
  * that allow them: „Buchung bestätigen“ (`ConfirmAction`), the split editor of step 3 (`SplitEditor`) and „Korrigieren“
- * (`CorrectionForm`) of step 4. A `404` says "not found or not accessible", never where it might exist.
+ * (`CorrectionForm`) of step 4, and „Stornieren“ (`ReverseForm`, §35.9). A `404` says "not found or not accessible", never where it might exist.
  */
 export function TransactionDetailView(props: {
   readonly realmId: string;

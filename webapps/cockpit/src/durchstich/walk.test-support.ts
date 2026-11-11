@@ -183,3 +183,11 @@ export async function correctDescription(text = 'Miete Oktober Testwohnung (korr
   type(control('korrektur-description'), text);
   await press('Korrektur ausführen');
 }
+
+/** „Stornieren“ (Entscheidung des Projektinhabers, 2026-11-11): the button, the reason, „Storno ausführen“, „Jetzt stornieren“. */
+export async function reverseBooking(reason = 'Doppelt erfasst', press: (name: string) => unknown = click) {
+  fireEvent.click(await screen.findByRole('button', { name: 'Stornieren' }));
+  type(control('storno-reason'), reason);
+  await press('Storno ausführen');
+  await press('Jetzt stornieren');
+}

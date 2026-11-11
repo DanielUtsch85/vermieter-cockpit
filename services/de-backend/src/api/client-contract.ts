@@ -21,7 +21,7 @@ import type {
   toTransactionDto as toTransactionCoverageDto,
 } from './rent-reconciliations.js';
 import type { z } from 'zod';
-import type { correctBody, split, toDto as toTransactionDto, toSplitDto } from './transaction-dto.js';
+import type { correctBody, reverseBody, split, toDto as toTransactionDto, toSplitDto } from './transaction-dto.js';
 import type { toSplitsDto } from './transaction-splits.js';
 
 export type { FieldError } from './validation.js';
@@ -64,6 +64,8 @@ export type SplitInputDto = z.input<typeof split>;
 export type TransactionSplitsDto = Wire<ReturnType<typeof toSplitsDto>>;
 /** The request of `POST /transactions/{id}/correct` (api-design.md §35.2), as the backend's schema reads it. */
 export type CorrectInputDto = z.input<typeof correctBody>;
+/** The request of `POST /transactions/{id}/reverse` (api-design.md §35.9): only `reason`, as the backend's schema reads it. */
+export type ReverseInputDto = z.input<typeof reverseBody>;
 /**
  * The `201` answer of `POST /transactions/{id}/correct` (api-design.md §35.1, §35.4; `transaction-lifecycle.ts`): the
  * original (now `CORRECTED`), its reversal and its replacement, each as `toDto` maps it and with its own `version`; no

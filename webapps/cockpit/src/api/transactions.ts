@@ -5,6 +5,7 @@ import type {
   FinancialCategoryDto,
   PageDto,
   PropertyReferenceDto,
+  ReverseInputDto,
   SplitInputDto,
   TransactionDetailDto,
   TransactionDto,
@@ -21,6 +22,7 @@ export type {
   FinancialCategoryDto,
   PageDto,
   PropertyReferenceDto,
+  ReverseInputDto,
   SplitInputDto,
   TransactionDetailDto,
   TransactionDto,
@@ -31,7 +33,7 @@ export type {
 /**
  * The reads of step 2 (ui-guide.md §6.3, §10): the transaction list and one Transaction, plus the lists that turn ids
  * into names for the filters and the detail (accounts, PropertyReferences, categories; §5.3, §13). The writes are step
- * 3's `PUT …/splits` (`putSplits`) and step 4's `confirm` and `correct` (below). No route outside `USED_ROUTES`
+ * 3's `PUT …/splits` (`putSplits`), step 4's `confirm` and `correct` and „Stornieren“ (`reverse`, below). No route outside `USED_ROUTES`
  * (gate/backend-pin.ts) is called.
  */
 
@@ -182,5 +184,39 @@ export async function correctTransaction(
   if (reversal.correctionRole !== 'REVERSAL' || replacement.correctionRole !== 'REPLACEMENT') {
     throw new ApiError(200, CLIENT_CODES.unexpected, 'The correction answer does not name a reversal and a replacement.');
   }
+  return { original, reversal, replacement };
+}
+
+/** The answer of `POST …/reverse` (api-design.md §35.9): the chain original → reversal, with no replacement. */
+export type ReversalResultDto = CorrectionResultDto & { readonly replacement: null };
+
+/**
+ * `POST /transactions/{transactionId}/reverse` (api-design.md §35.9; Entscheidung des Projektinhabers, 2026-11-11): the
+ * body is the trimmed reason only, with `If-Match` of the original's `ETag` and the `Idempotency-Key` of the user's
+ * intent (own scope `transaction.reverse`, §15), exactly as `correct`. The answer is checked like a correction's chain,
+ * except that `replacement` must be `null`: a reversed Transaction never has a replacement, so an answer that carries
+ * one is refused, never shown. Original and reversal belong to the Realm asked for, the original is the one reversed,
+ * and the reversal names it with the role `REVERSAL`.
+ */
+export async function reverseTransaction(
+  client: DeClient,
+  transactionId: string,
+  body: ReverseInputDto,
+  ifMatch: string,
+  idempotencyKey: string,
+  signal?: AbortSignal,
+): Promise<ReversalResultDto> {
+  const { data } = await client.post<CorrectionResultDto>(apiPath`/transactions/${transactionId}/reverse`, {
+    body,
+    ifMatch,
+    idempotencyKey,
+    ...(signal === undefined ? {} : { signal }),
+  });
+  const { original, reversal, replacement } = data;
+  if (replacement !== null) throw new ApiError(200, CLIENT_CODES.unexpected, 'A reversal answered with a replacement.');
+  checkRealm(client.realmId, [original, reversal]);
+  checkSame(transactionId, original.transactionId);
+  checkSame(transactionId, reversal.correctionOfTransactionId);
+  if (reversal.correctionRole !== 'REVERSAL') throw new ApiError(200, CLIENT_CODES.unexpected, 'The reversal answer does not name a reversal.');
   return { original, reversal, replacement };
 }

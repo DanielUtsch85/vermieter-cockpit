@@ -125,3 +125,16 @@ export function correctionAnswer(replacement: Partial<TransactionDto> = {}, orig
     replacement: { ...base, ...linked, transactionId: TX_REPLACEMENT, correctionRole: 'REPLACEMENT', ...replacement },
   } satisfies { original: TransactionDto; reversal: TransactionDto; replacement: TransactionDto };
 }
+
+/**
+ * The `201` answer of `POST …/reverse` for `TX` (api-design.md §35.9, `transaction-lifecycle.ts`): the original
+ * `CORRECTED` with its reversal and no replacement (`replacementTransactionId` and `replacement` both `null`).
+ */
+export function reversalAnswer(original: Partial<TransactionDto> = {}) {
+  const chain = correctionAnswer({}, original);
+  return {
+    original: { ...chain.original, replacementTransactionId: null },
+    reversal: chain.reversal,
+    replacement: null,
+  } satisfies { original: TransactionDto; reversal: TransactionDto; replacement: null };
+}
