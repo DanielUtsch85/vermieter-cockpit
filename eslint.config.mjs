@@ -20,7 +20,7 @@ const ZOD3 = [
 ];
 
 export default tseslint.config(
-  { ignores: ['**/dist/**', '**/node_modules/**', '.yarn/**'] },
+  { ignores: ['**/dist/**', '**/node_modules/**', '.yarn/**', '**/e2e-results/**'] },
   js.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,
   {

@@ -8,3 +8,4 @@ docs
 # image of webapps/cockpit/Dockerfile).
 !docs/development/design-tokens.css
 data
+**/e2e-results

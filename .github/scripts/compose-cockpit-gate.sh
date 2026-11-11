@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Cockpit integration gate through Caddy, with curl (Entscheidung des Projektinhabers, 2026-11-10, #319 question 3 (b)):
 # "`/cockpit/` liefert die Startseite, Anmeldung, Refresh-Cookie mit `httpOnly; Secure; SameSite=Strict`,
-# `/api/v1/health` über Caddy." The browser run with Playwright is its own CI job later (backlog VC-X-70), not here.
+# `/api/v1/health` über Caddy." The browser run with Playwright is its own CI job, browser-e2e (backlog VC-X-70), not here.
 #
 # Runs in the job compose-smoke after the other steps, against the stack docker-compose.yml already started: it adds
 # the proxy override (docker-compose.proxy.yml, the productive Caddyfile) with its service cockpit-ui, the productive
