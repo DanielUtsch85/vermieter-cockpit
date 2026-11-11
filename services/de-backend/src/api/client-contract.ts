@@ -12,7 +12,9 @@ import type { metadataSchema, resolveBody, toConflictDto, toDto as toImportBatch
 import type { toDto as toPropertyReferenceDto } from './property-references.js';
 import type {
   confirmBody,
+  createBody,
   releaseBody,
+  splitProposalDto,
   suggestBody,
   toDto as toReconciliationDto,
   toReadDto as toReconciliationReadDto,
@@ -102,6 +104,10 @@ export type SuggestResultDto = Wire<ReturnType<typeof toSuggestDto>>;
 export type ConfirmReconciliationInputDto = z.input<typeof confirmBody>;
 /** The request of `POST /rent-reconciliations/{id}/reject` and `…/release` (api-design.md §37.1, §37.3): `{ reason }`. */
 export type ReconciliationReasonInputDto = z.input<typeof releaseBody>;
+/** The request of `POST /rent-reconciliations` (api-design.md §37.1): the manual match, created `CONFIRMED`. */
+export type CreateReconciliationInputDto = z.input<typeof createBody>;
+/** `GET /rent-reconciliations/split-proposal` (api-design.md §37.6): a read; the client applies it through `PUT …/splits`. */
+export type RentSplitProposalDto = Wire<ReturnType<typeof splitProposalDto>>;
 /** `GET /rent-reconciliations/terms/{mreTenantId}/{mreRentTerm}` (api-design.md §37.2): DE and MRE side by side. */
 export type TermCoverageDto = Wire<ReturnType<typeof toTermDto>>;
 /** `GET /transactions/{transactionId}/rent-reconciliations` (api-design.md §37.2). */

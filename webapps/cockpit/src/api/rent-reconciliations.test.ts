@@ -7,6 +7,7 @@ import {
   REC,
   REC_2,
   released,
+  splitProposal,
   suggestResult,
   TENANT,
   TERM,
@@ -20,7 +21,9 @@ import { CLIENT_CODES } from './errors';
 import { countingTokens, envelope, json, scriptedFetch, type Call } from './fetch.test-support';
 import {
   confirmReconciliation,
+  createReconciliation,
   getReconciliation,
+  getSplitProposal,
   getTermCoverage,
   getTransactionRentCoverage,
   listReconciliations,
@@ -254,7 +257,9 @@ describe('step 6: write-back, release and removal are three separate commands (a
 /** The inventory route a call reached: its path matched against the `:parameter` templates of `USED_ROUTES`. */
 function routeOf(call: Pick<Call, 'url' | 'method'>): string | undefined {
   const path = new URL(call.url, 'https://cockpit.internal').pathname;
-  const used = USED_ROUTES.find(([method, template]) => method === call.method && new RegExp(`^${template.replace(/:[A-Za-z]+/g, '[^/]+')}$`).test(path));
+  // A literal path wins over a template (`…/split-proposal` before `…/:reconciliationId`), as the backend registers it.
+  const matches = USED_ROUTES.filter(([method, template]) => method === call.method && new RegExp(`^${template.replace(/:[A-Za-z]+/g, '[^/]+')}$`).test(path));
+  const used = matches.find(([, template]) => template === path) ?? matches[0];
   return used === undefined ? undefined : `${used[0]} ${used[1]}`;
 }
 
@@ -271,6 +276,8 @@ describe('integration gate: step 6 calls only routes of the pinned inventory', (
       json(200, released('REMOVED')),
       json(200, termCoverage()),
       json(200, transactionCoverage()),
+      json(200, splitProposal()),
+      json(201, confirmed('850.00', { confidence: null, suggestionReason: null })),
     );
     await suggestReconciliations(de, { from: '2026-03', to: '2026-04' });
     await listReconciliations(de, { status: undefined, page: 1 });
@@ -282,15 +289,18 @@ describe('integration gate: step 6 calls only routes of the pinned inventory', (
     await removeFromMre(de, REC, '"5"');
     await getTermCoverage(de, TENANT, TERM);
     await getTransactionRentCoverage(de, TX);
+    await getSplitProposal(de, TX, { mreTenantId: TENANT, mreRentTerm: TERM });
+    await createReconciliation(de, { transactionId: TX, mreTenantId: TENANT, mreRentTerm: TERM, matchedAmount: EUR('850.00') }, 'key-1');
     const reached = calls.map(routeOf);
     expect(reached).not.toContain(undefined);
     const rent = USED_ROUTES.filter(([, path]) => path.includes('rent-reconciliations')).map(([method, path]) => `${method} ${path}`);
     expect(new Set(reached)).toEqual(new Set(rent));
-    expect(rent).toHaveLength(10);
+    expect(rent).toHaveLength(12);
+    expect(reached.slice(-2)).toEqual(['GET /api/v1/rent-reconciliations/split-proposal', 'POST /api/v1/rent-reconciliations']);
   });
 
-  it('counter-check: the manual match, another method and the ignore of a Transaction are not used routes', () => {
-    expect(routeOf({ url: '/api/v1/rent-reconciliations', method: 'POST' })).toBeUndefined();
+  it('counter-check: a list read by PUT, another method and the ignore of a Transaction are not used routes', () => {
+    expect(routeOf({ url: '/api/v1/rent-reconciliations', method: 'PUT' })).toBeUndefined();
     expect(routeOf({ url: `/api/v1/rent-reconciliations/${REC}/write-back-to-mre`, method: 'PUT' })).toBeUndefined();
     expect(routeOf({ url: `/api/v1/transactions/${TX}/ignore`, method: 'POST' })).toBeUndefined();
   });

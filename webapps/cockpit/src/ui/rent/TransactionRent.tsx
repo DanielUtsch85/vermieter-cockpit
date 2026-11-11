@@ -1,23 +1,29 @@
-import type { TransactionRentCoverageDto } from '../../api/rent-reconciliations';
+import type { CreateReconciliationInputDto, ReconciliationChanged, TransactionRentCoverageDto } from '../../api/rent-reconciliations';
 import { MoneyText } from '../format';
 import type { Loadable } from '../RealmChoice';
 import { LoadingState, ReadProblem } from '../states';
+import { ManualMatch } from './ManualMatch';
 import { ReconciliationBadges, ReconciliationLink, TenantText, TermLink, TermText } from './RentParts';
 
 /**
  * The rent reconciliations of one Transaction (api-design.md §37.2, `GET /transactions/{id}/rent-reconciliations`;
  * ui-guide.md §6.6 "Abdeckungsansicht"): its rent cash, what is matched and what is still free, and every
- * reconciliation in any status with its two badges and a link to it, where its actions are. A read only: it never
- * calls MRE and offers no action of its own.
+ * reconciliation in any status with its two badges and a link to it, where its actions are. The read never calls MRE.
+ * Its one action is „Manuell zuordnen“ (step 8, `ManualMatch`), offered while the booking has free rent cash; it is
+ * shown only when the page passes `create`.
  */
 export function TransactionRentSection({
   realmId,
   coverage,
   onRetry,
+  create,
+  onCreated,
 }: {
   readonly realmId: string;
   readonly coverage: Loadable<TransactionRentCoverageDto>;
   readonly onRetry: () => void;
+  readonly create?: (body: CreateReconciliationInputDto, idempotencyKey: string) => Promise<ReconciliationChanged>;
+  readonly onCreated?: () => void;
 }) {
   return (
     <section aria-labelledby="buchung-mietabgleich" className="rounded-card border border-border bg-surface p-6">
@@ -29,7 +35,12 @@ export function TransactionRentSection({
       ) : coverage.status === 'error' ? (
         <ReadProblem error={coverage.error} onRetry={onRetry} />
       ) : (
-        <Coverage realmId={realmId} c={coverage.data} />
+        <>
+          <Coverage realmId={realmId} c={coverage.data} />
+          {create !== undefined && (
+            <ManualMatch key={coverage.data.transactionId} realmId={realmId} coverage={coverage.data} create={create} onCreated={() => onCreated?.()} />
+          )}
+        </>
       )}
     </section>
   );

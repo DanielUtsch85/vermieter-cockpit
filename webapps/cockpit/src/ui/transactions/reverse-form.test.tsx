@@ -96,6 +96,7 @@ describe('„Stornieren“: the form and its reason (api-design.md §35.9: trimm
     expect(counter()).toBe('0 von 500 Zeichen');
     expect(screen.getByText('Grund angeben.')).toBeTruthy();
     expect(reasonField().getAttribute('aria-invalid')).toBe('true');
+    expect(reasonField().getAttribute('aria-describedby')?.split(' ')).toEqual(['storno-reason-hinweis', 'storno-reason-zaehler']);
     typeReason('   \n\t ');
     expect(button('Storno ausführen').disabled).toBe(true);
     expect(counter()).toBe('0 von 500 Zeichen');
@@ -104,6 +105,7 @@ describe('„Stornieren“: the form and its reason (api-design.md §35.9: trimm
     expect(button('Storno ausführen').disabled).toBe(true);
     expect(counter()).toBe('501 von 500 Zeichen');
     expect(screen.getByText('Höchstens 500 Zeichen.')).toBeTruthy();
+    expect(reasonField().getAttribute('aria-describedby')?.split(' ')).toEqual(['storno-reason-hinweis', 'storno-reason-zaehler']);
     // A submit by keyboard on an unsendable form opens no dialog either.
     fireEvent.submit(screen.getByRole('form', { name: 'Storno erfassen' }));
     expect(screen.queryByRole('dialog')).toBeNull();
@@ -311,6 +313,7 @@ describe('„Stornieren“: refusals (api-design.md §35.9, §37 P4-D7), said in
     await settle();
     expect(reasonField().getAttribute('aria-invalid')).toBe('true');
     expect(screen.getByText(/Vom Server abgelehnt/)).toBeTruthy();
+    expect(reasonField().getAttribute('aria-describedby')?.split(' ')).toEqual(['storno-reason-hinweis', 'storno-reason-zaehler']);
     expect(within(screen.getByRole('list', { name: 'Abgelehnte Angaben' })).getAllByRole('listitem')).toHaveLength(2);
   });
 

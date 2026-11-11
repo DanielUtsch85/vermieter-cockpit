@@ -13,7 +13,7 @@ import {
   reverseTransaction,
   type TransactionRead,
 } from '../../api/transactions';
-import { getTransactionRentCoverage } from '../../api/rent-reconciliations';
+import { createReconciliation, getSplitProposal, getTransactionRentCoverage } from '../../api/rent-reconciliations';
 import { navigate } from '../../navigation';
 import { realmKey } from '../../query';
 import { AREAS, areaPath } from '../../routing';
@@ -21,6 +21,7 @@ import { readListParams, toApiQuery, toSearch, type ListParams } from '../../tra
 import { correctable } from '../../transactions/correction-draft';
 import { splitsEditable } from '../../transactions/split-draft';
 import { rentKeys } from '../rent/rent-keys';
+import { SplitProposal } from '../rent/SplitProposal';
 import { TransactionRentSection } from '../rent/TransactionRent';
 import { ConfirmAction } from './ConfirmAction';
 import { CorrectionForm } from './CorrectionForm';
@@ -145,7 +146,16 @@ function TransactionDetailPage(props: {
   return (
     <>
       <TransactionDetailView realmId={props.realmId} read={read} references={props.references} listHref={props.listHref} onRetry={() => void read.refetch()} />
-      {read.status === 'success' && <TransactionRentSection realmId={props.realmId} coverage={rent} onRetry={() => void rent.refetch()} />}
+      {read.status === 'success' && (
+        <TransactionRentSection
+          realmId={props.realmId}
+          coverage={rent}
+          onRetry={() => void rent.refetch()}
+          // Step 8: the manual match (api-design.md §37.1); a command of its own, never MRE (Entscheidung des Projektinhabers, 2026-11-11).
+          create={(body, key) => createReconciliation(props.client, body, key)}
+          onCreated={invalidate}
+        />
+      )}
       {first !== undefined && (
         <ConfirmAction
           transaction={first.transaction}
@@ -170,6 +180,15 @@ function TransactionDetailPage(props: {
           reload={reload}
           onSaved={invalidate}
           onDraftChange={setDraftUnsaved}
+          // Step 8: the rent split proposal fills the draft only; saving stays „Aufteilung speichern“ (§6.6 steps 2 and 3).
+          proposal={(slot) => (
+            <SplitProposal
+              slot={slot}
+              references={props.references}
+              load={(term, signal) => getSplitProposal(props.client, props.transactionId, term, signal)}
+              queryKey={(term, version) => rentKeys.proposal(props.realmId, props.epoch, props.transactionId, version, term)}
+            />
+          )}
         />
       )}
       {correctionShown && first !== undefined && (

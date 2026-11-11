@@ -53,6 +53,20 @@ export interface SplitEditorProps {
    * goes; the page locks „Buchung bestätigen“ while it does (Entscheidung des Projektinhabers, 2026-11-11).
    */
   readonly onDraftChange?: (unsaved: boolean) => void;
+  /**
+   * Step 8 (Entscheidung des Projektinhabers, 2026-11-11): a section shown above the rows that may replace the draft
+   * with rows of its own (the rent split proposal, §6.6). `apply` only sets the draft; nothing is sent until „Aufteilung
+   * speichern“. `disabled` while a save runs, a conflict is open or the set can no longer be changed.
+   */
+  readonly proposal?: (draft: DraftSlot) => ReactNode;
+}
+
+/** What the editor hands a proposal section: replace the draft (the builder gets the editor's row keys), or not now. */
+export interface DraftSlot {
+  /** The Transaction as the editor knows it now (its version moves with every save). */
+  readonly transaction: TransactionDetailDto;
+  readonly apply: (build: (newKey: () => string) => readonly DraftRow[] | undefined) => void;
+  readonly disabled: boolean;
 }
 
 /**
@@ -171,6 +185,16 @@ export function SplitEditor(props: SplitEditorProps) {
     setSavedVersion(undefined);
   };
 
+  const slot: DraftSlot = {
+    transaction,
+    disabled: !editable || blocked,
+    apply: (build) => {
+      if (!editable || blocked) return;
+      const next = build(newKey);
+      if (next !== undefined && next.length > 0) restructure(next);
+    },
+  };
+
   const resolveConflict = (keep: boolean) => {
     setConflict({ stage: 'reading', keep });
     props.reload().then(
@@ -233,6 +257,7 @@ export function SplitEditor(props: SplitEditorProps) {
       {savedVersion !== undefined && (
         <Notice tone="success">{`Aufteilung gespeichert (Version ${savedVersion}, Status „${statusLabel(transaction.status).text}“).`}</Notice>
       )}
+      {props.proposal?.(slot)}
       <form aria-label="Aufteilung bearbeiten" noValidate onSubmit={submit} className="flex flex-col gap-4">
         {rows.map((row, index) => (
           <SplitRow

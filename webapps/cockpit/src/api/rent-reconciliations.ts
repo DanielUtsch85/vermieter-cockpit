@@ -1,22 +1,26 @@
 import type {
   ConfirmReconciliationInputDto,
+  CreateReconciliationInputDto,
   PageDto,
   ReconciliationReasonInputDto,
   RentReconciliationDto,
   RentReconciliationReadDto,
+  RentSplitProposalDto,
   SuggestInputDto,
   SuggestResultDto,
   TermCoverageDto,
   TransactionRentCoverageDto,
 } from '@vermieter-cockpit/de-backend/client-contract';
 import type { MoneyValue } from '../format/money';
-import { decimalToCents } from '../transactions/split-amount';
+import { addCents, decimalToCents } from '../transactions/split-amount';
 import { apiPath, ifMatchForVersion, type DeClient } from './client';
 import { ApiError, CLIENT_CODES } from './errors';
 import { checkRealm } from './transactions';
 
 export type {
   ConfirmReconciliationInputDto,
+  CreateReconciliationInputDto,
+  RentSplitProposalDto,
   ReconciliationReasonInputDto,
   RentReconciliationDto,
   RentReconciliationReadDto,
@@ -204,4 +208,68 @@ export async function getTransactionRentCoverage(client: DeClient, transactionId
   checkRealm(client.realmId, data.reconciliations);
   if (data.reconciliations.some((r) => !same(r.transactionId, transactionId))) throw unexpected('A match of another Transaction was listed.');
   return data;
+}
+
+/** The Tenant and term a proposal or a manual match names, by their MRE keys (ui-guide.md §5.1: never from a name). */
+export interface RentTermRef {
+  readonly mreTenantId: string;
+  readonly mreRentTerm: string;
+}
+
+/** Whole cents of a money value in the given currency, or undefined. */
+const centsOf = (money: MoneyValue, currency: string) => (money.currency === currency ? decimalToCents(money.amount) : undefined);
+
+/**
+ * `GET /rent-reconciliations/split-proposal?transactionId&mreTenantId&mreRentTerm` (api-design.md §37.6; ui-guide.md §6.6
+ * step 2): a read, never a write; the client applies it only through the split editor and `PUT …/splits`. The answer is
+ * checked: it names this Transaction, Tenant and term, every amount is in the Transaction's currency, and its splits
+ * plus `unallocated` are exactly its `amount` (on whole cents as digit strings); anything else is refused, never shown.
+ */
+export async function getSplitProposal(client: DeClient, transactionId: string, term: RentTermRef, signal?: AbortSignal): Promise<RentSplitProposalDto> {
+  const { data } = await client.get<RentSplitProposalDto>('/rent-reconciliations/split-proposal', {
+    query: { transactionId, mreTenantId: term.mreTenantId, mreRentTerm: term.mreRentTerm },
+    ...(signal === undefined ? {} : { signal }),
+  });
+  if (!same(data.transactionId, transactionId) || data.mreTenantId !== term.mreTenantId || data.mreRentTerm !== term.mreRentTerm) {
+    throw unexpected('The answer names another Transaction or rent term.');
+  }
+  const currency = data.amount.currency;
+  const parts = [...data.splits.map((s) => s.amount), data.unallocated].map((m) => centsOf(m, currency));
+  const total = centsOf(data.amount, currency);
+  if (total === undefined || parts.some((c) => c === undefined)) throw unexpected('The proposal has an amount that is not readable.');
+  if (parts.reduce<string>((sum, c) => addCents(sum, c ?? '0'), '0') !== total) throw unexpected('The proposal does not add up to the amount.');
+  return data;
+}
+
+/**
+ * „Manuell zuordnen“: `POST /rent-reconciliations` (api-design.md §37.1), the manual match of a counted inflow's rent
+ * cash to one MRE term; created `CONFIRMED` by the user's decision, never written to MRE (BR-MRE-005). The
+ * `Idempotency-Key` belongs to the intent (scope `rent-reconciliation.create`, §15): a lost answer sends the same key and
+ * body again and gets the recorded answer, never a second match. The answer is checked: this Realm, `CONFIRMED`,
+ * `NOT_WRITTEN`, and exactly the Transaction, Tenant, term and amount sent.
+ */
+export async function createReconciliation(
+  client: DeClient,
+  body: CreateReconciliationInputDto,
+  idempotencyKey: string,
+  signal?: AbortSignal,
+): Promise<ReconciliationChanged> {
+  const { data, etag } = await client.post<RentReconciliationDto>('/rent-reconciliations', {
+    body,
+    idempotencyKey,
+    ...(signal === undefined ? {} : { signal }),
+  });
+  checkRealm(client.realmId, [data]);
+  const sent = body.matchedAmount as MoneyValue;
+  if (
+    !same(data.transactionId, String(body.transactionId)) ||
+    data.mreTenantId !== body.mreTenantId ||
+    data.mreRentTerm !== body.mreRentTerm ||
+    data.status !== 'CONFIRMED' ||
+    data.mreWriteBackState !== 'NOT_WRITTEN' ||
+    !sameAmount(data.matchedAmount, sent)
+  ) {
+    throw unexpected('The answer is not the match that was sent.');
+  }
+  return { reconciliation: data, etag: etag ?? ifMatchForVersion(data.version) };
 }

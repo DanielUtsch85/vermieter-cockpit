@@ -1,6 +1,7 @@
 import type {
   RentReconciliationDto,
   RentReconciliationReadDto,
+  RentSplitProposalDto,
   SuggestResultDto,
   TermCoverageDto,
   TransactionRentCoverageDto,
@@ -123,6 +124,49 @@ export function transactionCoverage(overrides: Partial<TransactionRentCoverageDt
     matchedTotal: { amount: '800.00', currency: 'EUR' },
     available: { amount: '50.00', currency: 'EUR' },
     reconciliations: [confirmed('800.00')],
+    ...overrides,
+  };
+}
+
+/** A second synthetic Tenant and the term after `TERM` (step 8: several Tenants and months in one payment). */
+export const TENANT_2 = '64b7f0c2a1b2c3d4e5f60721';
+export const TERM_2 = '2026040100';
+
+const eur = (amount: string) => ({ amount, currency: 'EUR' });
+
+/**
+ * A split proposal as `GET …/split-proposal` answers it (api-design.md §37.6): rent 700,00 and charges 150,00 by
+ * default; the splits, `unallocated` and the flags follow the server's rule for the amount given.
+ */
+export function splitProposal(
+  options: { amount?: string; rent?: string; charges?: string; adjustments?: string; tenant?: string; term?: string; transactionId?: string } = {},
+  overrides: Partial<RentSplitProposalDto> = {},
+): RentSplitProposalDto {
+  const cents = (a: string) => BigInt(a.replace('.', ''));
+  const text = (c: bigint) => `${c < 0n ? '-' : ''}${(c < 0n ? -c : c) / 100n}.${String((c < 0n ? -c : c) % 100n).padStart(2, '0')}`;
+  const amount = cents(options.amount ?? '850.00');
+  const rent = cents(options.rent ?? '700.00');
+  const charges = cents(options.charges ?? '150.00');
+  const adjustments = cents(options.adjustments ?? '0.00');
+  const due = rent + charges + adjustments;
+  const base = amount < rent ? amount : rent;
+  const advance = amount - base < charges ? amount - base : charges;
+  const splits = [
+    ['RENT_BASE', base],
+    ['RENT_OPERATING_COST_ADVANCE', advance],
+  ] as const;
+  const flags: RentSplitProposalDto['flags'][number][] = [];
+  if (amount !== due) flags.push({ code: 'AMOUNT_DIFFERS_FROM_TERM', details: { difference: eur(text(amount - due)) } });
+  if (adjustments !== 0n) flags.push({ code: 'TERM_HAS_ADJUSTMENTS', details: { adjustments: eur(text(adjustments)) } });
+  return {
+    transactionId: options.transactionId ?? TX,
+    mreTenantId: options.tenant ?? TENANT,
+    mreRentTerm: options.term ?? TERM,
+    amount: eur(text(amount)),
+    term: { rent: eur(text(rent)), charges: eur(text(charges)), adjustments: eur(text(adjustments)), due: eur(text(due)) },
+    splits: splits.filter(([, c]) => c > 0n).map(([financialCategoryCode, c]) => ({ financialCategoryCode, amount: eur(text(c)) })),
+    unallocated: eur(text(amount - base - advance)),
+    flags,
     ...overrides,
   };
 }
