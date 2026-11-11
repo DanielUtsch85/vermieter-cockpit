@@ -98,6 +98,8 @@ jobs:
       # not expect.
       - name: Cockpit gate through Caddy with curl (/cockpit/ start page and deep link from cockpit-ui with no-store, asset, sign-in, refresh cookie HttpOnly; Secure; SameSite=Strict, /api/v1/health; Entscheidung des Projektinhabers, 2026-11-10)
         run: .github/scripts/compose-cockpit-gate.sh
+      # Only the base stack (docker-compose.yml). The cockpit gate prints the logs of caddy, cockpit-ui and the
+      # authenticator itself when it fails (trap in .github/scripts/compose-cockpit-gate.sh).
       - name: Logs on failure
         if: failure()
         run: docker compose ps -a && docker compose logs --no-color --tail=200

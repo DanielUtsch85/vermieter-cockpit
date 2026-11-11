@@ -192,7 +192,7 @@ The frontend should remain compatible with the existing MRE React/Next ecosystem
 
 ## Backend Framework
 
-The initial backend may use Express-compatible HTTP infrastructure to remain close to MRE, but Express itself is an implementation-level choice unless the initial scaffold requires it.
+The initial backend may use Express-compatible HTTP infrastructure to remain close to MRE, but Express itself is an implementation-level choice unless the initial scaffold requires it (see the addendum below: Express 5 since VC-X-66).
 
 The architectural commitment is Node.js + TypeScript, not a specific controller framework.
 
