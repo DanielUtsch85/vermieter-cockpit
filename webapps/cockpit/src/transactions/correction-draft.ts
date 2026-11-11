@@ -1,5 +1,5 @@
 import { partitionFieldErrors, type FieldError } from '../api/errors';
-import type { CorrectInputDto, TransactionDetailDto, TransactionDto } from '../api/transactions';
+import type { CorrectInputDto, ReverseInputDto, TransactionDetailDto, TransactionDto } from '../api/transactions';
 import { compareCents, decimalToCents, decimalToInput, parseAmountInput, type AmountProblem } from './split-amount';
 import { bindSplitFieldErrors, checkDraft, draftFromDetail, toSplitsRequest, type DraftCheck, type DraftRow } from './split-draft';
 
@@ -35,6 +35,13 @@ export const needsSplitsBeforeConfirm = (t: ConfirmFacts): boolean => CONFIRMABL
  */
 export const correctable = (t: { readonly status: string; readonly correctionRole: string | null }): boolean =>
   t.status === 'CONFIRMED' && t.correctionRole !== 'REVERSAL';
+
+/**
+ * Whether „Stornieren“ is offered (api-design.md §35.9: refused as `correct` is): exactly where „Korrigieren“ is,
+ * `CONFIRMED` and not itself a reversal (ui-guide.md §6.3: "fachlich erlaubte Korrektur/Storno"). Its own action
+ * (§4.4), never a variant of the correction form.
+ */
+export const reversible = correctable;
 
 /** The correction form: the original's values to start with; what differs from them is the replacement (§35.2). */
 export interface CorrectionDraft {
@@ -150,17 +157,35 @@ export function toCorrectRequest(draft: CorrectionDraft, original: TransactionDt
   };
 }
 
+export type ReasonProblem = 'REASON_MISSING' | 'REASON_TOO_LONG';
+
+/** The reason of `reverse` (§35.9), as the correction's: 1–500 characters after trimming; the length counted trimmed. */
+export function checkReverseReason(reason: string): { readonly length: number; readonly problems: readonly ReasonProblem[] } {
+  const trimmed = reason.trim();
+  const problems: ReasonProblem[] = [];
+  if (trimmed === '') problems.push('REASON_MISSING');
+  if (trimmed.length > MAX_REASON) problems.push('REASON_TOO_LONG');
+  return { length: trimmed.length, problems };
+}
+
+/** The request of `POST …/reverse` (§35.9): the trimmed reason and nothing else. Throws for a reason that is not sendable. */
+export function toReverseRequest(reason: string): ReverseInputDto {
+  if (checkReverseReason(reason).problems.length > 0) throw new TypeError('The reason is not sendable.');
+  return { reason: reason.trim() };
+}
+
 /**
  * One business intent of the user (ui-guide.md §7.3): its `Idempotency-Key` and the body it was made for. The same body
  * sent again (a retry after a lost answer, "Erneut senden", another click on the unchanged form) keeps the key; a
- * changed body is a new intent with a new key; after a success there is no intent left, so the next one is new.
+ * changed body is a new intent with a new key; after a success there is no intent left, so the next one is new. Each form
+ * keeps its own intent: a reversal never reuses a correction's key (the server scopes them apart, §15, §35.9).
  */
 export interface CorrectionIntent {
   readonly key: string;
   readonly payload: string;
 }
 
-export function intentFor(previous: CorrectionIntent | undefined, body: CorrectInputDto, newKey: () => string): CorrectionIntent {
+export function intentFor(previous: CorrectionIntent | undefined, body: CorrectInputDto | ReverseInputDto, newKey: () => string): CorrectionIntent {
   const payload = JSON.stringify(body);
   return previous !== undefined && previous.payload === payload ? previous : { key: newKey(), payload };
 }

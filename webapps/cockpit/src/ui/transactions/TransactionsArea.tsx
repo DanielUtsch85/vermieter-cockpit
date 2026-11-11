@@ -10,6 +10,7 @@ import {
   listPropertyReferences,
   listTransactions,
   putSplits,
+  reverseTransaction,
   type TransactionRead,
 } from '../../api/transactions';
 import { getTransactionRentCoverage } from '../../api/rent-reconciliations';
@@ -23,6 +24,7 @@ import { rentKeys } from '../rent/rent-keys';
 import { TransactionRentSection } from '../rent/TransactionRent';
 import { ConfirmAction } from './ConfirmAction';
 import { CorrectionForm } from './CorrectionForm';
+import { ReverseForm } from './ReverseForm';
 import type { References } from './references';
 import { TransactionDetailView } from './TransactionDetail';
 import { TransactionListView } from './TransactionList';
@@ -114,7 +116,8 @@ function TransactionDetailPage(props: {
   const [editorShown, setEditorShown] = useState(false);
   // Confirmed here: the stored split set is frozen by the user's own decision, so the editor goes (its dialog says so).
   const [confirmedHere, setConfirmedHere] = useState(false);
-  // The correction form stays once shown, as the editor does: a draft is not taken away by a later read (§11).
+  // The correction form stays once shown, as the editor does: a draft is not taken away by a later read (§11). „Stornieren“
+  // is offered exactly where „Korrigieren“ is (§35.9, `reversible`), so it is shown with it and stays the same way.
   const [correctionShown, setCorrectionShown] = useState(false);
   // The editor's draft differs from the stored split set: „Buchung bestätigen“ waits until it is saved or discarded
   // (Entscheidung des Projektinhabers, 2026-11-11).
@@ -178,6 +181,17 @@ function TransactionDetailPage(props: {
           references={props.references}
           correct={(body, ifMatch, key) => correctTransaction(props.client, props.transactionId, body, ifMatch, key)}
           onCorrected={invalidate}
+          reload={() => void read.refetch()}
+        />
+      )}
+      {correctionShown && first !== undefined && (
+        <ReverseForm
+          realmId={props.realmId}
+          transaction={first.transaction}
+          etag={first.etag}
+          stale={stale}
+          reverse={(body, ifMatch, key) => reverseTransaction(props.client, props.transactionId, body, ifMatch, key)}
+          onReversed={invalidate}
           reload={() => void read.refetch()}
         />
       )}

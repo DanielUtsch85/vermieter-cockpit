@@ -56,6 +56,8 @@ export interface RealMappings {
     /** One split of `PUT …/splits` and of a correction's replacement. */
     readonly split: Schema;
     readonly correct: Schema;
+    /** `POST …/reverse` (§35.9): `{ reason }` only. */
+    readonly reverse: Schema;
     readonly metadata: Schema;
     readonly resolve: Schema;
     readonly suggest: Schema;
@@ -66,9 +68,13 @@ export interface RealMappings {
 
 export async function loadRealMappings(): Promise<RealMappings> {
   const shared = await load<{ Money: MoneyClass }>('shared/index.ts');
-  const dto = await load<{ toDto: RealMappings['transaction']; toSplitDto: RealMappings['split']; split: Schema; correctBody: Schema }>(
-    'api/transaction-dto.ts',
-  );
+  const dto = await load<{
+    toDto: RealMappings['transaction'];
+    toSplitDto: RealMappings['split'];
+    split: Schema;
+    correctBody: Schema;
+    reverseBody: Schema;
+  }>('api/transaction-dto.ts');
   const splits = await load<{ toSplitsDto: RealMappings['splits'] }>('api/transaction-splits.ts');
   const imports = await load<{ toDto: RealMappings['batch']; toItemDto: RealMappings['reviewItem']; metadataSchema: Schema; resolveBody: Schema }>(
     'api/imports.ts',
@@ -98,6 +104,7 @@ export async function loadRealMappings(): Promise<RealMappings> {
     schemas: {
       split: dto.split,
       correct: dto.correctBody,
+      reverse: dto.reverseBody,
       metadata: imports.metadataSchema,
       resolve: imports.resolveBody,
       suggest: rent.suggestBody,

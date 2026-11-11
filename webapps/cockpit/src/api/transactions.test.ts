@@ -9,6 +9,7 @@ import {
   page,
   property,
   PROPERTY,
+  reversalAnswer,
   REALM_A,
   REALM_B,
   split,
@@ -29,6 +30,7 @@ import {
   listTransactions,
   PICKER_PAGE_SIZE,
   putSplits,
+  reverseTransaction,
   type TransactionSplitsDto,
 } from './transactions';
 
@@ -227,6 +229,7 @@ describe('integration gate: steps 2 to 4 call only routes of the pinned inventor
       json(200, splitsAnswer(), { etag: '"4"' }),
       json(200, transaction({ status: 'CONFIRMED', version: 5 }), { etag: '"5"' }),
       json(201, correctionAnswer({ description: 'Neu' })),
+      json(201, reversalAnswer()),
     );
     await listTransactions(de, { page: '1', pageSize: '50' });
     await getTransaction(de, TX);
@@ -236,6 +239,7 @@ describe('integration gate: steps 2 to 4 call only routes of the pinned inventor
     await putSplits(de, TX, BODY, '"3"');
     await confirmTransaction(de, TX, '"4"');
     await correctTransaction(de, TX, { reason: 'Test', replacement: { description: 'Neu' } }, '"5"', 'key-1');
+    await reverseTransaction(de, TX, { reason: 'Doppelt erfasst' }, '"5"', 'key-2');
     const reached = calls.map(routeOf);
     expect(reached).not.toContain(undefined);
     // The import routes of step 5 and the rent routes of step 6 have their own gate tests (imports.test.ts,
@@ -249,7 +253,9 @@ describe('integration gate: steps 2 to 4 call only routes of the pinned inventor
   it('counter-check: a route outside USED_ROUTES is found', () => {
     const call = { url: `/api/v1/financial-accounts/${ACCOUNT}`, method: 'GET' } as Call;
     expect(routeOf(call)).toBeUndefined();
-    expect(routeOf({ url: `/api/v1/transactions/${TX}/reverse`, method: 'POST' } as Call)).toBeUndefined();
+    expect(routeOf({ url: `/api/v1/transactions/${TX}/ignore`, method: 'POST' } as Call)).toBeUndefined();
+    expect(routeOf({ url: `/api/v1/transactions/${TX}/reverse`, method: 'PUT' } as Call)).toBeUndefined();
+    expect(routeOf({ url: `/api/v1/transactions/${TX}/reverse`, method: 'POST' } as Call)).toBe('POST /api/v1/transactions/:transactionId/reverse');
     expect(routeOf({ url: `/api/v1/transactions/${TX}/amend`, method: 'POST' } as Call)).toBeUndefined();
     expect(routeOf({ url: `/api/v1/transactions/${TX}/confirm`, method: 'PUT' } as Call)).toBeUndefined();
     expect(routeOf({ url: `/api/v1/transactions/${TX}/confirm`, method: 'POST' } as Call)).toBe('POST /api/v1/transactions/:transactionId/confirm');
