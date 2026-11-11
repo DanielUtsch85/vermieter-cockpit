@@ -91,16 +91,17 @@ jobs:
           MRE_CONTRACT_API_URL: http://localhost:8080/api/v2
           REQUIRE_MRE_CONTRACT: '1'
         run: yarn workspace @vermieter-cockpit/de-backend vitest run src/integrations/mre/mre.contract.test.ts
-      - name: Build the cockpit UI for the gate (webapps/cockpit/dist, base path /cockpit/)
-        run: yarn workspace @vermieter-cockpit/cockpit build
-      # Last on purpose: it adds docker-compose.proxy.yml and recreates authenticator, gateway and emailer with the
-      # proxy settings (https, the cockpit hostname), which the steps above do not expect.
-      - name: Cockpit gate through Caddy with curl (/cockpit/ start page, sign-in, refresh cookie HttpOnly; Secure; SameSite=Strict, /api/v1/health; Entscheidung des Projektinhabers, 2026-11-10)
+      - name: Build the cockpit-ui image (webapps/cockpit/Dockerfile, the productive UI service of docker-compose.proxy.yml)
+        run: docker compose -f docker-compose.yml -f docker-compose.proxy.yml build cockpit-ui
+      # Last on purpose: it adds docker-compose.proxy.yml and recreates authenticator, gateway, emailer and de-backend
+      # (all four are overridden there) with the proxy settings (https, the cockpit hostname), which the steps above do
+      # not expect.
+      - name: Cockpit gate through Caddy with curl (/cockpit/ start page and deep link from cockpit-ui with no-store, asset, sign-in, refresh cookie HttpOnly; Secure; SameSite=Strict, /api/v1/health; Entscheidung des Projektinhabers, 2026-11-10)
         run: .github/scripts/compose-cockpit-gate.sh
       - name: Logs on failure
         if: failure()
         run: docker compose ps -a && docker compose logs --no-color --tail=200
       - name: Tear down
         if: always()
-        # --remove-orphans: also Caddy and the cockpit stand-in of the gate step, which docker-compose.yml does not name.
+        # --remove-orphans: also Caddy and cockpit-ui of the gate step, which docker-compose.yml does not name.
         run: docker compose down -v --remove-orphans

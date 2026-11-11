@@ -4,7 +4,7 @@
 # sameSite=strict, so the cockpit can renew a session only on the origin that also serves /api/v2. No CORS.
 #
 #   /api/v1, /api/v1/*   -> DE backend      (de-backend:8090; DE mounts its API under /api/v1, prefix kept)
-#   /cockpit, /cockpit/* -> cockpit UI      (webapps/cockpit; built with base path /cockpit, prefix kept)
+#   /cockpit, /cockpit/* -> cockpit UI      (cockpit-ui:80, webapps/cockpit; built with base path /cockpit, prefix kept)
 #   /api/v2/*, everything else -> MRE gateway (gateway:8080; the gateway itself routes /api/v2/authenticator,
 #                           /api/v2/documents, /api/v2 and /tenantapi and strips its own prefixes, so the
 #                           proxy passes the path through unchanged)
@@ -38,7 +38,8 @@
 		reverse_proxy de-backend:8090
 	}
 
-	# Cockpit UI (ui-guide.md §7.1, webapps/cockpit). Until that service exists this answers 502.
+	# Cockpit UI (ui-guide.md §7.1, webapps/cockpit): the service cockpit-ui of docker-compose.proxy.yml, which serves
+	# the build under the same /cockpit prefix, with the SPA fallback and no-store on index.html (webapps/cockpit/Caddyfile).
 	@cockpit path /cockpit /cockpit/*
 	handle @cockpit {
 		reverse_proxy {$COCKPIT_UI_UPSTREAM:cockpit-ui:80}

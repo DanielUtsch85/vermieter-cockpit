@@ -4,11 +4,18 @@
 # `/api/v1/health` über Caddy." The browser run with Playwright is its own CI job later (backlog VC-X-70), not here.
 #
 # Runs in the job compose-smoke after the other steps, against the stack docker-compose.yml already started: it adds
-# the proxy override (docker-compose.proxy.yml, the productive Caddyfile) and the CI-only stand-in for the cockpit UI
-# (.github/compose/cockpit-gate.yml), which recreates authenticator, gateway and emailer with the proxy settings
-# (APP_DOMAIN = the cockpit hostname, APP_PROTOCOL = https, mre-integration.md §47.2, betrieb.md §9.4).
-# Needs docker, curl, jq, openssl and the built cockpit (webapps/cockpit/dist). Synthetic accounts only
+# the proxy override (docker-compose.proxy.yml, the productive Caddyfile) with its service cockpit-ui, the productive
+# cockpit UI (webapps/cockpit/Dockerfile, Entscheidung des Projektinhabers, 2026-11-10, zu #319 F3 (a)), and recreates
+# authenticator, gateway, emailer and de-backend (all overridden there) with the proxy settings (APP_DOMAIN = the cockpit hostname, APP_PROTOCOL = https,
+# mre-integration.md §47.2, betrieb.md §9.4). Nothing CI-only is added: what answers here is what runs in production.
+# Needs docker, curl, jq and openssl, and the cockpit-ui image built from this checkout (the step before in ci.yml,
+# `docker compose -f docker-compose.yml -f docker-compose.proxy.yml build cockpit-ui`). Synthetic accounts only
 # (gate-*@example.com); sign-up is opened for this run with MRE_SIGNUP=true, as betrieb.md §9.4 does for a first account.
+#
+# Besides #319 (b), the cockpit-ui checks of #322 F3 (Entscheidung des Projektinhabers, 2026-11-10: "`Cache-Control:
+# no-store` auf `index.html` im `cockpit-ui`-Dienst"): no-store on /cockpit/ and on a deep link, the deep link answers
+# with the same index.html (SPA fallback), a hashed asset answers 200 and is cacheable (immutable), a missing asset is
+# a 404 and not the start page.
 #
 # Every request goes over HTTPS to the published 127.0.0.1:443 of Caddy under the cockpit hostname, and the TLS
 # certificate is verified against the root of Caddy's local CA from the caddy-data volume (no --insecure). The cookie
@@ -18,9 +25,9 @@ set -euo pipefail
 
 host=${COCKPIT_HOSTNAME:-cockpit.internal}
 base="https://$host"
-dist=webapps/cockpit/dist
-files=(-f docker-compose.yml -f docker-compose.proxy.yml -f .github/compose/cockpit-gate.yml)
+files=(-f docker-compose.yml -f docker-compose.proxy.yml)
 work=$(mktemp -d)
+started=
 
 fail() {
   echo "GATE FAILED: $*" >&2
@@ -28,23 +35,23 @@ fail() {
 }
 on_exit() {
   local status=$?
-  if [ "$status" != 0 ] && [ -n "${COCKPIT_GATE_CADDY_IMAGE:-}" ]; then
-    echo "--- logs of caddy, cockpit-ui-ci and authenticator (last 60 lines each) ---" >&2
-    docker compose "${files[@]}" logs --no-color --tail=60 caddy cockpit-ui-ci authenticator >&2 || true
+  if [ "$status" != 0 ] && [ -n "$started" ]; then
+    echo "--- logs of caddy, cockpit-ui and authenticator (last 60 lines each) ---" >&2
+    docker compose "${files[@]}" logs --no-color --tail=60 caddy cockpit-ui authenticator >&2 || true
   fi
   rm -rf "$work"
 }
 trap on_exit EXIT
 
-[ -f "$dist/index.html" ] ||
-  fail "$dist/index.html is missing: build the cockpit first (yarn workspace @vermieter-cockpit/cockpit build)"
+image=$(docker compose "${files[@]}" config --format json | jq -r '.services.caddy.image')
 
-# The stand-in runs the digest-pinned Caddy image of the proxy override (no second image reference, VC-X-09).
-image=$(docker compose -f docker-compose.yml -f docker-compose.proxy.yml config --format json | jq -r '.services.caddy.image')
-[[ "$image" =~ @sha256:[0-9a-f]{64}$ ]] || fail "the Caddy image of docker-compose.proxy.yml is not pinned by digest: $image"
-export COCKPIT_GATE_CADDY_IMAGE=$image
-
+started=yes
 MRE_SIGNUP=true docker compose "${files[@]}" up -d --wait --wait-timeout 300
+
+# The index.html inside the cockpit-ui image: every page answer below must be exactly this file.
+index="$work/index.html"
+docker compose "${files[@]}" exec -T cockpit-ui cat /srv/cockpit/index.html >"$index" ||
+  fail "no /srv/cockpit/index.html in the cockpit-ui container"
 
 # Caddy creates its local CA at start; wait for the root certificate, then trust exactly that one.
 ca="$work/caddy-root.crt"
@@ -66,21 +73,41 @@ expect_code() { # label expected
   echo "$1: HTTP $code"
   [ "$code" = "$2" ] || fail "$1: expected HTTP $2, got $code; body: $(head -c 300 "$work/b")"
 }
-header() { # name -> value of the first such header, CR stripped
-  grep -i "^$1:" "$work/h" | head -n1 | cut -d: -f2- | tr -d '\r' | sed 's/^ *//'
+header() { # name -> value of the first such header, CR stripped; empty when there is none
+  { grep -i "^$1:" "$work/h" || true; } | head -n1 | cut -d: -f2- | tr -d '\r' | sed 's/^ *//'
+}
+cache_directive() { # label directive: the Cache-Control header lists the directive (case-insensitive, `,`-separated)
+  local value
+  value=$(header cache-control)
+  echo "$1: Cache-Control: ${value:-<none>}"
+  tr ',' '\n' <<<"$value" | sed -E 's/^[[:space:]]+|[[:space:]]+$//g' | grep -qix "$2" ||
+    fail "$1: Cache-Control '${value:-<none>}' lacks $2"
+}
+start_page() { # label: the answer is the start page, exactly the index.html of the image, and not to be stored
+  expect_code "$1" 200
+  [[ "$(header content-type)" == text/html* ]] || fail "$1: content-type is '$(header content-type)', not text/html"
+  cmp -s "$work/b" "$index" || fail "$1: the body is not the index.html of the cockpit-ui image"
+  grep -q '<div id="root"></div>' "$work/b" || fail "$1: no <div id=\"root\"> in the start page"
+  cache_directive "$1" no-store
 }
 
-# 1. /cockpit/ serves the start page: exactly the built index.html, and the script it names.
+# 1. /cockpit/ serves the start page: exactly the built index.html, no-store, and the script it names.
 req "$base/cockpit/"
-expect_code "GET /cockpit/" 200
-[[ "$(header content-type)" == text/html* ]] || fail "GET /cockpit/: content-type is '$(header content-type)', not text/html"
-cmp -s "$work/b" "$dist/index.html" || fail "GET /cockpit/: the body is not the built $dist/index.html"
-grep -q '<div id="root"></div>' "$work/b" || fail "GET /cockpit/: no <div id=\"root\"> in the start page"
+start_page "GET /cockpit/"
 asset=$(grep -oE 'src="/cockpit/assets/[^"]+\.js"' "$work/b" | head -n1 | sed -E 's/^src="(.*)"$/\1/')
 [ -n "$asset" ] || fail "GET /cockpit/: the start page names no script under /cockpit/assets/"
 req "$base$asset"
 expect_code "GET $asset" 200
 [[ "$(header content-type)" == *javascript* ]] || fail "GET $asset: content-type is '$(header content-type)'"
+cache_directive "GET $asset" immutable
+
+# A deep link is a route of the client, not a file: the SPA fallback answers with the same start page, no-store.
+deep="/cockpit/r/gate-realm/buchungen/gate-transaction"
+req "$base$deep"
+start_page "GET $deep"
+# A missing asset is a 404, not the start page under a script's name.
+req "$base/cockpit/assets/gate-missing.js"
+expect_code "GET /cockpit/assets/gate-missing.js" 404
 
 # 2. Sign-in through the MRE authenticator behind Caddy (no DE login, §47.2 item 1).
 run="$(date +%s)-$$"
