@@ -3,8 +3,7 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createDeClient } from '../../api/client';
-import { countingTokens, json, type Call } from '../../api/fetch.test-support';
-import type { FetchLike } from '../../api/transport';
+import { countingTokens, json, routedFetch } from '../../api/fetch.test-support';
 import { createQueryClient } from '../../query';
 import { category, detail, page, property, PROPERTY, REALM_A, REALM_B, split, TX, TX_REPLACEMENT } from '../../transactions/fixtures.test-support';
 import { TransactionsArea } from './TransactionsArea';
@@ -13,26 +12,6 @@ import { TransactionsArea } from './TransactionsArea';
  * Step 3 in the Buchungen area (jsdom): the editor appears on the detail of a Transaction whose status allows splits,
  * its request goes to the Realm of the page only, and an answer of another Realm is never shown (ui-guide.md §7.3).
  */
-
-/** A fetch that answers by method and path, each route with its own queue of answers; every call is recorded. */
-function routedFetch(routes: Record<string, (() => Response)[]>): { fetch: FetchLike; calls: Call[] } {
-  const calls: Call[] = [];
-  const fetch: FetchLike = (url, init = {}) => {
-    const call: Call = {
-      url,
-      method: init.method ?? 'GET',
-      headers: new Headers(init.headers),
-      body: typeof init.body === 'string' ? init.body : undefined,
-      credentials: init.credentials,
-      signal: init.signal ?? undefined,
-    };
-    calls.push(call);
-    const key = `${call.method} ${new URL(url, 'https://cockpit.internal').pathname}`;
-    const next = routes[key]?.shift();
-    return next === undefined ? Promise.reject(new Error(`unexpected call ${key}`)) : Promise.resolve(next());
-  };
-  return { fetch, calls };
-}
 
 const pickers = () => ({
   'GET /api/v1/financial-accounts': [() => json(200, page([]))],
