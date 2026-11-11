@@ -423,7 +423,7 @@ curl http://localhost:8090/health/ready   # DE backend
 curl http://localhost:8080/health         # MRE gateway
 ```
 
-The secrets in `docker-compose.yml` are development defaults; override them via `.env` (template: `.env.example`) and never use them in production. CI starts the same stack (`compose-smoke` job). For a productive installation (reverse proxy as the one origin, VPN, backups) see [`docs/development/betrieb.md`](docs/development/betrieb.md) and `docker-compose.proxy.yml`.
+The secrets in `docker-compose.yml` are development defaults; override them via `.env` (template: `.env.example`) and never use them in production. CI starts the same stack (`compose-smoke` job); the `browser-e2e` job adds `docker-compose.proxy.yml` and drives the cockpit in Chromium through Caddy (Playwright, `webapps/cockpit/e2e`, backlog VC-X-70; `.github/scripts/compose-browser-e2e.sh`). For a productive installation (reverse proxy as the one origin, VPN, backups) see [`docs/development/betrieb.md`](docs/development/betrieb.md) and `docker-compose.proxy.yml`.
 
 Database tests (e.g. the Money ↔ `NUMERIC` round-trip) run when `DE_TEST_DATABASE_URL` points to a PostgreSQL database, e.g. `DE_TEST_DATABASE_URL=postgres://de_test:de_test@localhost:5432/de_test yarn test`; otherwise they are skipped locally. CI always runs them.
 

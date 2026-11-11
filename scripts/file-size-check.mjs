@@ -1,7 +1,9 @@
 // File-size limit of the sources (coding-guidelines.md §3, issue #191): every `.ts` file under services/*/src, migrations/
 // excluded, and every `.ts` and `.tsx` file under webapps/*/src (the cockpit UI, same limits; Entscheidung des
 // Projektinhabers, 2026-11-09: the UI in every CI step) has at most 600 lines (production) or 900 lines (tests:
-// `*.test.ts`, `*.test.tsx`, `*.test-support.ts`). `yarn size:check` fails on a file over its limit; CI runs it after lint.
+// `*.test.ts`, `*.test.tsx`, `*.test-support.ts`). The cockpit's browser run (webapps/*/e2e, backlog VC-X-70) is checked
+// the same way: its `*.spec.ts` as tests, its helpers and config as production files. `yarn size:check` fails on a file
+// over its limit; CI runs it after lint.
 //
 // Lines are counted as `wc -l` counts them for a file ending in a newline (Prettier guarantees that): the number of line
 // breaks, plus one for a last line without a trailing newline.
@@ -30,7 +32,7 @@ const countLines = (source) => {
   const breaks = source.split('\n').length - 1;
   return source.length > 0 && !source.endsWith('\n') ? breaks + 1 : breaks;
 };
-const isTest = (file) => /\.test\.tsx?$/.test(file) || file.endsWith('.test-support.ts');
+const isTest = (file) => /\.test\.tsx?$/.test(file) || file.endsWith('.test-support.ts') || file.endsWith('.spec.ts');
 
 const files = [];
 const walk = (dir) => {
@@ -47,6 +49,9 @@ for (const area of ['services', 'webapps']) {
   for (const workspace of readdirSync(join(root, area), { withFileTypes: true })) {
     const src = join(root, area, workspace.name, 'src');
     if (workspace.isDirectory() && existsSync(src)) walk(src);
+    // The Playwright specs and helpers of a web app sit beside src/, not in it (Vitest reads only src/).
+    const e2e = join(root, area, workspace.name, 'e2e');
+    if (area === 'webapps' && workspace.isDirectory() && existsSync(e2e)) walk(e2e);
   }
 }
 

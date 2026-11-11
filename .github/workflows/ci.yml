@@ -107,3 +107,54 @@ jobs:
         if: always()
         # --remove-orphans: also Caddy and cockpit-ui of the gate step, which docker-compose.yml does not name.
         run: docker compose down -v --remove-orphans
+
+  # VC-X-70: the cockpit in Chromium (Playwright) through Caddy against the stack with the real cockpit-ui service; its
+  # own job, not a step of compose-smoke (Entscheidungen des Projektinhabers, 2026-11-10 zu #319 Frage 3 (b), und
+  # 2026-11-11, V1 Punkt 4). Same stack and settings as the cockpit gate: docker-compose.yml plus
+  # docker-compose.proxy.yml, MRE_SIGNUP=true for the synthetic accounts.
+  browser-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build the images of this checkout (de-backend of docker-compose.yml, cockpit-ui of docker-compose.proxy.yml)
+        run: docker compose -f docker-compose.yml -f docker-compose.proxy.yml build de-backend cockpit-ui
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: yarn
+      - run: yarn install --immutable
+      - name: Pinned Playwright version (webapps/cockpit/package.json, exact)
+        id: playwright
+        working-directory: webapps/cockpit
+        run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+      # The browser builds belong to one Playwright version: the key changes with the pin, so a bump downloads anew.
+      - name: Cache the Playwright browsers
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+      # --no-install: only the workspace's own Playwright, never a download of another version. On a cache hit only the
+      # system packages are installed; the browser is already there.
+      - name: Chromium of the pinned Playwright, with its system packages
+        working-directory: webapps/cockpit
+        run: npx --no-install playwright install --with-deps chromium
+      - name: certutil for the run's own certificate store (libnss3-tools)
+        run: command -v certutil || { sudo apt-get update && sudo apt-get install -y libnss3-tools; }
+      - name: Browser run through Caddy (sign-in, refresh, Realm choice, 403 without a switch, sign-out, deep link, no-store; import → review items → split from the MRE proposal → confirm → rent suggestion → write-back to MRE)
+        run: .github/scripts/compose-browser-e2e.sh
+      - name: Playwright report and failure screenshots
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: playwright-report
+          path: webapps/cockpit/e2e-results/
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Logs on failure
+        if: failure()
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.proxy.yml ps -a
+          docker compose -f docker-compose.yml -f docker-compose.proxy.yml logs --no-color --tail=200
+      - name: Tear down
+        if: always()
+        run: docker compose -f docker-compose.yml -f docker-compose.proxy.yml down -v --remove-orphans

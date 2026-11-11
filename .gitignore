@@ -17,3 +17,6 @@ node_modules/
 dist/
 coverage/
 *.tsbuildinfo
+
+# Playwright output of the cockpit browser run (VC-X-70)
+e2e-results/

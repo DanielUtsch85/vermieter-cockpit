@@ -274,3 +274,34 @@ describe('step 8: partial, over and multi-Tenant payments; refusals; what is not
     expect(screen.queryByLabelText('Miettermin (MRE-Schlüssel JJJJMMTTHH)')).toBeNull();
   });
 });
+
+describe('step 8: the proposal goes when a re-read shows the booking confirmed (#346 review, hint H1)', () => {
+  it('editor open on an unconfirmed booking, a 412 re-read answers CONFIRMED: the proposal region is gone, the editor with the kept draft stands', async () => {
+    const stored = [split({ amount: { amount: '850.00', currency: 'EUR' }, propertyReferenceId: null })];
+    const calls = area({
+      [DETAIL]: [
+        () => imported('850.00'),
+        () => json(200, detail({ amount: { amount: '850.00', currency: 'EUR' }, status: 'CONFIRMED', version: 5, splits: stored }), { etag: '"5"' }),
+      ],
+      [PUT]: [() => envelope(412, 'VERSION_CONFLICT', { expectedVersions: [3], currentVersion: 5 })],
+    });
+    // First answer of DETAIL: unconfirmed, the editor with the proposal section is open.
+    expect(await screen.findByRole('region', { name: 'Aufteilungsvorschlag aus MRE' })).toBeTruthy();
+    type(control('split-0-category'), 'RENT_BASE');
+    type(control('split-0-amount'), '850,00');
+    click('Aufteilung speichern');
+    await screen.findByRole('heading', { name: 'Inzwischen geändert' });
+    // The re-read (second answer of DETAIL): meanwhile confirmed elsewhere.
+    click('Entwurf behalten und Serverstand ansehen');
+    await screen.findByText('Aktueller Stand auf dem Server: Version 5, Status „Bestätigt“');
+    expect(screen.queryByRole('region', { name: 'Aufteilungsvorschlag aus MRE' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Vorschlag laden' })).toBeNull();
+    const editor = screen.getByRole('region', { name: 'Aufteilung bearbeiten' });
+    expect(within(editor).getByText(/ihre Aufteilung kann nicht mehr geändert werden/)).toBeTruthy();
+    expect(rows()).toEqual([['RENT_BASE', '850,00']]);
+    expect(button('Aufteilung speichern').disabled).toBe(true);
+    expect(calls.filter((call) => routeOf(call) === DETAIL)).toHaveLength(2);
+    expect(proposals(calls)).toEqual([]);
+    expect(commands(calls)).toEqual([PUT]);
+  });
+});

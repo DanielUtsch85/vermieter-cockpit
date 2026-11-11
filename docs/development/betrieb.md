@@ -324,7 +324,7 @@ Als letzten Schritt desselben Jobs prüft `.github/scripts/compose-cockpit-gate.
 - **`Domain` am Refresh-Cookie:** Beide `Set-Cookie` für `refreshToken`, nach der Anmeldung und nach dem Refresh, tragen genau ein Attribut `Domain`, und sein Wert ist genau der Hostname, den das Gate anspricht (`COCKPIT_HOSTNAME`, Default `cockpit.internal`). Der Attributname ist egal in Groß-/Kleinschreibung, der Wert nicht, denn der Authenticator gibt `APP_DOMAIN` unverändert zurück. Ein führender Punkt wird ignoriert, wie ihn auch der Browser ignoriert (RFC 6265 §5.2.3): `.cockpit.internal` besteht. Kein `Domain`, ein anderer Name (etwa `localhost`, der Entwicklungswert), eine Eltern- oder Unterdomain, ein Punkt am Ende oder zwei `Domain`-Attribute machen das Gate rot.
 - **Registrierung zum Schluss zu:** Als letzten Schritt erstellt das Gate nur den Authenticator neu, mit ungesetztem `MRE_SIGNUP` (also dem Default `false` aus `docker-compose.proxy.yml`, wie Abschnitt 9.4 Schritt 4 und 5) und `--no-deps`; der übrige Stack bleibt, wie er ist. Dann muss die Anmeldung über Caddy wieder `200` antworten (der Authenticator läuft) und `POST /api/v2/authenticator/landlord/signup` über Caddy `404`. Jede andere Antwort, auch `201`, macht das Gate rot; die Logs von Caddy, `cockpit-ui` und Authenticator druckt das Skript dann selbst.
 
-Der frühere CI-Platzhalter `.github/compose/cockpit-gate.yml` (#332) ist entfernt. Der Browser-Durchlauf mit Playwright ist VC-X-70, ein eigener CI-Job, nicht in `compose-smoke`.
+Der frühere CI-Platzhalter `.github/compose/cockpit-gate.yml` (#332) ist entfernt. Den Browser-Durchlauf mit Playwright macht der eigene CI-Job `browser-e2e` (VC-X-70), nicht `compose-smoke` (Entscheidungen des Projektinhabers, 2026-11-10 zu #319 Frage 3 (b), und 2026-11-11, V1 Punkt 4). Er baut `de-backend` und `cockpit-ui` aus dem Checkout und startet mit `.github/scripts/compose-browser-e2e.sh` denselben Stack wie das Gate (beide Compose-Dateien, `MRE_SIGNUP=true` nur für synthetische Konten `e2e-*@example.com`). Dann steuert er Chromium headless (Playwright in der in `webapps/cockpit/package.json` exakt gepinnten Version) über Caddy unter `https://cockpit.internal`; das Zertifikat wird gegen die Wurzel der lokalen CA aus `caddy-data` geprüft, die nur in einem Wegwerf-Zertifikatsspeicher des Laufs liegt. Geprüft werden Anmeldung, Refresh, Realm-Wahl, `403` ohne Wechsel, Abmelden, Deep Link und `no-store` sowie ein verkürzter Durchstich gegen das echte Backend: CSV-Import, beide Klärfall-Entscheidungen, Aufteilung aus dem MRE-Vorschlag, „Buchung bestätigen“, Mietvorschlag bestätigen und an MRE übertragen. Bei einem Fehler lädt der Job den Playwright-Bericht mit Bildschirmfotos als Artefakt `playwright-report` hoch.
 
 ### 9.7 AfA-Erfassung: `DEPRECIATION_RECORDING_ENABLED` bleibt ungesetzt
 
@@ -367,7 +367,7 @@ Jedes Container-Image steht als `tag@sha256:…`, jede GitHub Action als `owner/
 | `docker-compose.proxy.yml` | `caddy:2.11.9` |
 | `services/de-backend/Dockerfile` | `node:24-bookworm-slim` (beide Stufen, derselbe Digest) |
 | `webapps/cockpit/Dockerfile` | `node:24-bookworm-slim` (Build-Stufe, derselbe Digest wie im Backend), `caddy:2.11.9` (derselbe Digest wie in `docker-compose.proxy.yml`) |
-| `.github/workflows/ci.yml` | Service-Container `postgres:16` (derselbe Digest wie in `docker-compose.yml`), `actions/checkout`, `actions/setup-node` |
+| `.github/workflows/ci.yml` | Service-Container `postgres:16` (derselbe Digest wie in `docker-compose.yml`), `actions/checkout`, `actions/setup-node`, `actions/cache` und `actions/upload-artifact` (Job `browser-e2e`, VC-X-70) |
 
 Gepinnt wird der Digest des **Multi-Arch-Index** (`application/vnd.oci.image.index.v1+json`), nicht der einer einzelnen Plattform; so passt derselbe Pin auf amd64 und arm64. Die MRE-Images veröffentlicht Upstream nur für eine Plattform: Ihr Digest ist der des einzigen Manifests (`application/vnd.docker.distribution.manifest.v2+json`).
 
@@ -437,7 +437,7 @@ docker compose -f docker-compose.yml -f docker-compose.proxy.yml config -q
 docker compose pull            # zieht genau die gepinnten Digests; ein falscher Digest scheitert hier
 ```
 
-In CI: `build-test` (Pin-Prüfung, Tests gegen den Postgres-Service-Container) und `compose-smoke` (zieht alle gepinnten Images, startet den Stack, MRE-Contract-Test, Auth-, Backup- und Proxy-Prüfung inklusive `caddy validate` im gepinnten Caddy-Image, zuletzt das Cockpit-Gate über Caddy). Erst wenn beide grün sind, ist der neue Pin geprüft. Auf dem Produktivrechner danach `docker compose -f docker-compose.yml -f docker-compose.proxy.yml pull` und `up -d --wait`, vorher eine Sicherung (Abschnitt 2).
+In CI: `build-test` (Pin-Prüfung, Tests gegen den Postgres-Service-Container), `browser-e2e` (Chromium über Caddy gegen denselben Stack, VC-X-70) und `compose-smoke` (zieht alle gepinnten Images, startet den Stack, MRE-Contract-Test, Auth-, Backup- und Proxy-Prüfung inklusive `caddy validate` im gepinnten Caddy-Image, zuletzt das Cockpit-Gate über Caddy). Erst wenn alle drei grün sind, ist der neue Pin geprüft. Auf dem Produktivrechner danach `docker compose -f docker-compose.yml -f docker-compose.proxy.yml pull` und `up -d --wait`, vorher eine Sicherung (Abschnitt 2).
 
 ### 11.6 Dependabot
 
