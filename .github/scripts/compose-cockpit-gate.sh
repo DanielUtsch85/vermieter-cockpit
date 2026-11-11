@@ -10,12 +10,19 @@
 # mre-integration.md §47.2, betrieb.md §9.4). Nothing CI-only is added: what answers here is what runs in production.
 # Needs docker, curl, jq and openssl, and the cockpit-ui image built from this checkout (the step before in ci.yml,
 # `docker compose -f docker-compose.yml -f docker-compose.proxy.yml build cockpit-ui`). Synthetic accounts only
-# (gate-*@example.com); sign-up is opened for this run with MRE_SIGNUP=true, as betrieb.md §9.4 does for a first account.
+# (gate-*@example.com); sign-up is opened for this run with MRE_SIGNUP=true, as betrieb.md §9.4 does for a first account,
+# and closed again at the end as its step 5 does.
 #
 # Besides #319 (b), the cockpit-ui checks of #322 F3 (Entscheidung des Projektinhabers, 2026-11-10: "`Cache-Control:
 # no-store` auf `index.html` im `cockpit-ui`-Dienst"): no-store on /cockpit/ and on a deep link, the deep link answers
 # with the same index.html (SPA fallback), a hashed asset answers 200 and is cacheable (immutable), a missing asset is
 # a 404 and not the start page.
+#
+# And #332 F2 and F3 (Entscheidung des Projektinhabers, 2026-11-11: "`Domain=<COCKPIT_HOSTNAME>` am Refresh-Cookie
+# verlangen; zum Schluss prüfen, dass Signup mit produktivem Default 404 antwortet."): both refresh cookies carry
+# exactly one Domain attribute naming the gate's host; last, the authenticator is recreated with MRE_SIGNUP unset (the
+# default of docker-compose.proxy.yml, SIGNUP=false), and POST signup through Caddy answers 404 while sign-in still
+# answers 200.
 #
 # Every request goes over HTTPS to the published 127.0.0.1:443 of Caddy under the cockpit hostname, and the TLS
 # certificate is verified against the root of Caddy's local CA from the caddy-data volume (no --insecure). The cookie
@@ -122,17 +129,25 @@ expect_code "sign-in $email" 200
 token=$(jq -r '.accessToken // empty' "$work/b")
 [ -n "$token" ] || fail "sign-in: no accessToken in the answer"
 
-# 3. The refresh token is a cookie with HttpOnly, Secure and SameSite=Strict (§47.2 item 2). Attributes are matched
-# case-insensitively, each as its own `;`-separated attribute; the value is never printed.
+# 3. The refresh token is a cookie with HttpOnly, Secure and SameSite=Strict (§47.2 item 2) and Domain=<the gate's
+# host> (#332 F2). Attribute names are matched case-insensitively, each as its own `;`-separated attribute; the value
+# is never printed. Domain: exactly one such attribute, its value equal to $host (case-sensitive, as the authenticator
+# echoes APP_DOMAIN); one leading dot is ignored, as a user agent ignores it (RFC 6265 §5.2.3), so `.host` passes and
+# `host.`, a parent domain, a subdomain or a second Domain attribute fail.
 check_refresh_cookie() { # label
-  local line attrs
+  local line raw attrs domains
   line=$(grep -i '^set-cookie:[[:space:]]*refreshToken=' "$work/h" | head -n1 | tr -d '\r') ||
     fail "$1: no Set-Cookie for refreshToken"
   echo "$1: $(sed -E 's/(refreshToken=)[^;]*/\1<redacted>/I' <<<"$line")"
-  attrs=$(cut -d';' -f2- <<<"$line" | tr ';' '\n' | sed -E 's/^[[:space:]]+|[[:space:]]+$//g' | tr '[:upper:]' '[:lower:]')
+  raw=$(cut -d';' -f2- <<<"$line" | tr ';' '\n' | sed -E 's/^[[:space:]]+|[[:space:]]+$//g')
+  attrs=$(tr '[:upper:]' '[:lower:]' <<<"$raw")
   grep -qx 'httponly' <<<"$attrs" || fail "$1: the refresh cookie lacks HttpOnly"
   grep -qx 'secure' <<<"$attrs" || fail "$1: the refresh cookie lacks Secure"
   grep -qx 'samesite=strict' <<<"$attrs" || fail "$1: the refresh cookie lacks SameSite=Strict"
+  domains=$({ grep -iE '^domain[[:space:]]*=' <<<"$raw" || true; } | sed -E 's/^[^=]*=[[:space:]]*//; s/^\.//')
+  [ -n "$domains" ] || fail "$1: the refresh cookie lacks Domain=$host"
+  [ "$(wc -l <<<"$domains")" = 1 ] || fail "$1: the refresh cookie has more than one Domain attribute"
+  [ "$domains" = "$host" ] || fail "$1: the refresh cookie has Domain=$domains, not Domain=$host"
 }
 check_refresh_cookie "sign-in Set-Cookie"
 cookie=$(grep -i '^set-cookie:[[:space:]]*refreshToken=' "$work/h" | head -n1 | tr -d '\r' | sed -E 's/^[^:]+:[[:space:]]*//; s/;.*$//')
@@ -154,5 +169,22 @@ req -H "organizationid: $realm" "$base/api/v1/health"
 expect_code "GET /api/v1/health without a token" 401
 req -H "authorization: Bearer $token" -H "organizationid: $realm" "$base/api/v1/health"
 expect_code "GET /api/v1/health with the token, own realm" 200
+
+# 5. Sign-up closed again with the productive default (#332 F3; betrieb.md §9.4 steps 4 and 5): only the authenticator
+# is recreated, MRE_SIGNUP unset so SIGNUP falls back to false; the rest of the stack stays as it is (--no-deps).
+env -u MRE_SIGNUP docker compose "${files[@]}" up -d --no-deps --wait --wait-timeout 120 authenticator
+# The authenticator has no healthcheck: wait until sign-in through Caddy answers 200 again. That also shows the 404
+# below comes from the running authenticator without the route, not from a service that does not answer.
+for _ in $(seq 1 60); do
+  req -X POST "${json[@]}" "$base/api/v2/authenticator/landlord/signin" -d "{\"email\":\"$email\",\"password\":\"$password\"}"
+  [ "$code" = 200 ] && break
+  sleep 1
+done
+expect_code "sign-in $email after the authenticator is recreated with MRE_SIGNUP unset" 200
+req -X POST "${json[@]}" "$base/api/v2/authenticator/landlord/signup" \
+  -d "{\"firstname\":\"Gate\",\"lastname\":\"Closed\",\"email\":\"gate-closed-$run@example.com\",\"password\":\"$password\"}"
+echo "sign-up with the productive default (MRE_SIGNUP unset): HTTP $code"
+[ "$code" = 404 ] ||
+  fail "sign-up with the productive default (MRE_SIGNUP unset) must answer 404 (the route does not exist), got $code"
 
 echo "cockpit gate through Caddy ($host, $image): OK"
