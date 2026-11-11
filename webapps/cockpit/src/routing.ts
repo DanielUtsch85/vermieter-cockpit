@@ -7,6 +7,7 @@
  *   /cockpit/r/<realmId>/          Übersicht
  *   /cockpit/r/<realmId>/<area>    one of the version-1 areas (ui-guide.md §3.1)
  *   /cockpit/r/<realmId>/buchungen/<transactionId>   one Transaction (step 2; a stable DE id, ui-guide.md §3.2)
+ *   /cockpit/r/<realmId>/import/<importBatchId>      one import's result and review items (step 5)
  *
  * The list's filters and page are the search part of the area's URL (transactions/list-params.ts).
  */
@@ -19,8 +20,8 @@ export interface Area {
   readonly label: string;
   /** The path segment after the Realm; empty for the overview. */
   readonly segment: string;
-  /** Where the area, or the rest of it, is built (ui-guide.md §10, "Erster nutzbarer Durchstich"). */
-  readonly slice: string;
+  /** Where the area, or the rest of it, is built (ui-guide.md §10, "Erster nutzbarer Durchstich"); undefined when done. */
+  readonly slice?: string;
   /** What of the area can be used already; undefined while the area is a placeholder. */
   readonly available?: string;
 }
@@ -35,7 +36,7 @@ export const AREAS: readonly Area[] = [
     slice: 'Durchstich Schritte 3 und 4',
     available: 'Liste mit Filtern und Detail',
   },
-  { id: 'import', label: 'Import', segment: 'import', slice: 'Durchstich Schritt 5' },
+  { id: 'import', label: 'Import', segment: 'import', available: 'Datei und Konto wählen, Import ausführen, Ergebnis und Klärfälle' },
   { id: 'mietabgleich', label: 'Mietabgleich', segment: 'mietabgleich', slice: 'Durchstich Schritt 6' },
 ];
 
@@ -46,7 +47,7 @@ const RESOURCE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{1
 
 export type Route =
   | { readonly kind: 'realmChoice' }
-  | { readonly kind: 'area'; readonly realmId: string; readonly area: Area; readonly transactionId?: string }
+  | { readonly kind: 'area'; readonly realmId: string; readonly area: Area; readonly transactionId?: string; readonly importBatchId?: string }
   | { readonly kind: 'notFound' };
 
 export function parseRoute(pathname: string): Route {
@@ -59,9 +60,11 @@ export function parseRoute(pathname: string): Route {
   const area = AREAS.find((candidate) => candidate.segment === segment);
   if (area === undefined) return { kind: 'notFound' };
   if (rest.length === 0) return { kind: 'area', realmId, area };
-  const [transactionId, ...more] = rest;
-  if (area.id !== 'buchungen' || more.length > 0 || transactionId === undefined || !RESOURCE_ID.test(transactionId)) return { kind: 'notFound' };
-  return { kind: 'area', realmId, area, transactionId: transactionId.toLowerCase() };
+  const [id, ...more] = rest;
+  if (more.length > 0 || id === undefined || !RESOURCE_ID.test(id)) return { kind: 'notFound' };
+  if (area.id === 'buchungen') return { kind: 'area', realmId, area, transactionId: id.toLowerCase() };
+  if (area.id === 'import') return { kind: 'area', realmId, area, importBatchId: id.toLowerCase() };
+  return { kind: 'notFound' };
 }
 
 export function areaPath(realmId: string, area: Area, search = ''): string {
@@ -70,6 +73,11 @@ export function areaPath(realmId: string, area: Area, search = ''): string {
 
 export function transactionPath(realmId: string, transactionId: string): string {
   return `${BASE_PATH}r/${encodeURIComponent(realmId)}/buchungen/${encodeURIComponent(transactionId)}`;
+}
+
+/** One import of the Realm: its result and the review items it owns (step 5). */
+export function importBatchPath(realmId: string, importBatchId: string): string {
+  return `${BASE_PATH}r/${encodeURIComponent(realmId)}/import/${encodeURIComponent(importBatchId)}`;
 }
 
 /**

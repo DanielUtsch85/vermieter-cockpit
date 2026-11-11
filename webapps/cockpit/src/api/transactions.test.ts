@@ -238,7 +238,9 @@ describe('integration gate: steps 2 to 4 call only routes of the pinned inventor
     await correctTransaction(de, TX, { reason: 'Test', replacement: { description: 'Neu' } }, '"5"', 'key-1');
     const reached = calls.map(routeOf);
     expect(reached).not.toContain(undefined);
-    expect(new Set(reached)).toEqual(new Set(USED_ROUTES.filter(([, path]) => path !== '/api/v1/health').map(([method, path]) => `${method} ${path}`)));
+    // The import routes of step 5 have their own gate test (imports.test.ts).
+    const steps2to4 = USED_ROUTES.filter(([, path]) => path !== '/api/v1/health' && !path.startsWith('/api/v1/imports'));
+    expect(new Set(reached)).toEqual(new Set(steps2to4.map(([method, path]) => `${method} ${path}`)));
   });
 
   it('counter-check: a route outside USED_ROUTES is found', () => {

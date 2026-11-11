@@ -15,6 +15,11 @@ export interface RequestOptions {
   readonly query?: Readonly<Record<string, QueryValue>>;
   /** A JSON body. Never a whole response object: separate request types per command (ui-guide.md §5.3). */
   readonly body?: unknown;
+  /**
+   * A `multipart/form-data` body (the bank import, api-design.md §32.1a). Never together with `body`. No `Content-Type`
+   * is set here: the browser sets it with the boundary it chose (ui-guide.md §6.5).
+   */
+  readonly form?: FormData;
   /** The strong `ETag` read before, as received (`"3"`), for `If-Match` (ui-guide.md §7.3). */
   readonly ifMatch?: string;
   /** One key per business intent of the user, the same key for a retry after a timeout (ui-guide.md §7.3). */
@@ -91,6 +96,8 @@ export function createDeClient(options: {
       headers.set('idempotency-key', opts.idempotencyKey);
     }
     const init: RequestInit = { method, headers };
+    if (opts.body !== undefined && opts.form !== undefined) throw new TypeError('A request has a JSON body or a form, not both.');
+    if (opts.form !== undefined) init.body = opts.form;
     if (opts.body !== undefined) {
       headers.set('content-type', 'application/json');
       init.body = JSON.stringify(opts.body);

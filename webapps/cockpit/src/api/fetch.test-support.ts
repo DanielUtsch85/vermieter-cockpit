@@ -15,6 +15,8 @@ export interface Call {
   readonly method: string;
   readonly headers: Headers;
   readonly body: string | undefined;
+  /** A `multipart/form-data` body as sent (the bank import). */
+  readonly form: FormData | undefined;
   readonly credentials: RequestCredentials | undefined;
   readonly signal: AbortSignal | undefined;
 }
@@ -28,6 +30,7 @@ export function scriptedFetch(...answers: (Response | Error | ((call: Call) => R
       method: init.method ?? 'GET',
       headers: new Headers(init.headers),
       body: typeof init.body === 'string' ? init.body : undefined,
+      form: init.body instanceof FormData ? init.body : undefined,
       credentials: init.credentials,
       signal: init.signal ?? undefined,
     };
@@ -73,6 +76,7 @@ export function routedFetch(routes: Record<string, (() => Response)[]>): { fetch
       method: init.method ?? 'GET',
       headers: new Headers(init.headers),
       body: typeof init.body === 'string' ? init.body : undefined,
+      form: init.body instanceof FormData ? init.body : undefined,
       credentials: init.credentials,
       signal: init.signal ?? undefined,
     };

@@ -24,7 +24,7 @@ const MULTIPART_OVERHEAD_BYTES = 16 * 1024;
  * The `metadata` part: the import target and adapter, plus the adapter's own
  * options (e.g. `columnMapping`) at the same level (api-design.md §32.1).
  */
-const metadataSchema = z
+export const metadataSchema = z
   .object({
     financialAccountId: z.string().regex(RESOURCE_ID),
     adapterId: z.string().min(1).max(100),
@@ -33,7 +33,8 @@ const metadataSchema = z
   .passthrough();
 
 const listQuery = z.object({ status: z.enum(['PENDING', 'RESOLVED']).optional() });
-const resolveBody = z.object({ resolution: z.enum(['CREATE', 'SKIP']) }).strict();
+/** Exported for its type only (client-contract.ts `ResolveInputDto`). */
+export const resolveBody = z.object({ resolution: z.enum(['CREATE', 'SKIP']) }).strict();
 
 export interface ImportCommands {
   readonly importStatement: ImportBankStatement;
@@ -272,7 +273,8 @@ function readUpload(req: Request): Promise<Upload> {
   });
 }
 
-function toDto(batch: ImportBatch) {
+/** The batch as answered by the upload and `GET /imports/{id}`; exported for its type (client-contract.ts). */
+export function toDto(batch: ImportBatch) {
   return {
     importBatchId: batch.id,
     mreRealmId: batch.mreRealmId,
@@ -295,7 +297,8 @@ function toDto(batch: ImportBatch) {
   };
 }
 
-function toItemDto(item: ReviewItem, transactions: ReadonlyMap<string, ConflictingTransaction>) {
+/** A review item as listed and resolved; exported for its type (client-contract.ts). */
+export function toItemDto(item: ReviewItem, transactions: ReadonlyMap<string, ConflictingTransaction>) {
   return {
     reviewItemId: item.id,
     importBatchId: item.importBatchId,
@@ -324,7 +327,8 @@ function toItemDto(item: ReviewItem, transactions: ReadonlyMap<string, Conflicti
   };
 }
 
-function toConflictDto(t: ConflictingTransaction) {
+/** A conflicting Transaction next to a review item; exported for its type (client-contract.ts). */
+export function toConflictDto(t: ConflictingTransaction) {
   return {
     transactionId: t.id,
     importBatchId: t.importBatchId,

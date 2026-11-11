@@ -10,6 +10,7 @@ import { AppShell } from './AppShell';
 import { AreaPlaceholder, OverviewPage } from './OverviewPage';
 import { useRealms } from './RealmChoice';
 import { ErrorState, LoadingState, secondaryButtonClass } from './states';
+import { ImportArea } from './imports/ImportArea';
 import { TransactionsArea } from './transactions/TransactionsArea';
 
 /**
@@ -22,6 +23,8 @@ export function RealmPage(props: {
   readonly area: Area;
   /** A Transaction of the Buchungen area (`…/buchungen/<transactionId>`). */
   readonly transactionId?: string | undefined;
+  /** An import of the Import area (`…/import/<importBatchId>`). */
+  readonly importBatchId?: string | undefined;
   /** The URL's search part: the list's filters and page. */
   readonly search?: string;
   /** The URL's path: the focus moves to the page title when it changes (AppShell). */
@@ -55,6 +58,7 @@ function AreaContent(props: {
   readonly realmName: string | undefined;
   readonly area: Area;
   readonly transactionId?: string | undefined;
+  readonly importBatchId?: string | undefined;
   readonly search?: string;
   readonly epoch: number;
   readonly health: HealthDto;
@@ -67,8 +71,10 @@ function AreaContent(props: {
       return (
         <TransactionsArea client={props.client} realmId={props.realmId} epoch={props.epoch} transactionId={props.transactionId} search={props.search ?? ''} />
       );
+    case 'import':
+      return <ImportArea client={props.client} realmId={props.realmId} epoch={props.epoch} importBatchId={props.importBatchId} />;
     default:
-      return <AreaPlaceholder slice={props.area.slice} />;
+      return <AreaPlaceholder slice={props.area.slice ?? ''} />;
   }
 }
 

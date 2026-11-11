@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AREAS, areaPath, createRealmLock, parseRoute, realmSwitchEffect, realmSwitching, transactionPath } from './routing';
+import { AREAS, areaPath, createRealmLock, importBatchPath, parseRoute, realmSwitchEffect, realmSwitching, transactionPath } from './routing';
 
 const REALM = '64b7f0c2a1b2c3d4e5f60718';
 const OTHER = '64b7f0c2a1b2c3d4e5f60719';
@@ -32,7 +32,10 @@ describe('routes: the Realm in the URL (§47.2 point 3)', () => {
       `/cockpit/r/${REALM}/finanzierung`,
       `/cockpit/r/${REALM}/buchungen/x`,
       `/cockpit/r/${REALM}/buchungen/${TX}/splits`,
-      `/cockpit/r/${REALM}/import/${TX}`,
+      `/cockpit/r/${REALM}/import/${TX}/review-items`,
+      `/cockpit/r/${REALM}/import/x`,
+      `/cockpit/r/${REALM}/mietabgleich/${TX}`,
+      `/cockpit/r/${REALM}/${TX}`,
       `/cockpit/r/${REALM}//${TX}`,
       `/cockpit/r/${REALM}/buchungen/${TX}x`,
       '/cockpit/r/a%2Fb/',
@@ -55,6 +58,21 @@ describe('step 2: a Transaction has its own URL (ui-guide.md §3.2: deep links w
     const transactions = AREAS[1];
     if (transactions === undefined) throw new Error('area missing');
     expect(areaPath(REALM, transactions, '?status=IMPORTED')).toBe(`/cockpit/r/${REALM}/buchungen?status=IMPORTED`);
+  });
+});
+
+describe('step 5: an import has its own URL (a known batch is read again after a reload, ui-guide.md §6.5)', () => {
+  it('the batch path round-trips in the Import area; the id is read in lower case', () => {
+    const imports = AREAS[2];
+    expect(imports?.id).toBe('import');
+    expect(parseRoute(importBatchPath(REALM, TX))).toEqual({ kind: 'area', realmId: REALM, area: imports, importBatchId: TX });
+    expect(parseRoute(`${importBatchPath(REALM, TX.toUpperCase())}/`)).toEqual({ kind: 'area', realmId: REALM, area: imports, importBatchId: TX });
+    expect(importBatchPath(REALM, TX)).toBe(`/cockpit/r/${REALM}/import/${TX}`);
+  });
+
+  it('counter-check: a Transaction id under Buchungen is no import, and an import id is no Transaction', () => {
+    expect(parseRoute(transactionPath(REALM, TX))).not.toHaveProperty('importBatchId');
+    expect(parseRoute(importBatchPath(REALM, TX))).not.toHaveProperty('transactionId');
   });
 });
 
