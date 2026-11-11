@@ -4,13 +4,14 @@ import { createDeClient } from '../api/client';
 import { ApiError } from '../api/errors';
 import { fetchHealth, type HealthDto } from '../api/health';
 import { realmKey } from '../query';
-import { leaveRealm, type Area } from '../routing';
+import { leaveRealm, type Area, type RentTermKey } from '../routing';
 import { useSession } from '../session/use-session';
 import { AppShell } from './AppShell';
 import { AreaPlaceholder, OverviewPage } from './OverviewPage';
 import { useRealms } from './RealmChoice';
 import { ErrorState, LoadingState, secondaryButtonClass } from './states';
 import { ImportArea } from './imports/ImportArea';
+import { RentArea } from './rent/RentArea';
 import { TransactionsArea } from './transactions/TransactionsArea';
 
 /**
@@ -25,6 +26,10 @@ export function RealmPage(props: {
   readonly transactionId?: string | undefined;
   /** An import of the Import area (`…/import/<importBatchId>`). */
   readonly importBatchId?: string | undefined;
+  /** A rent reconciliation of the Mietabgleich area (`…/mietabgleich/<reconciliationId>`). */
+  readonly reconciliationId?: string | undefined;
+  /** An MRE rent term of the Mietabgleich area (`…/mietabgleich/termin/<mreTenantId>/<mreRentTerm>`). */
+  readonly rentTerm?: RentTermKey | undefined;
   /** The URL's search part: the list's filters and page. */
   readonly search?: string;
   /** The URL's path: the focus moves to the page title when it changes (AppShell). */
@@ -59,6 +64,8 @@ function AreaContent(props: {
   readonly area: Area;
   readonly transactionId?: string | undefined;
   readonly importBatchId?: string | undefined;
+  readonly reconciliationId?: string | undefined;
+  readonly rentTerm?: RentTermKey | undefined;
   readonly search?: string;
   readonly epoch: number;
   readonly health: HealthDto;
@@ -73,6 +80,17 @@ function AreaContent(props: {
       );
     case 'import':
       return <ImportArea client={props.client} realmId={props.realmId} epoch={props.epoch} importBatchId={props.importBatchId} />;
+    case 'mietabgleich':
+      return (
+        <RentArea
+          client={props.client}
+          realmId={props.realmId}
+          epoch={props.epoch}
+          reconciliationId={props.reconciliationId}
+          rentTerm={props.rentTerm}
+          search={props.search ?? ''}
+        />
+      );
     default:
       return <AreaPlaceholder slice={props.area.slice ?? ''} />;
   }

@@ -234,13 +234,17 @@ describe('step 2, the Buchungen area in the app (ui-guide.md §6.3, §7.3, §10)
     expect(render(await signedIn(), `/cockpit/r/${B}/buchungen/${TX}`, { queryClient: other })).toContain('Buchung wird geladen');
   });
 
-  it('the overview says what the Buchungen and Import areas offer and what comes later', async () => {
+  it('the overview says what the Buchungen, Import and Mietabgleich areas offer and what comes later', async () => {
     const html = render(await signedIn(), `/cockpit/r/${A}/`, { queryClient: seeded(A) });
     expect(html).toContain('Liste mit Filtern und Detail; der Rest entsteht im Durchstich Schritte 3 und 4');
     // Step 5 replaced the placeholder of the Import area: what it offers, nothing left for later.
     expect(html).toContain('· Datei und Konto wählen, Import ausführen, Ergebnis und Klärfälle</span>');
     expect(html).not.toContain('Schritt 5');
-    expect(html).toContain('· entsteht im Durchstich Schritt 6');
+    // Step 6 replaced the placeholder of the Mietabgleich area.
+    expect(html).toContain(
+      '· Vorschläge ermitteln und prüfen, Zuordnung bestätigen, an MRE übertragen, aufheben und aus MRE entfernen, Abdeckung je Termin</span>',
+    );
+    expect(html).not.toContain('Schritt 6');
   });
 });
 

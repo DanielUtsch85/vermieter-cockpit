@@ -238,8 +238,11 @@ describe('integration gate: steps 2 to 4 call only routes of the pinned inventor
     await correctTransaction(de, TX, { reason: 'Test', replacement: { description: 'Neu' } }, '"5"', 'key-1');
     const reached = calls.map(routeOf);
     expect(reached).not.toContain(undefined);
-    // The import routes of step 5 have their own gate test (imports.test.ts).
-    const steps2to4 = USED_ROUTES.filter(([, path]) => path !== '/api/v1/health' && !path.startsWith('/api/v1/imports'));
+    // The import routes of step 5 and the rent routes of step 6 have their own gate tests (imports.test.ts,
+    // rent-reconciliations.test.ts).
+    const steps2to4 = USED_ROUTES.filter(
+      ([, path]) => path !== '/api/v1/health' && !path.startsWith('/api/v1/imports') && !path.includes('rent-reconciliations'),
+    );
     expect(new Set(reached)).toEqual(new Set(steps2to4.map(([method, path]) => `${method} ${path}`)));
   });
 

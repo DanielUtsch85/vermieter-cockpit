@@ -12,12 +12,15 @@ import {
   putSplits,
   type TransactionRead,
 } from '../../api/transactions';
+import { getTransactionRentCoverage } from '../../api/rent-reconciliations';
 import { navigate } from '../../navigation';
 import { realmKey } from '../../query';
 import { AREAS, areaPath } from '../../routing';
 import { readListParams, toApiQuery, toSearch, type ListParams } from '../../transactions/list-params';
 import { correctable } from '../../transactions/correction-draft';
 import { splitsEditable } from '../../transactions/split-draft';
+import { rentKeys } from '../rent/rent-keys';
+import { TransactionRentSection } from '../rent/TransactionRent';
 import { ConfirmAction } from './ConfirmAction';
 import { CorrectionForm } from './CorrectionForm';
 import type { References } from './references';
@@ -118,7 +121,16 @@ function TransactionDetailPage(props: {
   if (!correctionShown && first !== undefined && read.status === 'success' && correctable(first.transaction)) setCorrectionShown(true);
   // No action on a state that is being read again or whose last read failed (an ETag that may be stale, §7.3).
   const stale = read.status !== 'success' || read.isFetching;
-  const invalidate = () => void queryClient.invalidateQueries({ queryKey: transactionKeys.all(props.realmId, props.epoch) });
+  // Step 6: the Transaction's rent reconciliations (a read, never MRE; api-design.md §37.2).
+  const rent = useQuery({
+    queryKey: rentKeys.transaction(props.realmId, props.epoch, props.transactionId),
+    queryFn: ({ signal }) => getTransactionRentCoverage(props.client, props.transactionId, signal),
+  });
+  // A confirm or a correction changes what counts as rent cash: the rent coverage is read again too (§7.3).
+  const invalidate = () => {
+    void queryClient.invalidateQueries({ queryKey: transactionKeys.all(props.realmId, props.epoch) });
+    void queryClient.invalidateQueries({ queryKey: rentKeys.all(props.realmId, props.epoch) });
+  };
   const reload = async (): Promise<TransactionRead> => {
     const result = await read.refetch();
     if (result.status === 'error' || result.data === undefined) throw result.error ?? new Error('No Transaction read.');
@@ -127,6 +139,7 @@ function TransactionDetailPage(props: {
   return (
     <>
       <TransactionDetailView realmId={props.realmId} read={read} references={props.references} listHref={props.listHref} onRetry={() => void read.refetch()} />
+      {read.status === 'success' && <TransactionRentSection realmId={props.realmId} coverage={rent} onRetry={() => void rent.refetch()} />}
       {first !== undefined && (
         <ConfirmAction
           transaction={first.transaction}

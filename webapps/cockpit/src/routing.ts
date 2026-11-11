@@ -8,6 +8,8 @@
  *   /cockpit/r/<realmId>/<area>    one of the version-1 areas (ui-guide.md §3.1)
  *   /cockpit/r/<realmId>/buchungen/<transactionId>   one Transaction (step 2; a stable DE id, ui-guide.md §3.2)
  *   /cockpit/r/<realmId>/import/<importBatchId>      one import's result and review items (step 5)
+ *   /cockpit/r/<realmId>/mietabgleich/<reconciliationId>                   one rent reconciliation (step 6)
+ *   /cockpit/r/<realmId>/mietabgleich/termin/<mreTenantId>/<mreRentTerm>   the coverage of one MRE rent term (step 6)
  *
  * The list's filters and page are the search part of the area's URL (transactions/list-params.ts).
  */
@@ -37,17 +39,39 @@ export const AREAS: readonly Area[] = [
     available: 'Liste mit Filtern und Detail',
   },
   { id: 'import', label: 'Import', segment: 'import', available: 'Datei und Konto wählen, Import ausführen, Ergebnis und Klärfälle' },
-  { id: 'mietabgleich', label: 'Mietabgleich', segment: 'mietabgleich', slice: 'Durchstich Schritt 6' },
+  {
+    id: 'mietabgleich',
+    label: 'Mietabgleich',
+    segment: 'mietabgleich',
+    available: 'Vorschläge ermitteln und prüfen, Zuordnung bestätigen, an MRE übertragen, aufheben und aus MRE entfernen, Abdeckung je Termin',
+  },
 ];
 
 /** MRE Realm ids are MongoDB ObjectIds; any other id is accepted as long as it is a plain path segment. */
 const REALM_ID = /^[A-Za-z0-9_-]{1,64}$/;
 /** A DE resource id (validation.ts `RESOURCE_ID`): a malformed one is not found, never sent. */
 const RESOURCE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** An MRE Tenant id (api-design.md §20.1: 24 hex digits) and MRE's rent term key `YYYYMMDDHH` (§37.1: its form only). */
+const MRE_TENANT_ID = /^[0-9a-f]{24}$/;
+const MRE_RENT_TERM = /^[0-9]{10}$/;
+
+/** One MRE rent term of a Tenant: the key of the coverage read (api-design.md §37.2). */
+export interface RentTermKey {
+  readonly mreTenantId: string;
+  readonly mreRentTerm: string;
+}
 
 export type Route =
   | { readonly kind: 'realmChoice' }
-  | { readonly kind: 'area'; readonly realmId: string; readonly area: Area; readonly transactionId?: string; readonly importBatchId?: string }
+  | {
+      readonly kind: 'area';
+      readonly realmId: string;
+      readonly area: Area;
+      readonly transactionId?: string;
+      readonly importBatchId?: string;
+      readonly reconciliationId?: string;
+      readonly rentTerm?: RentTermKey;
+    }
   | { readonly kind: 'notFound' };
 
 export function parseRoute(pathname: string): Route {
@@ -60,10 +84,17 @@ export function parseRoute(pathname: string): Route {
   const area = AREAS.find((candidate) => candidate.segment === segment);
   if (area === undefined) return { kind: 'notFound' };
   if (rest.length === 0) return { kind: 'area', realmId, area };
+  if (area.id === 'mietabgleich' && rest[0] === 'termin') {
+    const [, mreTenantId, mreRentTerm, ...extra] = rest;
+    if (extra.length > 0 || mreTenantId === undefined || mreRentTerm === undefined) return { kind: 'notFound' };
+    if (!MRE_TENANT_ID.test(mreTenantId) || !MRE_RENT_TERM.test(mreRentTerm)) return { kind: 'notFound' };
+    return { kind: 'area', realmId, area, rentTerm: { mreTenantId, mreRentTerm } };
+  }
   const [id, ...more] = rest;
   if (more.length > 0 || id === undefined || !RESOURCE_ID.test(id)) return { kind: 'notFound' };
   if (area.id === 'buchungen') return { kind: 'area', realmId, area, transactionId: id.toLowerCase() };
   if (area.id === 'import') return { kind: 'area', realmId, area, importBatchId: id.toLowerCase() };
+  if (area.id === 'mietabgleich') return { kind: 'area', realmId, area, reconciliationId: id.toLowerCase() };
   return { kind: 'notFound' };
 }
 
@@ -78,6 +109,16 @@ export function transactionPath(realmId: string, transactionId: string): string 
 /** One import of the Realm: its result and the review items it owns (step 5). */
 export function importBatchPath(realmId: string, importBatchId: string): string {
   return `${BASE_PATH}r/${encodeURIComponent(realmId)}/import/${encodeURIComponent(importBatchId)}`;
+}
+
+/** One rent reconciliation of the Realm: its states and its actions (step 6). */
+export function reconciliationPath(realmId: string, reconciliationId: string): string {
+  return `${BASE_PATH}r/${encodeURIComponent(realmId)}/mietabgleich/${encodeURIComponent(reconciliationId)}`;
+}
+
+/** The coverage of one MRE rent term (step 6, api-design.md §37.2). */
+export function rentTermPath(realmId: string, term: RentTermKey): string {
+  return `${BASE_PATH}r/${encodeURIComponent(realmId)}/mietabgleich/termin/${encodeURIComponent(term.mreTenantId)}/${encodeURIComponent(term.mreRentTerm)}`;
 }
 
 /**

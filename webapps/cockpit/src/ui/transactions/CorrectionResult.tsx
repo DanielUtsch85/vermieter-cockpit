@@ -2,7 +2,7 @@ import { useEffect, useRef, type ReactNode } from 'react';
 import { ApiError } from '../../api/errors';
 import type { CorrectionResultDto, TransactionDto } from '../../api/transactions';
 import { onLinkClick } from '../../navigation';
-import { transactionPath } from '../../routing';
+import { reconciliationPath, transactionPath } from '../../routing';
 import { DateText, MoneyText } from '../format';
 import { secondaryButtonClass } from '../states';
 import { statusLabel } from './labels';
@@ -67,8 +67,8 @@ const ids = (value: unknown): readonly string[] => (Array.isArray(value) ? value
 /**
  * The reasons of a refused correction (api-design.md §35.4, §37.1 P4-D7) in German; an unknown one with its code
  * (ui-guide.md §7.4). `ALREADY_CORRECTED` links the existing correction, so a lost first answer is found again (§35.5).
- * `TRANSACTION_RENT_RECONCILED` explains the release first (ui-guide.md §8); the release itself is a later step, so
- * nothing links to it. A `412` offers to read the current state; the draft stays, nothing is sent by itself.
+ * `TRANSACTION_RENT_RECONCILED` explains the release first (ui-guide.md §8) and links each named reconciliation to its
+ * page in the Mietabgleich area, where „Zuordnung aufheben“ is offered (step 6, as proposed in the review on #336). A `412` offers to read the current state; the draft stays, nothing is sent by itself.
  */
 export function CorrectionRefusal({ realmId, error, onReload }: { readonly realmId: string; readonly error: unknown; readonly onReload: () => void }) {
   if (!(error instanceof ApiError)) return null;
@@ -98,18 +98,23 @@ export function CorrectionRefusal({ realmId, error, onReload }: { readonly realm
             Abgleich würde sonst auf Geld zeigen, das nicht mehr zählt.
           </p>
           <p>
-            Zuerst muss der Mietabgleich freigegeben werden; danach ist die Korrektur möglich, und die Ersatzbuchung kann neu abgeglichen werden. Die Freigabe
-            kommt mit dem Mietabgleich in einem späteren Schritt des Cockpits.
+            Zuerst muss die Zuordnung im Mietabgleich aufgehoben werden („Zuordnung aufheben“); danach ist die Korrektur möglich, und die Ersatzbuchung kann neu
+            abgeglichen werden. Aufheben ändert nur DE; eine schon an MRE übertragene Zahlung wird danach gesondert aus MRE entfernt.
           </p>
           {reconciliations.length > 0 && (
-            <p>
-              {`Betroffene Mietabgleiche (${reconciliations.length}): `}
-              {reconciliations.map((id, i) => (
-                <code key={id} className="font-mono text-label">
-                  {i === 0 ? id : `, ${id}`}
-                </code>
-              ))}
-            </p>
+            <ul aria-label="Betroffene Mietzuordnungen" className="flex flex-col gap-1">
+              {reconciliations.map((id) => {
+                const href = reconciliationPath(realmId, id);
+                return (
+                  <li key={id}>
+                    <a className="text-primary underline" href={href} onClick={(event) => onLinkClick(event, href)}>
+                      Mietzuordnung öffnen und aufheben
+                    </a>{' '}
+                    <code className="font-mono text-label">{id}</code>
+                  </li>
+                );
+              })}
+            </ul>
           )}
         </div>
       );
