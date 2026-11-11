@@ -1,3 +1,4 @@
+import type { TransactionRentCoverageDto } from './rent-reconciliations';
 import type { FetchLike, TokenSource } from './transport';
 
 /** A JSON answer as the backend or MRE sends it. */
@@ -67,7 +68,35 @@ export function fakeJwt(payload: Record<string, unknown>): string {
   return `${base64url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))}.${base64url(JSON.stringify(payload))}.signature`;
 }
 
-/** A fetch that answers by method and path, each route with its own queue of answers; every call is recorded. */
+/** `GET /transactions/{id}/rent-reconciliations` (step 6) when a test does not script it: no rent share, no match. */
+const RENT_OF_TRANSACTION = /^GET \/api\/v1\/transactions\/([^/]+)\/rent-reconciliations$/;
+
+/**
+ * The answer of the Buchungsdetail's rent section when a test does not script that route (review on #339, H2): shaped
+ * as the backend's `toTransactionDto` for a Transaction without a rent share and without matches. A test that scripts
+ * the route gets only its own answers, and an exhausted queue stays an unexpected call.
+ */
+function defaultAnswer(key: string): (() => Response) | undefined {
+  const rent = RENT_OF_TRANSACTION.exec(key);
+  if (rent === null) return undefined;
+  const coverage: TransactionRentCoverageDto = {
+    transactionId: decodeURIComponent(rent[1] ?? ''),
+    status: 'IMPORTED',
+    direction: 'INFLOW',
+    correctionRole: null,
+    counted: false,
+    rentCash: null,
+    matchedTotal: { amount: '0.00', currency: 'EUR' },
+    available: null,
+    reconciliations: [],
+  };
+  return () => json(200, coverage);
+}
+
+/**
+ * A fetch that answers by method and path, each route with its own queue of answers; every call is recorded. A route
+ * the test does not name at all gets its default answer where there is one (`defaultAnswer`), else it is refused.
+ */
 export function routedFetch(routes: Record<string, (() => Response)[]>): { fetch: FetchLike; calls: Call[] } {
   const calls: Call[] = [];
   const fetch: FetchLike = (url, init = {}) => {
@@ -82,7 +111,7 @@ export function routedFetch(routes: Record<string, (() => Response)[]>): { fetch
     };
     calls.push(call);
     const key = `${call.method} ${new URL(url, 'https://cockpit.internal').pathname}`;
-    const next = routes[key]?.shift();
+    const next = Object.hasOwn(routes, key) ? routes[key]?.shift() : defaultAnswer(key);
     return next === undefined ? Promise.reject(new Error(`unexpected call ${key}`)) : Promise.resolve(next());
   };
   return { fetch, calls };
