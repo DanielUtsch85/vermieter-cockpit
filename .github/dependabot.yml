@@ -91,8 +91,9 @@ updates:
   # Dockerfile base images: the backend (node:24-bookworm-slim, both stages) and the cockpit UI (webapps/cockpit, the
   # service cockpit-ui of docker-compose.proxy.yml: node:24-bookworm-slim to build, caddy to serve; Entscheidung des
   # Projektinhabers, 2026-11-10, zu #319 F3 (a): "eigenem Dockerfile und Dependabot-Docker-Eintrag"). One entry with
-  # both directories and one group, so the Node pin of both Dockerfiles moves in one PR (image-pin-check.sh requires one
-  # Node). caddy is left out here: the proxy's Caddy in docker-compose.proxy.yml leads (docker-compose entry below), and
+  # both directories and one group with group-by: dependency-name, so the Node pin of both Dockerfiles moves in one PR
+  # across both directories (without group-by, Dependabot opens one PR per directory, each red alone, because
+  # image-pin-check.sh requires one Node). caddy is left out here: the proxy's Caddy in docker-compose.proxy.yml leads (docker-compose entry below), and
   # that PR moves the FROM of webapps/cockpit/Dockerfile along by hand, which image-pin-check.sh enforces (one Caddy);
   # two Caddy PRs would each be red alone (betrieb.md §11.4, §11.6).
   - package-ecosystem: docker
@@ -106,6 +107,7 @@ updates:
       timezone: Europe/Berlin
     groups:
       docker:
+        group-by: dependency-name
         patterns: ['*']
     ignore:
       - dependency-name: node

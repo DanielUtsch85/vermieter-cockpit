@@ -6,7 +6,7 @@
 # Runs in the job compose-smoke after the other steps, against the stack docker-compose.yml already started: it adds
 # the proxy override (docker-compose.proxy.yml, the productive Caddyfile) with its service cockpit-ui, the productive
 # cockpit UI (webapps/cockpit/Dockerfile, Entscheidung des Projektinhabers, 2026-11-10, zu #319 F3 (a)), and recreates
-# authenticator, gateway and emailer with the proxy settings (APP_DOMAIN = the cockpit hostname, APP_PROTOCOL = https,
+# authenticator, gateway, emailer and de-backend (all overridden there) with the proxy settings (APP_DOMAIN = the cockpit hostname, APP_PROTOCOL = https,
 # mre-integration.md §47.2, betrieb.md §9.4). Nothing CI-only is added: what answers here is what runs in production.
 # Needs docker, curl, jq and openssl, and the cockpit-ui image built from this checkout (the step before in ci.yml,
 # `docker compose -f docker-compose.yml -f docker-compose.proxy.yml build cockpit-ui`). Synthetic accounts only
