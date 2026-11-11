@@ -8,6 +8,7 @@
  */
 import type { toDto as toFinancialAccountDto } from './financial-accounts.js';
 import type { toDto as toFinancialCategoryDto } from './financial-categories.js';
+import type { metadataSchema, resolveBody, toConflictDto, toDto as toImportBatchDto, toItemDto } from './imports.js';
 import type { toDto as toPropertyReferenceDto } from './property-references.js';
 import type { z } from 'zod';
 import type { correctBody, split, toDto as toTransactionDto, toSplitDto } from './transaction-dto.js';
@@ -63,3 +64,16 @@ export interface CorrectionResultDto {
   readonly reversal: TransactionDto;
   readonly replacement: TransactionDto | null;
 }
+
+/** The `201` answer of `POST /imports/bank-transactions` and the answer of `GET /imports/{id}` (api-design.md §32.1a). */
+export type ImportBatchDto = Wire<ReturnType<typeof toImportBatchDto>>;
+/** One row result of a batch (`created`, `duplicate`, `needs_review`, `error`, `skipped`; api-design.md §32.1, §32.1a). */
+export type ImportRowDto = ImportBatchDto['rows'][number];
+/** A review item as `GET /imports/{id}/review-items` lists it and `…/resolve` answers it (api-design.md §32.3a). */
+export type ReviewItemDto = Wire<ReturnType<typeof toItemDto>>;
+/** A Transaction a review item may duplicate, listed next to the row (api-design.md §32.3a). */
+export type ConflictingTransactionDto = Wire<ReturnType<typeof toConflictDto>>;
+/** The request of `POST /imports/{importBatchId}/review-items/{reviewItemId}/resolve` (api-design.md §32.2). */
+export type ResolveInputDto = z.input<typeof resolveBody>;
+/** The fixed part of the upload's `metadata` part (api-design.md §32.1a); the adapter's options sit at the same level. */
+export type ImportMetadataDto = Pick<z.input<typeof metadataSchema>, 'financialAccountId' | 'adapterId' | 'adapterVersion'>;

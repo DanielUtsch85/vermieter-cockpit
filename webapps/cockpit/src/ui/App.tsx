@@ -62,6 +62,7 @@ export function App({ realmLock, reload = reloadPage }: { readonly realmLock: Re
           realmId={route.realmId}
           area={route.area}
           transactionId={route.transactionId}
+          importBatchId={route.importBatchId}
           search={search}
           path={path}
           epoch={state.epoch}

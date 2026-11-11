@@ -87,7 +87,9 @@ export function OverviewPage(props: {
                   {area.label}
                 </a>{' '}
                 <span className="text-muted">
-                  {area.available === undefined ? `· entsteht im ${area.slice}` : `· ${area.available}; der Rest entsteht im ${area.slice}`}
+                  {area.available === undefined
+                    ? `· entsteht im ${area.slice ?? ''}`
+                    : `· ${area.available}${area.slice === undefined ? '' : `; der Rest entsteht im ${area.slice}`}`}
                 </span>
               </li>
             );

@@ -31,4 +31,10 @@ export const USED_ROUTES: readonly (readonly [method: string, path: string])[] =
   // Step 4 (ui-guide.md §10): confirm with `If-Match` (api-design.md §34), correct with `If-Match` and `Idempotency-Key` (§35).
   ['POST', '/api/v1/transactions/:transactionId/confirm'],
   ['POST', '/api/v1/transactions/:transactionId/correct'],
+  // Step 5 (ui-guide.md §6.5, §10): the bank import (multipart), its result read again, its review items and their resolve
+  // under the owning batch (api-design.md §32.1a–§32.3a).
+  ['POST', '/api/v1/imports/bank-transactions'],
+  ['GET', '/api/v1/imports/:importBatchId'],
+  ['GET', '/api/v1/imports/:importBatchId/review-items'],
+  ['POST', '/api/v1/imports/:importBatchId/review-items/:reviewItemId/resolve'],
 ];

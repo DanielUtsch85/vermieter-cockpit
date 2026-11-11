@@ -10,7 +10,9 @@ import { Session } from '../session/session';
 import { SessionContext } from '../session/use-session';
 import { App } from './App';
 import { RealmList } from './RealmChoice';
+import { importKeys } from './imports/ImportArea';
 import { transactionKeys } from './transactions/TransactionsArea';
+import { batch, BATCH } from '../imports/fixtures.test-support';
 import { detail, page, transaction, TX } from '../transactions/fixtures.test-support';
 
 const A = '64b7f0c2a1b2c3d4e5f60718';
@@ -232,9 +234,37 @@ describe('step 2, the Buchungen area in the app (ui-guide.md §6.3, §7.3, §10)
     expect(render(await signedIn(), `/cockpit/r/${B}/buchungen/${TX}`, { queryClient: other })).toContain('Buchung wird geladen');
   });
 
-  it('the overview says what the Buchungen area offers and what comes later', async () => {
+  it('the overview says what the Buchungen and Import areas offer and what comes later', async () => {
     const html = render(await signedIn(), `/cockpit/r/${A}/`, { queryClient: seeded(A) });
     expect(html).toContain('Liste mit Filtern und Detail; der Rest entsteht im Durchstich Schritte 3 und 4');
-    expect(html).toContain('entsteht im Durchstich Schritt 5');
+    // Step 5 replaced the placeholder of the Import area: what it offers, nothing left for later.
+    expect(html).toContain('· Datei und Konto wählen, Import ausführen, Ergebnis und Klärfälle</span>');
+    expect(html).not.toContain('Schritt 5');
+    expect(html).toContain('· entsteht im Durchstich Schritt 6');
+  });
+});
+
+describe('step 5, the Import area in the app (ui-guide.md §3.1, §6.5)', () => {
+  const seeded = (realmId: string) => {
+    const queryClient = createQueryClient();
+    queryClient.setQueryData(realmKey(realmId, 0, 'health'), { status: 'ok', mreRealmId: realmId });
+    return queryClient;
+  };
+
+  it('the area is the import, no placeholder: the upload at …/import, one batch at …/import/<id>, cached per Realm', async () => {
+    const upload = render(await signedIn(), `/cockpit/r/${A}/import`, { queryClient: seeded(A) });
+    expect(upload).toContain('<h1 tabindex="-1" class="text-title font-semibold">Import</h1>');
+    expect(upload).toContain('Konten werden geladen');
+    expect(upload).not.toContain('noch nicht verfügbar');
+    const queryClient = seeded(A);
+    queryClient.setQueryData(importKeys.batch(A, 0, BATCH), batch({ mreRealmId: A }));
+    const result = render(await signedIn(), `/cockpit/r/${A}/import/${BATCH.toUpperCase()}`, { queryClient });
+    expect(result).toContain('Ergebnis des Imports');
+    expect(result).toContain(BATCH);
+    const other = seeded(B);
+    other.setQueryData(importKeys.batch(A, 0, BATCH), batch({ mreRealmId: A }));
+    const foreign = render(await signedIn(), `/cockpit/r/${B}/import/${BATCH}`, { queryClient: other });
+    expect(foreign).toContain('Ergebnis des Imports wird geladen');
+    expect(foreign).not.toContain('Ergebnis des Imports</h2>');
   });
 });
