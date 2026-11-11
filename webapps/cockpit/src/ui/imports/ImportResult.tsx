@@ -1,9 +1,10 @@
-import { useState, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import type { ImportBatchDto, ImportRowDto } from '../../api/imports';
 import type { FinancialAccountDto } from '../../api/transactions';
 import { formatDecimal, formatMoney } from '../../format/money';
 import { rowHasHint } from '../../imports/row-hints';
-import { onLinkClick } from '../../navigation';
+import { showsAllRows, withAllRows } from '../../imports/row-view';
+import { onLinkClick, replaceSearch } from '../../navigation';
 import { importBatchPath, transactionPath } from '../../routing';
 import { TimestampText } from '../format';
 import { secondaryButtonClass } from '../states';
@@ -31,9 +32,15 @@ function Balance({ amount, currency }: { readonly amount: string; readonly curre
  * account, adapter, status and counters, the continuity report and every row's outcome in file order (api-design.md
  * §32.1a). A row that refers to a review item of an earlier batch links that batch, where the item is decided. The row
  * table shows the rows with a hint (`rowHasHint`) unless „Alle Zeilen“ is on; the counters always count every row
- * (Entscheidung des Projektinhabers, 2026-11-11).
+ * (Entscheidung des Projektinhabers, 2026-11-11). The toggle is the URL's `zeilen=alle` (row-view.ts; Entscheidung des
+ * Projektinhabers, 2026-11-11, zu #344): `search` is the URL's search part, and the toggle replaces it in place.
  */
-export function ImportResult(props: { readonly realmId: string; readonly batch: ImportBatchDto; readonly accounts: readonly FinancialAccountDto[] }) {
+export function ImportResult(props: {
+  readonly realmId: string;
+  readonly batch: ImportBatchDto;
+  readonly accounts: readonly FinancialAccountDto[];
+  readonly search: string;
+}) {
   const b = props.batch;
   const account = props.accounts.find((candidate) => candidate.financialAccountId === b.financialAccountId);
   const counters: readonly (readonly [string, number])[] = [
@@ -82,14 +89,14 @@ export function ImportResult(props: { readonly realmId: string; readonly batch: 
         <h2 id="import-zeilen" className="mb-2 text-section font-semibold">
           Zeilen der Datei
         </h2>
-        <RowTable realmId={props.realmId} batch={b} />
+        <RowTable realmId={props.realmId} batch={b} search={props.search} />
       </section>
     </>
   );
 }
 
-function RowTable({ realmId, batch: b }: { readonly realmId: string; readonly batch: ImportBatchDto }) {
-  const [all, setAll] = useState(false);
+function RowTable({ realmId, batch: b, search }: { readonly realmId: string; readonly batch: ImportBatchDto; readonly search: string }) {
+  const all = showsAllRows(search);
   if (b.rows.length === 0) return <p className="text-muted">Die Datei enthielt keine Datenzeile.</p>;
   const hinted = b.rows.filter(rowHasHint);
   const shown = all ? b.rows : hinted;
@@ -102,7 +109,7 @@ function RowTable({ realmId, batch: b }: { readonly realmId: string; readonly ba
           className={secondaryButtonClass}
           aria-pressed={all}
           aria-controls="import-zeilen-tabelle"
-          onClick={() => setAll((current) => !current)}
+          onClick={() => replaceSearch(withAllRows(search, !all))}
         >
           Alle Zeilen
         </button>

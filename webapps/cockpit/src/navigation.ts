@@ -35,6 +35,17 @@ export function navigate(path: string): void {
   window.dispatchEvent(new PopStateEvent('popstate'));
 }
 
+/**
+ * Changes only the search part of the current URL, in place (`history.replaceState`): a view toggle such as „Alle
+ * Zeilen“ adds no history entry, so Back leaves the page instead of stepping through the toggles. Path and fragment
+ * stay as they are.
+ */
+export function replaceSearch(search: string): void {
+  const { pathname, hash } = window.location;
+  window.history.replaceState(window.history.state, '', `${pathname}${search}${hash}`);
+  window.dispatchEvent(new PopStateEvent('popstate'));
+}
+
 /** A plain click on an internal link navigates without a page load; modified clicks keep the browser's behaviour. */
 export function onLinkClick(event: MouseEvent<HTMLAnchorElement>, path: string): void {
   if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;

@@ -17,7 +17,7 @@ import {
   reviewItem,
   TX_CREATED,
 } from '../../imports/fixtures.test-support';
-import { useLocationPath } from '../../navigation';
+import { useLocationPath, useLocationSearch } from '../../navigation';
 import { createQueryClient } from '../../query';
 import { parseRoute } from '../../routing';
 import { account, page, REALM_A, REALM_B, TX, TX_REPLACEMENT } from '../../transactions/fixtures.test-support';
@@ -44,7 +44,8 @@ const items = (id: string, list: readonly ReturnType<typeof reviewItem>[]) => ()
 
 function Routed({ client }: { readonly client: ReturnType<typeof createDeClient> }) {
   const route = parseRoute(useLocationPath());
-  return <ImportArea client={client} realmId={REALM_A} epoch={1} importBatchId={route.kind === 'area' ? route.importBatchId : undefined} />;
+  const search = useLocationSearch();
+  return <ImportArea client={client} realmId={REALM_A} epoch={1} importBatchId={route.kind === 'area' ? route.importBatchId : undefined} search={search} />;
 }
 
 function area(routes: Record<string, (() => Response)[]>, path = `/cockpit/r/${REALM_A}/import`) {
