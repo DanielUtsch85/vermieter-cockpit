@@ -161,6 +161,15 @@ describe('step 5: POST /imports/{importBatchId}/review-items/{reviewItemId}/reso
     await expect(resolveReviewItem(de, reviewItem(), 'SKIP')).rejects.toMatchObject({ code: CLIENT_CODES.unexpected });
   });
 
+  it('an answer still PENDING is refused even with the resolution sent (review on #338, H1)', async () => {
+    // Only the status differs from a correct answer: the resolution, the item, the batch and the account match.
+    const pending = { ...resolved('SKIP'), status: 'PENDING' };
+    const { client: de } = client(json(200, pending), json(200, resolved('SKIP')));
+    await expect(resolveReviewItem(de, reviewItem(), 'SKIP')).rejects.toMatchObject({ code: CLIENT_CODES.unexpected });
+    // Counter-check: the same answer with status RESOLVED is accepted.
+    await expect(resolveReviewItem(de, reviewItem(), 'SKIP')).resolves.toMatchObject({ status: 'RESOLVED', resolution: 'SKIP' });
+  });
+
   it('refusals keep reason and details: 409 ALREADY_RESOLVED, 409 ACCOUNT_CLOSED, 404, 422', async () => {
     const { client: de } = client(
       envelope(409, 'CONFLICT', { reason: 'ALREADY_RESOLVED', resolution: 'SKIP' }),

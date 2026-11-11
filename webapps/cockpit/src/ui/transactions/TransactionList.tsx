@@ -12,7 +12,7 @@ import { FilterBar } from './FilterBar';
 import { directionLabel, provenanceLabel, statusLabel, type Tone } from './labels';
 import { accountName, type References } from './references';
 
-const TONES: Readonly<Record<Tone, string>> = {
+export const TONES: Readonly<Record<Tone, string>> = {
   warning: 'border-warning-text bg-warning-bg text-warning-text',
   success: 'border-success-text bg-success-bg text-success-text',
   neutral: 'border-border bg-background text-text',

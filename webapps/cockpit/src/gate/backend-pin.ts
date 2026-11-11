@@ -37,4 +37,17 @@ export const USED_ROUTES: readonly (readonly [method: string, path: string])[] =
   ['GET', '/api/v1/imports/:importBatchId'],
   ['GET', '/api/v1/imports/:importBatchId/review-items'],
   ['POST', '/api/v1/imports/:importBatchId/review-items/:reviewItemId/resolve'],
+  // Step 6 (ui-guide.md §6.6, §10): suggest, the list and one reconciliation, confirm and reject (`If-Match`), and as
+  // separate commands the write-back to MRE, the release and the removal from MRE (api-design.md §37.1–§37.5); the
+  // coverage of a term and of a Transaction (§37.2). No `Idempotency-Key` on any of them (§7.3).
+  ['POST', '/api/v1/rent-reconciliations/suggest'],
+  ['GET', '/api/v1/rent-reconciliations'],
+  ['GET', '/api/v1/rent-reconciliations/:reconciliationId'],
+  ['POST', '/api/v1/rent-reconciliations/:reconciliationId/confirm'],
+  ['POST', '/api/v1/rent-reconciliations/:reconciliationId/reject'],
+  ['POST', '/api/v1/rent-reconciliations/:reconciliationId/write-back-to-mre'],
+  ['POST', '/api/v1/rent-reconciliations/:reconciliationId/release'],
+  ['POST', '/api/v1/rent-reconciliations/:reconciliationId/remove-from-mre'],
+  ['GET', '/api/v1/rent-reconciliations/terms/:mreTenantId/:mreRentTerm'],
+  ['GET', '/api/v1/transactions/:transactionId/rent-reconciliations'],
 ];

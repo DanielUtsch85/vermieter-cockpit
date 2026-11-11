@@ -67,12 +67,12 @@ const createBody = z
 /** §37.6's split proposal query (strict). */
 const splitProposalQuery = z.object({ transactionId: uuid, mreTenantId, mreRentTerm });
 
-const releaseBody = z.object({ reason: z.string().trim().min(1).max(500) }).strict();
+export const releaseBody = z.object({ reason: z.string().trim().min(1).max(500) }).strict();
 
 /** `YYYY-MM` with a real month. */
 const yearMonth = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/);
 const monthIndex = (ym: string) => Number(ym.slice(0, 4)) * 12 + Number(ym.slice(5, 7));
-const suggestBody = z
+export const suggestBody = z
   .object({ from: yearMonth, to: yearMonth })
   .strict()
   .superRefine((body, ctx) => {
@@ -82,7 +82,7 @@ const suggestBody = z
     if (span < 0) ctx.addIssue({ code: 'custom', path: ['to'], params: { code: 'INVALID_RANGE' } });
     else if (span >= 12) ctx.addIssue({ code: 'custom', path: ['to'], params: { code: 'RANGE_TOO_LONG' } });
   });
-const confirmBody = z
+export const confirmBody = z
   .object({ matchedAmount: money.optional() })
   .strict()
   .superRefine((body, ctx) => {
@@ -167,7 +167,7 @@ export function rentReconciliationRoutes(commands: RentReconciliationCommands): 
     }
     commands
       .suggest({ principal: principalOf(res), authorizationHeader: req.headers.authorization ?? '', ...parsed.data })
-      .then((result) => res.json({ ...result, items: result.items.map(toDto) }))
+      .then((result) => res.json(toSuggestDto(result)))
       .catch(next);
   });
 
@@ -273,9 +273,9 @@ export function rentReconciliationRoutes(commands: RentReconciliationCommands): 
         ? commands.getWithPresence({ principal: principalOf(res), authorizationHeader: req.headers.authorization ?? '', reconciliationId })
         : commands.get({ principal: principalOf(res), reconciliationId }).then((reconciliation) => ({ reconciliation, mrePresence: null }));
     read
-      .then(({ reconciliation, mrePresence }) => {
-        res.setHeader('ETag', `"${reconciliation.version}"`);
-        res.json({ ...toDto(reconciliation), mrePresence });
+      .then((answer) => {
+        res.setHeader('ETag', `"${answer.reconciliation.version}"`);
+        res.json(toReadDto(answer));
       })
       .catch(next);
   });
@@ -340,7 +340,7 @@ function sendReconciliation(res: Response, reconciliation: RentPaymentReconcilia
   res.json(toDto(reconciliation));
 }
 
-function toDto(r: RentPaymentReconciliation) {
+export function toDto(r: RentPaymentReconciliation) {
   return {
     reconciliationId: r.id,
     mreRealmId: r.mreRealmId,
@@ -375,6 +375,16 @@ function toDto(r: RentPaymentReconciliation) {
   };
 }
 
+/** The answer of `POST /rent-reconciliations/suggest` (§37.3, §37.6): the run's window, what it wrote, what it skipped. */
+export function toSuggestDto(result: Awaited<ReturnType<SuggestReconciliations>>) {
+  return { ...result, items: result.items.map(toDto) };
+}
+
+/** The answer of `GET /rent-reconciliations/{id}` (§37.1, §37.4): the reconciliation and `mrePresence`. */
+export function toReadDto(read: Awaited<ReturnType<GetReconciliationWithPresence>>) {
+  return { ...toDto(read.reconciliation), mrePresence: read.mrePresence };
+}
+
 function toMreDto(mre: MreRentTermView) {
   return {
     amountDue: mre.amountDue.toJSON(),
@@ -382,7 +392,7 @@ function toMreDto(mre: MreRentTermView) {
   };
 }
 
-function toTermDto(t: TermCoverage) {
+export function toTermDto(t: TermCoverage) {
   return {
     mreTenantId: t.mreTenantId,
     mreRentTerm: t.mreRentTerm,
@@ -395,7 +405,7 @@ function toTermDto(t: TermCoverage) {
   };
 }
 
-function toTransactionDto(t: TransactionCoverage) {
+export function toTransactionDto(t: TransactionCoverage) {
   return {
     transactionId: t.transactionId,
     status: t.status,

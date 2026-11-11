@@ -10,6 +10,16 @@ import type { toDto as toFinancialAccountDto } from './financial-accounts.js';
 import type { toDto as toFinancialCategoryDto } from './financial-categories.js';
 import type { metadataSchema, resolveBody, toConflictDto, toDto as toImportBatchDto, toItemDto } from './imports.js';
 import type { toDto as toPropertyReferenceDto } from './property-references.js';
+import type {
+  confirmBody,
+  releaseBody,
+  suggestBody,
+  toDto as toReconciliationDto,
+  toReadDto as toReconciliationReadDto,
+  toSuggestDto,
+  toTermDto,
+  toTransactionDto as toTransactionCoverageDto,
+} from './rent-reconciliations.js';
 import type { z } from 'zod';
 import type { correctBody, split, toDto as toTransactionDto, toSplitDto } from './transaction-dto.js';
 import type { toSplitsDto } from './transaction-splits.js';
@@ -77,3 +87,20 @@ export type ConflictingTransactionDto = Wire<ReturnType<typeof toConflictDto>>;
 export type ResolveInputDto = z.input<typeof resolveBody>;
 /** The fixed part of the upload's `metadata` part (api-design.md §32.1a); the adapter's options sit at the same level. */
 export type ImportMetadataDto = Pick<z.input<typeof metadataSchema>, 'financialAccountId' | 'adapterId' | 'adapterVersion'>;
+
+/** One rent reconciliation as every answer of §37.1–§37.5 maps it (`status` and `mreWriteBackState` side by side). */
+export type RentReconciliationDto = Wire<ReturnType<typeof toReconciliationDto>>;
+/** `GET /rent-reconciliations/{id}` (api-design.md §37.1, §37.4): the reconciliation with `mrePresence` and its `ETag`. */
+export type RentReconciliationReadDto = Wire<ReturnType<typeof toReconciliationReadDto>>;
+/** The request of `POST /rent-reconciliations/suggest` (api-design.md §37.3): `from`, `to` as `YYYY-MM`. */
+export type SuggestInputDto = z.input<typeof suggestBody>;
+/** The answer of `POST /rent-reconciliations/suggest` (api-design.md §37.3, §37.6): `{ from, to, items, skipped }`. */
+export type SuggestResultDto = Wire<ReturnType<typeof toSuggestDto>>;
+/** The request of `POST /rent-reconciliations/{id}/confirm` (api-design.md §37.3): an optional lower `matchedAmount`. */
+export type ConfirmReconciliationInputDto = z.input<typeof confirmBody>;
+/** The request of `POST /rent-reconciliations/{id}/reject` and `…/release` (api-design.md §37.1, §37.3): `{ reason }`. */
+export type ReconciliationReasonInputDto = z.input<typeof releaseBody>;
+/** `GET /rent-reconciliations/terms/{mreTenantId}/{mreRentTerm}` (api-design.md §37.2): DE and MRE side by side. */
+export type TermCoverageDto = Wire<ReturnType<typeof toTermDto>>;
+/** `GET /transactions/{transactionId}/rent-reconciliations` (api-design.md §37.2). */
+export type TransactionRentCoverageDto = Wire<ReturnType<typeof toTransactionCoverageDto>>;

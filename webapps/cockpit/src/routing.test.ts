@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { AREAS, areaPath, createRealmLock, importBatchPath, parseRoute, realmSwitchEffect, realmSwitching, transactionPath } from './routing';
+import {
+  AREAS,
+  areaPath,
+  createRealmLock,
+  importBatchPath,
+  parseRoute,
+  realmSwitchEffect,
+  realmSwitching,
+  reconciliationPath,
+  rentTermPath,
+  transactionPath,
+} from './routing';
 
 const REALM = '64b7f0c2a1b2c3d4e5f60718';
 const OTHER = '64b7f0c2a1b2c3d4e5f60719';
@@ -34,7 +45,13 @@ describe('routes: the Realm in the URL (§47.2 point 3)', () => {
       `/cockpit/r/${REALM}/buchungen/${TX}/splits`,
       `/cockpit/r/${REALM}/import/${TX}/review-items`,
       `/cockpit/r/${REALM}/import/x`,
-      `/cockpit/r/${REALM}/mietabgleich/${TX}`,
+      `/cockpit/r/${REALM}/mietabgleich/x`,
+      `/cockpit/r/${REALM}/mietabgleich/${TX}/confirm`,
+      `/cockpit/r/${REALM}/mietabgleich/termin/64b7f0c2a1b2c3d4e5f6071`,
+      `/cockpit/r/${REALM}/mietabgleich/termin/64B7F0C2A1B2C3D4E5F60720/2026030100`,
+      `/cockpit/r/${REALM}/mietabgleich/termin/64b7f0c2a1b2c3d4e5f60720/202603010`,
+      `/cockpit/r/${REALM}/mietabgleich/termin/64b7f0c2a1b2c3d4e5f60720/2026030100/x`,
+      `/cockpit/r/${REALM}/buchungen/termin/64b7f0c2a1b2c3d4e5f60720/2026030100`,
       `/cockpit/r/${REALM}/${TX}`,
       `/cockpit/r/${REALM}//${TX}`,
       `/cockpit/r/${REALM}/buchungen/${TX}x`,
@@ -73,6 +90,31 @@ describe('step 5: an import has its own URL (a known batch is read again after a
   it('counter-check: a Transaction id under Buchungen is no import, and an import id is no Transaction', () => {
     expect(parseRoute(transactionPath(REALM, TX))).not.toHaveProperty('importBatchId');
     expect(parseRoute(importBatchPath(REALM, TX))).not.toHaveProperty('transactionId');
+  });
+});
+
+describe('step 6: a rent reconciliation and an MRE rent term have their own URL (ui-guide.md §3.2, §6.6)', () => {
+  const TENANT = '64b7f0c2a1b2c3d4e5f60720';
+  it('the reconciliation path round-trips in the Mietabgleich area; the id is read in lower case', () => {
+    const rent = AREAS[3];
+    expect(rent?.id).toBe('mietabgleich');
+    expect(parseRoute(reconciliationPath(REALM, TX))).toEqual({ kind: 'area', realmId: REALM, area: rent, reconciliationId: TX });
+    expect(parseRoute(`${reconciliationPath(REALM, TX.toUpperCase())}/`)).toEqual({ kind: 'area', realmId: REALM, area: rent, reconciliationId: TX });
+    expect(reconciliationPath(REALM, TX)).toBe(`/cockpit/r/${REALM}/mietabgleich/${TX}`);
+  });
+
+  it('the term path holds the MRE Tenant id and the term key, exactly as MRE names them', () => {
+    const rent = AREAS[3];
+    const term = { mreTenantId: TENANT, mreRentTerm: '2026030100' };
+    expect(rentTermPath(REALM, term)).toBe(`/cockpit/r/${REALM}/mietabgleich/termin/${TENANT}/2026030100`);
+    expect(parseRoute(rentTermPath(REALM, term))).toEqual({ kind: 'area', realmId: REALM, area: rent, rentTerm: term });
+  });
+
+  it('counter-check: a reconciliation id is no Transaction or import, and a term is no reconciliation', () => {
+    expect(parseRoute(reconciliationPath(REALM, TX))).not.toHaveProperty('transactionId');
+    expect(parseRoute(reconciliationPath(REALM, TX))).not.toHaveProperty('importBatchId');
+    expect(parseRoute(rentTermPath(REALM, { mreTenantId: TENANT, mreRentTerm: '2026030100' }))).not.toHaveProperty('reconciliationId');
+    expect(parseRoute(`/cockpit/r/${REALM}/import/termin/${TENANT}/2026030100`)).toEqual({ kind: 'notFound' });
   });
 });
 

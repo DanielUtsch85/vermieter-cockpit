@@ -277,16 +277,20 @@ describe('step 4, the correction form (ui-guide.md §6.3, §8; api-design.md §3
     expect(screen.queryByRole('button', { name: 'Erneut senden' })).toBeNull();
   });
 
-  it('a confirmed rent reconciliation: the release comes first, explained; nothing links to a flow that does not exist', async () => {
+  it('a confirmed rent reconciliation: the release comes first, explained; each named reconciliation links to its page, no button', async () => {
     setup({ answers: [envelope(409, 'CONFLICT', { reason: 'TRANSACTION_RENT_RECONCILED', reconciliationIds: ['8d6b0e9f-1a2c-4d34-8f56-f708192a3b4c'] })] });
     describeAnew();
     send();
     await settle();
     const alert = screen.getByRole('alert');
     expect(within(alert).getByText(/durch einen bestätigten Mietabgleich mit einer Mietforderung verknüpft/)).toBeTruthy();
-    expect(within(alert).getByText(/Zuerst muss der Mietabgleich freigegeben werden/)).toBeTruthy();
+    expect(within(alert).getByText(/Zuerst muss die Zuordnung im Mietabgleich aufgehoben werden/)).toBeTruthy();
+    expect(within(alert).getByText(/Aufheben ändert nur DE/)).toBeTruthy();
     expect(within(alert).getByText('8d6b0e9f-1a2c-4d34-8f56-f708192a3b4c')).toBeTruthy();
-    expect(within(alert).queryAllByRole('link')).toHaveLength(0);
+    // Step 6 (review on #336): the release is offered on the reconciliation's own page; the refusal links there, it
+    // does not release by itself and offers no button of its own.
+    const links = within(alert).getAllByRole('link', { name: 'Mietzuordnung öffnen und aufheben' });
+    expect(links.map((link) => link.getAttribute('href'))).toEqual([`/cockpit/r/${REALM_A}/mietabgleich/8d6b0e9f-1a2c-4d34-8f56-f708192a3b4c`]);
     expect(within(alert).queryAllByRole('button')).toHaveLength(0);
     // The draft stays for after the release.
     expect(control('korrektur-description').value).toBe('Korrigierter Verwendungszweck');
