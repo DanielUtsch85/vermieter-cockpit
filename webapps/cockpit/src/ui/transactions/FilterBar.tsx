@@ -1,7 +1,7 @@
-import { useEffect, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react';
 import type { FieldError } from '../../api/errors';
 import { formatBusinessDate } from '../../format/dates';
-import { filterValues, PAGE_SIZES, paramsFromForm, type FilterName, type ListParams } from '../../transactions/list-params';
+import { filterValues, PAGE_SIZES, paramsFromForm, reviewableSet, type FilterName, type ListParams } from '../../transactions/list-params';
 import { describeFieldError } from '../error-text';
 import { buttonClass } from '../states';
 import { accountStatusLabel, PROVENANCE_CODES, provenanceLabel, STATUS_CODES, statusLabel } from './labels';
@@ -23,6 +23,7 @@ export const FILTER_CONTROLS: readonly string[] = [
 
 export const controlId = (name: string): string => `filter-${name}`;
 const errorId = (name: string): string => `filter-${name}-fehler`;
+const STATUS_LOCK_NOTE = 'filter-status-gesperrt';
 
 /** The id of the first control with a field error (ui-guide.md §4.3: a form error focuses the first wrong field). */
 export function firstInvalidControl(errors: ReadonlyMap<string, readonly FieldError[]>): string | undefined {
@@ -90,7 +91,18 @@ export function FilterBar(props: {
   const accounts = references.accounts.status === 'success' ? references.accounts.data.items : [];
   const properties = references.properties.status === 'success' ? references.properties.data.items : [];
   const categories = references.categories.status === 'success' ? references.categories.data : [];
-  const statuses = filterValues(params, 'status');
+  // „Nur prüfbare“ is a shortcut: while it is set, the status choice is empty and locked, so the bar never offers a
+  // status together with `reviewable=true` (Entscheidung des Projektinhabers, 2026-11-10). The bar is keyed by the
+  // URL (TransactionList), so this state starts afresh from every URL.
+  const [reviewable, setReviewable] = useState(reviewableSet(params));
+  const [statuses, setStatuses] = useState<readonly string[]>(reviewableSet(params) ? [] : filterValues(params, 'status'));
+  /** A status of a typed or bookmarked URL that also holds `reviewable=true`: it still narrows this list (AND). */
+  const urlStatuses = reviewableSet(params) ? filterValues(params, 'status') : [];
+  const toggleReviewable = (checked: boolean) => {
+    setReviewable(checked);
+    if (checked) setStatuses([]);
+  };
+  const toggleStatus = (code: string, checked: boolean) => setStatuses((current) => (checked ? [...current, code] : current.filter((value) => value !== code)));
   const provenances = filterValues(params, 'provenance');
 
   return (
@@ -174,17 +186,31 @@ export function FilterBar(props: {
           id={controlId('status')}
           tabIndex={-1}
           className="flex flex-col gap-1"
-          aria-describedby={errors.has('status') ? errorId('status') : undefined}
+          aria-describedby={describedBy([errors.has('status') ? errorId('status') : undefined, reviewable ? STATUS_LOCK_NOTE : undefined])}
         >
           <legend className="text-label text-muted">Status</legend>
           <div className="flex flex-wrap gap-x-4">
             {STATUS_CODES.map((code) => (
-              <label key={code} className="flex min-h-touch items-center gap-2">
-                <input type="checkbox" name="status" value={code} defaultChecked={statuses.includes(code)} />
+              <label key={code} className={`flex min-h-touch items-center gap-2${reviewable ? ' text-muted' : ''}`}>
+                <input
+                  type="checkbox"
+                  name="status"
+                  value={code}
+                  checked={statuses.includes(code)}
+                  disabled={reviewable}
+                  onChange={(event) => toggleStatus(code, event.currentTarget.checked)}
+                />
                 {statusLabel(code).text}
               </label>
             ))}
           </div>
+          {reviewable && (
+            <p id={STATUS_LOCK_NOTE} className="text-label text-muted">
+              Gesperrt, solange „Nur prüfbare“ gesetzt ist.
+              {urlStatuses.length > 0 &&
+                ` Aus der Adresse gilt für diese Liste zusätzlich der Status: ${urlStatuses.map((code) => statusLabel(code).text).join(', ')}. Mit „Filter anwenden“ entfällt er.`}
+            </p>
+          )}
           {errors.has('status') && (
             <p id={errorId('status')} className="text-label text-danger-text">
               {fieldText(errors.get('status') ?? [])}
@@ -216,7 +242,7 @@ export function FilterBar(props: {
       <div className="flex flex-wrap gap-x-6">
         {(
           [
-            ['reviewable', 'Nur zu prüfende (Importiert oder Ungeprüft)'],
+            ['reviewable', 'Nur prüfbare (Importiert oder Ungeprüft)'],
             ['current', 'Nur aktuelle (bestätigt oder abgeglichen, ohne Storno und Korrigierte)'],
           ] as const
         ).map(([name, label]) => (
@@ -227,7 +253,9 @@ export function FilterBar(props: {
                 type="checkbox"
                 name={name}
                 value="true"
-                defaultChecked={filters[name] === 'true'}
+                {...(name === 'reviewable'
+                  ? { checked: reviewable, onChange: (event: ChangeEvent<HTMLInputElement>) => toggleReviewable(event.currentTarget.checked) }
+                  : { defaultChecked: filters[name] === 'true' })}
                 aria-invalid={errors.has(name) ? true : undefined}
                 aria-describedby={errors.has(name) ? errorId(name) : undefined}
               />
@@ -275,6 +303,12 @@ export function FilterBar(props: {
       </div>
     </form>
   );
+}
+
+/** The ids an `aria-describedby` names, or none. */
+function describedBy(ids: readonly (string | undefined)[]): string | undefined {
+  const present = ids.filter((id) => id !== undefined);
+  return present.length === 0 ? undefined : present.join(' ');
 }
 
 /** A date input only takes `YYYY-MM-DD`; another value of the URL stays out of the input (and in the error summary). */

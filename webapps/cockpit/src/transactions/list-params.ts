@@ -69,9 +69,19 @@ export function readListParams(search: string): ListParams {
   return fromEntries(new URLSearchParams(search), true);
 }
 
-/** The parameters of a submitted filter form: a new filter starts on page 1 and keeps the chosen page size. */
+/** Whether the shortcut „Nur prüfbare“ (`reviewable=true`) is set. */
+export const reviewableSet = (params: ListParams): boolean => params.filters.reviewable === 'true';
+
+/**
+ * The parameters of a submitted filter form: a new filter starts on page 1 and keeps the chosen page size. With
+ * `reviewable=true` the form sends no `status`: the bar never offers the combination of both (Entscheidung des
+ * Projektinhabers, 2026-11-10). A URL may still hold both; it is read and sent as it is (the backend's AND, §30.1).
+ */
 export function paramsFromForm(entries: Entries): ListParams {
-  return fromEntries(entries, false);
+  const params = fromEntries(entries, false);
+  if (!reviewableSet(params)) return params;
+  const { status: _dropped, ...filters } = params.filters;
+  return { ...params, filters };
 }
 
 /** The query of `GET /transactions`: the filters in a fixed order, then page and page size (also the query key). */
