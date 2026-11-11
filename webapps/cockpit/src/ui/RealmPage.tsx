@@ -30,7 +30,7 @@ export function RealmPage(props: {
   readonly reconciliationId?: string | undefined;
   /** An MRE rent term of the Mietabgleich area (`…/mietabgleich/termin/<mreTenantId>/<mreRentTerm>`). */
   readonly rentTerm?: RentTermKey | undefined;
-  /** The URL's search part: the list's filters and page. */
+  /** The URL's search part: the list's filters and page, the import's „Alle Zeilen“. */
   readonly search?: string;
   /** The URL's path: the focus moves to the page title when it changes (AppShell). */
   readonly path?: string;
@@ -79,7 +79,7 @@ function AreaContent(props: {
         <TransactionsArea client={props.client} realmId={props.realmId} epoch={props.epoch} transactionId={props.transactionId} search={props.search ?? ''} />
       );
     case 'import':
-      return <ImportArea client={props.client} realmId={props.realmId} epoch={props.epoch} importBatchId={props.importBatchId} />;
+      return <ImportArea client={props.client} realmId={props.realmId} epoch={props.epoch} importBatchId={props.importBatchId} search={props.search ?? ''} />;
     case 'mietabgleich':
       return (
         <RentArea

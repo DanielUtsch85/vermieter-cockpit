@@ -24,9 +24,17 @@ const importArea = AREAS.find((area) => area.id === 'import');
 
 /**
  * The Import area of a Realm (ui-guide.md §3.1, §6.5; step 5 of §10): the upload at `…/import`, one import's result
- * and review items at `…/import/<importBatchId>`, so a known batch is read again after a reload or a lost answer.
+ * and review items at `…/import/<importBatchId>`, so a known batch is read again after a reload or a lost answer. `search`
+ * is the URL's search part: on a batch's page its `zeilen=alle` is the row table's „Alle Zeilen“ (row-view.ts); the
+ * upload reads nothing from it.
  */
-export function ImportArea(props: { readonly client: DeClient; readonly realmId: string; readonly epoch: number; readonly importBatchId: string | undefined }) {
+export function ImportArea(props: {
+  readonly client: DeClient;
+  readonly realmId: string;
+  readonly epoch: number;
+  readonly importBatchId: string | undefined;
+  readonly search: string;
+}) {
   const queryClient = useQueryClient();
   const accounts = useQuery({
     queryKey: transactionKeys.accounts(props.realmId, props.epoch),
@@ -59,6 +67,7 @@ function ImportBatchPage(props: {
   readonly realmId: string;
   readonly epoch: number;
   readonly importBatchId: string;
+  readonly search: string;
   readonly accounts: Parameters<typeof ImportResult>[0]['accounts'];
 }) {
   const queryClient = useQueryClient();
@@ -95,7 +104,7 @@ function ImportBatchPage(props: {
         <ReadProblem error={batch.error} onRetry={() => void batch.refetch()} />
       ) : (
         <>
-          <ImportResult realmId={props.realmId} batch={batch.data} accounts={props.accounts} />
+          <ImportResult realmId={props.realmId} batch={batch.data} accounts={props.accounts} search={props.search} />
           <ReviewItems
             realmId={props.realmId}
             batch={batch.data}

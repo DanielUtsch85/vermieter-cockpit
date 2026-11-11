@@ -12,6 +12,7 @@
  *   /cockpit/r/<realmId>/mietabgleich/termin/<mreTenantId>/<mreRentTerm>   the coverage of one MRE rent term (step 6)
  *
  * The list's filters and page are the search part of the area's URL (transactions/list-params.ts).
+ * „Alle Zeilen“ of an import's row table is `?zeilen=alle` of the import's URL (imports/row-view.ts).
  */
 export const BASE_PATH = '/cockpit/';
 
