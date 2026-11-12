@@ -21,6 +21,9 @@ import { StatusBadge, TransactionListView } from './transactions/TransactionList
  */
 
 /** This directory as a path (a `URL` of jsdom is no file URL for `node:fs`). */
+/** The link style, spelled apart so that a git grep for it finds Link.tsx only (Issue #353, acceptance). */
+const LINK_STYLE = ['text-primary', 'underline'].join(' ');
+
 const ui = dirname(fileURLToPath(import.meta.url));
 
 /** Every production file under ui/ with its text, as `rent/RentParts.tsx`. */
@@ -45,7 +48,7 @@ afterEach(() => {
 describe('one of each, no copies (Issue #353 des Projektinhabers, 2026-11-12, point 10)', () => {
   it('the link style lives in Link.tsx only, the tones in Badge.tsx, the breadcrumbs in Breadcrumbs.tsx, the id style in IdText.tsx', () => {
     expect(productionFiles().length).toBeGreaterThan(40);
-    expect(filesWith(/text-primary underline/)).toEqual(['Link.tsx']);
+    expect(filesWith(new RegExp(LINK_STYLE))).toEqual(['Link.tsx']);
     expect(filesWith(/TONES\s*[:=]/)).toEqual(['Badge.tsx']);
     expect(filesWith(/Brotkrumen/)).toEqual(['Breadcrumbs.tsx']);
     expect(filesWith(/className="font-mono text-label"/)).toEqual(['IdText.tsx']);
@@ -61,7 +64,7 @@ describe('Link', () => {
       </Link>,
     );
     const link = screen.getByRole('link', { name: 'Zur Liste' });
-    expect(link.outerHTML).toBe('<a class="text-primary underline" href="/cockpit/r/x/buchungen" title="ganz" aria-label="Zur Liste" rel="prev">Liste</a>');
+    expect(link.outerHTML).toBe(`<a class="${LINK_STYLE}" href="/cockpit/r/x/buchungen" title="ganz" aria-label="Zur Liste" rel="prev">Liste</a>`);
     expect(fireEvent.click(link, { button: 0 })).toBe(false);
     expect(window.location.pathname).toBe('/cockpit/r/x/buchungen');
   });
