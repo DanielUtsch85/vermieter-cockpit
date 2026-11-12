@@ -84,7 +84,8 @@ describe('„Stornieren“: the form and its reason (api-design.md §35.9: trimm
     expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Stornieren' }));
     expect(screen.getByRole('form', { name: 'Storno erfassen' })).toBeTruthy();
     expect(screen.getByLabelText('Grund des Stornos (Pflicht)')).toBe(reasonField());
-    expect(screen.getByText('Gesendet wird mit If-Match "4".')).toBeTruthy();
+    // The version goes as the If-Match header (asserted with the request below), not as a text (Issue #352, point 3).
+    expect(document.body.textContent).not.toMatch(/If-Match|ETag/);
     await settle();
     expect(calls).toHaveLength(0);
   });

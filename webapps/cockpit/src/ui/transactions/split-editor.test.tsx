@@ -330,7 +330,7 @@ describe('step 3, 412 keeps the draft (ui-guide.md §7.3, §11)', () => {
 
   it('load the server state: the draft becomes the stored set and its ETag the base', async () => {
     const { calls } = setup({
-      answers: [envelope(412, 'VERSION_CONFLICT', { expectedVersions: [3], currentVersion: 5 })],
+      answers: [envelope(412, 'VERSION_CONFLICT', { expectedVersions: [3], currentVersion: 5 }), json(200, answer({ version: 6 }), { etag: '"6"' })],
       reload: () => Promise.resolve({ transaction: server, etag: '"5"' }),
     });
     fillTwoRows();
@@ -339,8 +339,13 @@ describe('step 3, 412 keeps the draft (ui-guide.md §7.3, §11)', () => {
     await waitFor(() => expect(screen.queryAllByRole('group')).toHaveLength(1));
     expect(amount(0).value).toBe('850,00');
     expect(control('split-0-category').value).toBe('RENT_OPERATING_COST_ADVANCE');
-    expect(screen.getByText('Gesendet wird mit If-Match "5".')).toBeTruthy();
     expect(calls).toHaveLength(1);
+    // The new base is the server's ETag: the next save sends it as If-Match (the header, not a text; Issue #352, point 3).
+    expect(document.body.textContent).not.toMatch(/If-Match|ETag/);
+    fireEvent.click(saveButton());
+    await screen.findByText(/Aufteilung gespeichert \(Version 6/);
+    expect(calls).toHaveLength(2);
+    expect(calls[1]?.headers.get('if-match')).toBe('"5"');
   });
 
   it('a server state that no longer allows splits keeps the draft visible and offers no save', async () => {

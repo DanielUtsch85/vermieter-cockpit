@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ifMatchForVersion } from '../../api/client';
 import { ApiError } from '../../api/errors';
 import type { Confirmed, TransactionDetailDto } from '../../api/transactions';
@@ -113,18 +113,24 @@ export function ConfirmAction(props: {
 
   if (done !== undefined) {
     return (
-      <div ref={result} tabIndex={-1} role="status">
-        <Notice tone="success">{`Buchung bestätigt (Version ${done.transaction.version}, Status „${statusLabel(done.transaction.status).text}“). Die Aufteilung ist jetzt unveränderlich.`}</Notice>
-      </div>
+      <ConfirmCard>
+        <div ref={result} tabIndex={-1} role="status">
+          <Notice tone="success">{`Buchung bestätigt (Version ${done.transaction.version}, Status „${statusLabel(done.transaction.status).text}“). Die Aufteilung ist jetzt unveränderlich.`}</Notice>
+        </div>
+      </ConfirmCard>
     );
   }
   if (needsSplitsBeforeConfirm(t)) {
-    return <p className="text-muted">Bestätigen ist möglich, sobald die Aufteilung gespeichert ist (Abschnitt „Aufteilung bearbeiten“).</p>;
+    return (
+      <ConfirmCard>
+        <p className="text-muted">Bestätigen ist möglich, sobald die Aufteilung gespeichert ist (Abschnitt „Aufteilung bearbeiten“).</p>
+      </ConfirmCard>
+    );
   }
   if (!confirmable(t) && stage.kind !== 'refused') return null;
 
   return (
-    <div className="flex flex-col gap-3">
+    <ConfirmCard>
       {stage.kind === 'refused' && (
         <div ref={result} tabIndex={-1}>
           <ErrorState error={stage.error}>
@@ -191,7 +197,6 @@ export function ConfirmAction(props: {
             >
               Buchung bestätigen
             </button>
-            <span className="text-label text-muted">{`Gesendet wird mit If-Match ${ifMatch}.`}</span>
           </div>
         )
       )}
@@ -200,6 +205,25 @@ export function ConfirmAction(props: {
           Zuerst Aufteilung speichern oder verwerfen
         </p>
       )}
-    </div>
+    </ConfirmCard>
+  );
+}
+
+/**
+ * The card „Bestätigen“ (Issue #352 des Projektinhabers, 2026-11-12, point 4; as „Übertragung an MRE und Aufheben“ of
+ * the rent area): what confirming does, then the button, the lock of an unsaved draft, the confirmation step and the
+ * answer, all inside it.
+ */
+function ConfirmCard({ children }: { readonly children: ReactNode }) {
+  return (
+    <section aria-labelledby="bestaetigen" className="rounded-card border border-border bg-surface p-6">
+      <h3 id="bestaetigen" className="mb-2 text-section font-semibold">
+        Bestätigen
+      </h3>
+      <p className="mb-3 text-muted">
+        Mit der Bestätigung wird die gespeicherte Aufteilung eingefroren. Danach lässt sich die Buchung nur noch über eine Korrektur oder ein Storno ändern.
+      </p>
+      <div className="flex flex-col gap-3">{children}</div>
+    </section>
   );
 }

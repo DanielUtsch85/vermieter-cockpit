@@ -8,6 +8,7 @@ import { createRealmLock, type RealmLock } from '../routing';
 import type { MreAuthenticator } from '../session/mre-authenticator';
 import { Session } from '../session/session';
 import { SessionContext } from '../session/use-session';
+import { BACKEND_PIN } from '../gate/backend-pin';
 import { App } from './App';
 import { RealmList } from './RealmChoice';
 import { importKeys } from './imports/ImportArea';
@@ -138,9 +139,25 @@ describe('step 1, a Realm in the URL (§47.2 point 3, ui-guide.md §7.3)', () =>
     queryClient.setQueryData(realmKey(A, 0, 'health'), health(A));
     queryClient.setQueryData(sessionKey(0, 'realms'), [{ id: A, name: 'Bestand Nord' }]);
     const html = render(await signedIn(), `/cockpit/r/${A}/`, { queryClient });
-    expect(html).toContain(`Zugriff bestätigt für Bestand ${A}`);
-    expect(html).toContain('Bestand Nord');
+    expect(html).toContain('Zugriff bestätigt für diesen Bestand');
+    expect(html).toContain(`<span title="${A}">Bestand Nord</span>`);
     expect(html).toContain('Arbeitsbereiche');
+    // The MRE ObjectIds of the Realm and of DE's answer: in the collapsed technical details only (Issue #352, point 3).
+    const details = /<details[^>]*>.*<\/details>/s.exec(html)?.[0] ?? '';
+    expect(details).toContain('<summary class="min-h-touch cursor-pointer py-2">Technische Angaben</summary>');
+    expect(details).toContain(`<dt>Bestand (MRE-ID)</dt><dd class="min-w-0 break-all font-mono">${A}</dd>`);
+    expect(details).toContain(`<dt>Zugriff bestätigt für</dt><dd class="min-w-0 break-all font-mono">${A}</dd>`);
+    const main = html.slice(html.indexOf('<main'));
+    // Outside them, the id is in no text (only in links and in the tooltip of the name).
+    expect(main.replace(details, '').replace(/<[^>]+>/g, ' ')).not.toContain(A);
+  });
+
+  it('a Realm without a name: the id stays visible, as the only way to tell it', async () => {
+    const queryClient = createQueryClient();
+    queryClient.setQueryData(realmKey(A, 0, 'health'), health(A));
+    queryClient.setQueryData(sessionKey(0, 'realms'), [{ id: B, name: 'Bestand Sued' }]);
+    const html = render(await signedIn(), `/cockpit/r/${A}/`, { queryClient });
+    expect(html).toContain(`<span class="text-muted">Name nicht verfügbar</span> <code class="font-mono text-label">${A}</code>`);
   });
 
   it('the answer of another Realm is never shown for the Realm of the URL', async () => {
@@ -234,9 +251,10 @@ describe('step 2, the Buchungen area in the app (ui-guide.md §6.3, §7.3, §10)
     expect(render(await signedIn(), `/cockpit/r/${B}/buchungen/${TX}`, { queryClient: other })).toContain('Buchung wird geladen');
   });
 
-  it('the overview says what the Buchungen, Import and Mietabgleich areas offer and what comes later', async () => {
+  it('the overview says what the Buchungen, Import and Mietabgleich areas offer, the whole scope of each', async () => {
     const html = render(await signedIn(), `/cockpit/r/${A}/`, { queryClient: seeded(A) });
-    expect(html).toContain('Liste mit Filtern und Detail; der Rest entsteht im Durchstich Schritte 3 und 4');
+    // Issue #352 point 2: every step is built, the Buchungen area names its whole scope.
+    expect(html).toContain('· Liste mit Filtern, Detail, Aufteilung, Bestätigen, Korrigieren und Stornieren</span>');
     // Step 5 replaced the placeholder of the Import area: what it offers, nothing left for later.
     expect(html).toContain('· Datei und Konto wählen, Import ausführen, Ergebnis und Klärfälle</span>');
     expect(html).not.toContain('Schritt 5');
@@ -245,6 +263,24 @@ describe('step 2, the Buchungen area in the app (ui-guide.md §6.3, §7.3, §10)
       '· Vorschläge ermitteln und prüfen, Zuordnung bestätigen, an MRE übertragen, aufheben und aus MRE entfernen, Abdeckung je Termin</span>',
     );
     expect(html).not.toContain('Schritt 6');
+  });
+
+  it('the overview names no step of the Durchstich and no commit, not even in the technical details', async () => {
+    const html = render(await signedIn(), `/cockpit/r/${A}/`, { queryClient: seeded(A) });
+    expect(html).toContain('Arbeitsbereiche');
+    for (const stale of [
+      'Durchstich',
+      'entsteht im',
+      'Integrations-Gate',
+      'Backend-Stand',
+      'Routen im Inventar',
+      'noch nicht verfügbar',
+      'github.com',
+      BACKEND_PIN.commit.slice(0, 7),
+    ]) {
+      expect(html).not.toContain(stale);
+    }
+    expect(html).not.toMatch(/\b[0-9a-f]{40}\b/);
   });
 });
 

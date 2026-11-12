@@ -290,7 +290,6 @@ export function SplitEditor(props: SplitEditorProps) {
               Entwurf verwerfen
             </button>
           )}
-          <span className="text-label text-muted">{`Gesendet wird mit If-Match ${base}.`}</span>
         </div>
       </form>
     </EditorFrame>

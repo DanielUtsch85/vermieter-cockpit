@@ -1,11 +1,11 @@
 import { useState, type ReactNode } from 'react';
 import type { HealthDto } from '../api/health';
-import { BACKEND_PIN } from '../gate/backend-pin';
 import { onLinkClick } from '../navigation';
 import { AREAS, areaPath } from '../routing';
 import { useSession } from '../session/use-session';
 import { describeError } from './error-text';
 import { secondaryButtonClass } from './states';
+import { NamedId, TechnicalDetails } from './technical';
 
 const berlinDate = new Intl.DateTimeFormat('de-DE', { dateStyle: 'full', timeZone: 'Europe/Berlin' });
 const berlinTime = new Intl.DateTimeFormat('de-DE', { timeStyle: 'medium', timeZone: 'Europe/Berlin' });
@@ -22,7 +22,9 @@ function Row({ label, children }: { readonly label: string; readonly children: R
 /**
  * The overview as working navigation (ui-guide.md §6.2): date, Realm, connection context and links to the version-1
  * areas, no invented figures. It also shows the integration gate (§10) from the shell: the session through the MRE
- * authenticator with its last renewal, the Realm DE verified, and the pinned backend state.
+ * authenticator with its last renewal and the Realm DE verified; the Realm's ids are technical details, collapsed at
+ * the end; the pinned backend state is not shown, it is kept in the repository (gate/backend-pin.ts; Issue #352 des
+ * Projektinhabers, 2026-11-12, point 2).
  */
 export function OverviewPage(props: {
   readonly realmId: string;
@@ -50,9 +52,9 @@ export function OverviewPage(props: {
         <dl className="divide-y divide-border">
           <Row label="Heute">{berlinDate.format(new Date())}</Row>
           <Row label="Bestand">
-            {props.realmName ?? 'Name nicht verfügbar'} <span className="text-label text-muted">({props.realmId})</span>
+            <NamedId name={props.realmName} id={props.realmId} />
           </Row>
-          <Row label="Fachdaten (DE)">{props.health === undefined ? 'Wird geprüft …' : `Zugriff bestätigt für Bestand ${props.health.mreRealmId}`}</Row>
+          <Row label="Fachdaten (DE)">{props.health === undefined ? 'Wird geprüft …' : 'Zugriff bestätigt für diesen Bestand'}</Row>
           <Row label="Sitzung erneuert">
             <span className="tabular-nums">
               {props.renewedAt === undefined ? 'Seit der Anmeldung noch nicht' : `zuletzt um ${berlinTime.format(props.renewedAt)}`}
@@ -65,12 +67,6 @@ export function OverviewPage(props: {
                 {renewal.failure}
               </p>
             )}
-          </Row>
-          <Row label="Backend-Stand">
-            <a className="text-primary underline" href={`https://github.com/DanielUtsch85/vermieter-cockpit/commit/${BACKEND_PIN.commit}`}>
-              {BACKEND_PIN.commit.slice(0, 7)}
-            </a>{' '}
-            <span className="text-muted">({BACKEND_PIN.routes} Routen im Inventar)</span>
           </Row>
         </dl>
       </section>
@@ -86,25 +82,21 @@ export function OverviewPage(props: {
                 <a className="text-primary underline" href={href} onClick={(event) => onLinkClick(event, href)}>
                   {area.label}
                 </a>{' '}
-                <span className="text-muted">
-                  {area.available === undefined
-                    ? `· entsteht im ${area.slice ?? ''}`
-                    : `· ${area.available}${area.slice === undefined ? '' : `; der Rest entsteht im ${area.slice}`}`}
-                </span>
+                {area.available !== undefined && <span className="text-muted">{`· ${area.available}`}</span>}
               </li>
             );
           })}
         </ul>
       </section>
+      <section aria-label="Technische Angaben der Verbindung" className="rounded-card border border-border bg-surface px-6 py-2">
+        <TechnicalDetails
+          spacing=""
+          entries={[
+            ['Bestand (MRE-ID)', props.realmId],
+            ['Zugriff bestätigt für', props.health === undefined ? 'Wird geprüft …' : props.health.mreRealmId],
+          ]}
+        />
+      </section>
     </>
-  );
-}
-
-/** A version-1 area before its slice is built: says so, offers no control without a data path (ui-guide.md §3.2). */
-export function AreaPlaceholder({ slice }: { readonly slice: string }) {
-  return (
-    <p className="rounded-card border border-border bg-surface p-6 text-muted">
-      Dieser Bereich ist noch nicht verfügbar. Er entsteht im {slice} (Leitfaden für die erste Benutzeroberfläche, Abschnitt 10).
-    </p>
   );
 }

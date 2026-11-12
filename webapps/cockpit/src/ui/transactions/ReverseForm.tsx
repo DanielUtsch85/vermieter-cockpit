@@ -215,7 +215,6 @@ export function ReverseForm(props: ReverseFormProps) {
                 <button ref={step.trigger('reverse')} type="submit" className={buttonClass} disabled={!sendable || sending}>
                   Storno ausführen
                 </button>
-                <span className="text-label text-muted">{`Gesendet wird mit If-Match ${ifMatch}.`}</span>
               </div>
             )}
           </form>

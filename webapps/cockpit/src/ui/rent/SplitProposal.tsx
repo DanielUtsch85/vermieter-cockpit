@@ -8,6 +8,7 @@ import { addCents, decimalToCents, differenceAsDecimal } from '../../transaction
 import { splitsEditable } from '../../transactions/split-draft';
 import { MoneyText } from '../format';
 import { ErrorState, LoadingState, Notice, secondaryButtonClass } from '../states';
+import { NamedId } from '../technical';
 import type { DraftSlot } from '../transactions/SplitEditor';
 import { inputClass } from '../transactions/SplitRows';
 import { categoryName, type References } from '../transactions/references';
@@ -268,8 +269,7 @@ export function SplitProposal(props: {
               {combined.lines.map((line, i) => (
                 <tr key={i}>
                   <td className="p-2">
-                    {categoryName(props.references, line.financialCategoryCode) ?? <span className="text-muted">Unbekannte Kategorie</span>}{' '}
-                    <Code value={line.financialCategoryCode} />
+                    <NamedId name={categoryName(props.references, line.financialCategoryCode)} id={line.financialCategoryCode} missing="Unbekannte Kategorie" />
                   </td>
                   <td className="p-2 text-right">
                     {money(line.amount, currency)}

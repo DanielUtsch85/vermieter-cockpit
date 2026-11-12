@@ -5,6 +5,7 @@ import type { TransactionRead } from '../../api/transactions';
 import { DateText, MoneyText, TimestampText } from '../format';
 import type { Loadable } from '../RealmChoice';
 import { LoadingState } from '../states';
+import { TechnicalDetails } from '../technical';
 import { directionLabel } from '../transactions/labels';
 import { StatusBadge } from '../transactions/TransactionList';
 import { confidenceText, suggestionReasonText, writeBackErrorText } from './rent-labels';
@@ -149,10 +150,14 @@ export function ReconciliationDetailView({
         <Row label="Angelegt">
           <TimestampText value={r.createdAt} />
         </Row>
-        <Row label="Version">
-          <span className="tabular-nums">{r.version}</span> <span className="text-label text-muted">(ETag {etag})</span>
-        </Row>
       </dl>
+      <TechnicalDetails
+        entries={[
+          ['Zuordnungs-ID', r.reconciliationId],
+          ['Version', `${r.version} (ETag ${etag})`],
+          ['Buchungs-ID', r.transactionId],
+        ]}
+      />
     </section>
   );
 }

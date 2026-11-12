@@ -50,6 +50,9 @@ function view(state: Loadable<TransactionRead>, references: References = loaded)
 const error = (status: number, code: string, fields: { field: string; code: string }[] = [], retryAfter?: number) =>
   ({ status: 'error', error: new ApiError(status, code, 'x', fields.length === 0 ? undefined : { fields }, fields, retryAfter) }) as const;
 
+/** The collapsed block „Technische Angaben“ of a card (Issue #352 des Projektinhabers, 2026-11-12, point 3). */
+const technicalDetails = (html: string) => /<details[^>]*>.*?<\/details>/s.exec(html)?.[0] ?? '';
+
 /** The text of the page without tags, entities of the markup decoded where the tests read them. */
 const text = (html: string) =>
   html
@@ -180,13 +183,13 @@ describe('step 2, refusals of the list (ui-guide.md §7.4)', () => {
       'page: außerhalb des zulässigen Bereichs',
     ]);
     expect(html).toContain(
-      'id="filter-bookingDateTo" type="date" name="bookingDateTo" class="min-h-touch rounded-input border border-border bg-surface px-3 text-base" aria-invalid="true" aria-describedby="filter-bookingDateTo-fehler" value="2026-01-01"',
+      'id="filter-bookingDateTo" type="date" name="bookingDateTo" class="min-h-touch w-full min-w-0 rounded-input border border-border bg-surface px-3 text-base" aria-invalid="true" aria-describedby="filter-bookingDateTo-fehler" value="2026-01-01"',
     );
     expect(html).not.toContain(
-      'id="filter-bookingDateFrom" type="date" name="bookingDateFrom" class="min-h-touch rounded-input border border-border bg-surface px-3 text-base" aria-invalid',
+      'id="filter-bookingDateFrom" type="date" name="bookingDateFrom" class="min-h-touch w-full min-w-0 rounded-input border border-border bg-surface px-3 text-base" aria-invalid',
     );
     expect(html).toContain('<p id="filter-bookingDateTo-fehler" class="text-label text-danger-text">Ende liegt vor dem Beginn</p>');
-    expect(html).toContain('<fieldset id="filter-status" tabindex="-1" class="flex flex-col gap-1" aria-describedby="filter-status-fehler">');
+    expect(html).toContain('<fieldset id="filter-status" tabindex="-1" class="flex min-w-0 flex-col gap-1" aria-describedby="filter-status-fehler">');
     expect(html).not.toContain('filter-zzz');
     expect(html).toContain('Filter zurücksetzen');
     expect(html).not.toContain('Erneut laden');
@@ -236,7 +239,9 @@ describe('step 2, the filter bar (ui-guide.md §6.3: only the existing filters)'
     expect(html).toContain('name="reviewable" value="true"');
     expect(html).not.toContain('name="status" disabled=""');
     expect(html).toContain('name="current" value="true"');
-    expect(html).toContain('name="bookingDateFrom" class="min-h-touch rounded-input border border-border bg-surface px-3 text-base" value="2026-01-01"');
+    expect(html).toContain(
+      'name="bookingDateFrom" class="min-h-touch w-full min-w-0 rounded-input border border-border bg-surface px-3 text-base" value="2026-01-01"',
+    );
     expect(html).toContain('<option value="OLD_FEE" selected="">Alte Gebühr (inaktiv)</option>');
     expect(html).toContain('<option value="100" selected="">100</option>');
     expect(html).toContain(`<option value="${PROPERTY}">Testhaus Wohnung 1</option>`);
@@ -309,16 +314,38 @@ describe('step 2, one Transaction (ui-guide.md §6.3, §6.1: the correction chai
       'Miete Maerz Testwohnung',
       'Aus Bankimport (CSV)',
       'Bestätigt',
-      `Girokonto Testbank ${ACCOUNT}`,
-      `Testhaus Wohnung 1 ${PROPERTY}`,
+      'Konto Girokonto Testbank Objekt der Buchung Testhaus Wohnung 1 Angelegt',
       '02.03.2026, 09:15',
       '01.04.2026, 01:30 von admin1@example.com',
-      'Version 3 (ETag "3")',
       'Keine Korrektur verknüpft.',
       'Noch nicht aufgeteilt.',
     ]) {
       expect(plain).toContain(expected);
     }
+    // Issue #352 point 3: the names carry their ids as a tooltip; version, ETag and ids are in the collapsed details.
+    expect(html).toContain(`<span title="${ACCOUNT}">Girokonto Testbank</span>`);
+    expect(html).toContain(`<span title="${PROPERTY}">Testhaus Wohnung 1</span>`);
+    const details = technicalDetails(html);
+    for (const [label, value] of [
+      ['Buchungs-ID', TX],
+      ['Version', '3 (ETag "3")'],
+      ['Konto-ID', ACCOUNT],
+      ['Objekt-ID', PROPERTY],
+    ]) {
+      expect(text(details)).toContain(`${label} ${value}`);
+    }
+    const visible = text(html.replace(details, ''));
+    expect(visible).not.toMatch(/If-Match|ETag|Version/);
+    for (const id of [TX, ACCOUNT, PROPERTY]) expect(visible).not.toContain(id);
+  });
+
+  it('technical details: one collapsed block per card, closed by default, never a button', () => {
+    const html = view({ status: 'success', data: { transaction: detail({ propertyReferenceId: null }), etag: undefined } });
+    expect(html.match(/<details/g)).toHaveLength(1);
+    expect(html).toContain('<details class="mt-3 text-label text-muted"><summary class="min-h-touch cursor-pointer py-2">Technische Angaben</summary>');
+    expect(html).not.toContain('<details open');
+    expect(text(technicalDetails(html))).toContain('Version 3 Konto-ID');
+    expect(text(technicalDetails(html))).not.toContain('Objekt-ID');
   });
 
   it('read only: no button splits, confirms or corrects yet (steps 3 and 4)', () => {
@@ -343,10 +370,13 @@ describe('step 2, one Transaction (ui-guide.md §6.3, §6.1: the correction chai
     const html = view({ status: 'success', data: { transaction: detail({ direction: 'OUTFLOW', splits }), etag: undefined } });
     const plain = text(html);
     expect(plain).toContain(`-850,00${NBSP}€ (Ausgang)`);
-    expect(plain).toContain('Kaltmiete RENT_BASE');
+    // A category with a name shows the name, its code only as the tooltip; a code without a name stays visible.
+    expect(html).toContain('<span title="RENT_BASE">Kaltmiete</span>');
+    expect(plain).not.toContain('RENT_BASE');
     expect(html).toContain(`>700,00${NBSP}€<`);
     expect(html).toContain(`>150,00${NBSP}€<`);
-    expect(plain).toContain(`Objekt: Testhaus Wohnung 1 ${PROPERTY}`);
+    expect(plain).toContain('Objekt: Testhaus Wohnung 1');
+    expect(html).toContain(`<span title="${PROPERTY}">Testhaus Wohnung 1</span>`);
     expect(plain).toContain(`Darlehen: ${TX_REPLACEMENT}`);
     expect(plain).toContain('Unbekannte Kategorie NEW_CODE');
     expect(plain).toContain('Zinsanteil');

@@ -232,7 +232,6 @@ export function CorrectionForm(props: CorrectionFormProps) {
               <button type="submit" className={buttonClass} disabled={!canSend} aria-describedby="korrektur-aenderungen">
                 {sending ? 'Korrektur wird ausgeführt …' : 'Korrektur ausführen'}
               </button>
-              <span className="text-label text-muted">{`Gesendet wird mit If-Match ${props.etag ?? ifMatchForVersion(t.version)}.`}</span>
             </div>
           </form>
         </>

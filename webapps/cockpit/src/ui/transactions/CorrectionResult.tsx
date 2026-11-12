@@ -158,10 +158,9 @@ export function CorrectionRefusal({
                 const href = reconciliationPath(realmId, id);
                 return (
                   <li key={id}>
-                    <a className="text-primary underline" href={href} onClick={(event) => onLinkClick(event, href)}>
+                    <a className="text-primary underline" href={href} title={id} onClick={(event) => onLinkClick(event, href)}>
                       Mietzuordnung öffnen und aufheben
-                    </a>{' '}
-                    <code className="font-mono text-label">{id}</code>
+                    </a>
                   </li>
                 );
               })}

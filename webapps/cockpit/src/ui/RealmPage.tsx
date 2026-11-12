@@ -7,7 +7,7 @@ import { realmKey } from '../query';
 import { leaveRealm, type Area, type RentTermKey } from '../routing';
 import { useSession } from '../session/use-session';
 import { AppShell } from './AppShell';
-import { AreaPlaceholder, OverviewPage } from './OverviewPage';
+import { OverviewPage } from './OverviewPage';
 import { useRealms } from './RealmChoice';
 import { ErrorState, LoadingState, secondaryButtonClass } from './states';
 import { ImportArea } from './imports/ImportArea';
@@ -91,8 +91,6 @@ function AreaContent(props: {
           search={props.search ?? ''}
         />
       );
-    default:
-      return <AreaPlaceholder slice={props.area.slice ?? ''} />;
   }
 }
 
