@@ -173,9 +173,9 @@ export function CorrectionForm(props: CorrectionFormProps) {
 
   return (
     <section aria-labelledby="korrigieren" className="flex flex-col gap-4 rounded-card border border-border bg-surface p-6">
-      <h3 id="korrigieren" ref={heading} tabIndex={-1} className="text-section font-semibold">
+      <h2 id="korrigieren" ref={heading} tabIndex={-1} className="text-section font-semibold">
         Korrigieren
-      </h3>
+      </h2>
       {!open ? (
         <>
           <p className="text-muted">

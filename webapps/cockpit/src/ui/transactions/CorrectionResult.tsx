@@ -1,28 +1,23 @@
 import { useEffect, useRef, type ReactNode } from 'react';
 import { ApiError } from '../../api/errors';
 import type { CorrectionResultDto, ReversalResultDto, TransactionDto } from '../../api/transactions';
-import { onLinkClick } from '../../navigation';
 import { reconciliationPath, transactionPath } from '../../routing';
 import { DateText, MoneyText } from '../format';
+import { Link } from '../Link';
 import { secondaryButtonClass } from '../states';
 import { statusLabel } from './labels';
 import { StatusBadge } from './TransactionList';
 
-function Link({ realmId, id, children }: { readonly realmId: string; readonly id: string; readonly children: ReactNode }) {
-  const href = transactionPath(realmId, id);
-  return (
-    <a className="text-primary underline" href={href} onClick={(event) => onLinkClick(event, href)}>
-      {children}
-    </a>
-  );
+function TransactionLink({ realmId, id, children }: { readonly realmId: string; readonly id: string; readonly children: ReactNode }) {
+  return <Link href={transactionPath(realmId, id)}>{children}</Link>;
 }
 
 function Member({ realmId, label, transaction: t }: { readonly realmId: string; readonly label: string; readonly transaction: TransactionDto }) {
   return (
     <li className="flex flex-wrap items-center gap-2" data-testid={`kette-${t.transactionId}`}>
-      <Link realmId={realmId} id={t.transactionId}>
+      <TransactionLink realmId={realmId} id={t.transactionId}>
         {label}
-      </Link>
+      </TransactionLink>
       <StatusBadge code={t.status} />
       <MoneyText money={t.amount} direction={t.direction} />
       <span className="text-muted">
@@ -49,9 +44,9 @@ export function CorrectionResult({
   useEffect(() => heading.current?.focus(), []);
   return (
     <section aria-labelledby="korrektur-ergebnis" className="flex flex-col gap-3 rounded-card border border-success-text bg-success-bg p-6 text-success-text">
-      <h3 id="korrektur-ergebnis" ref={heading} tabIndex={-1} className="text-section font-semibold">
+      <h2 id="korrektur-ergebnis" ref={heading} tabIndex={-1} className="text-section font-semibold">
         Korrektur ausgeführt
-      </h3>
+      </h2>
       <p>{`Das Original hat jetzt den Status „${statusLabel(result.original.status).text}“ und bleibt unverändert sichtbar. Storno und Ersatzbuchung sind bestätigt und mit ihm verknüpft.`}</p>
       <ol aria-label="Korrekturkette" className="flex flex-col gap-1">
         <Member realmId={realmId} label="Original" transaction={result.original} />
@@ -71,9 +66,9 @@ export function ReversalResult({ realmId, result }: { readonly realmId: string; 
   useEffect(() => heading.current?.focus(), []);
   return (
     <section aria-labelledby="storno-ergebnis" className="flex flex-col gap-3 rounded-card border border-success-text bg-success-bg p-6 text-success-text">
-      <h3 id="storno-ergebnis" ref={heading} tabIndex={-1} className="text-section font-semibold">
+      <h2 id="storno-ergebnis" ref={heading} tabIndex={-1} className="text-section font-semibold">
         Storno ausgeführt
-      </h3>
+      </h2>
       <p>{`Das Original hat jetzt den Status „${statusLabel(result.original.status).text}“ und bleibt unverändert sichtbar. Das Storno ist bestätigt und mit ihm verknüpft; es gibt keine Ersatzbuchung, auch später nicht.`}</p>
       <ol aria-label="Stornokette" className="flex flex-col gap-1">
         <Member realmId={realmId} label="Original" transaction={result.original} />
@@ -154,16 +149,13 @@ export function CorrectionRefusal({
           <p>{`Zuerst muss die Zuordnung im Mietabgleich aufgehoben werden („Zuordnung aufheben“); ${texts.afterRelease} Aufheben ändert nur DE; eine schon an MRE übertragene Zahlung wird danach gesondert aus MRE entfernt.`}</p>
           {reconciliations.length > 0 && (
             <ul aria-label="Betroffene Mietzuordnungen" className="flex flex-col gap-1">
-              {reconciliations.map((id) => {
-                const href = reconciliationPath(realmId, id);
-                return (
-                  <li key={id}>
-                    <a className="text-primary underline" href={href} title={id} onClick={(event) => onLinkClick(event, href)}>
-                      Mietzuordnung öffnen und aufheben
-                    </a>
-                  </li>
-                );
-              })}
+              {reconciliations.map((id) => (
+                <li key={id}>
+                  <Link href={reconciliationPath(realmId, id)} title={id}>
+                    Mietzuordnung öffnen und aufheben
+                  </Link>
+                </li>
+              ))}
             </ul>
           )}
         </div>
@@ -178,16 +170,16 @@ export function CorrectionRefusal({
           <ul className="flex flex-col gap-1">
             {typeof reversal === 'string' && (
               <li>
-                <Link realmId={realmId} id={reversal}>
+                <TransactionLink realmId={realmId} id={reversal}>
                   Vorhandenes Storno
-                </Link>
+                </TransactionLink>
               </li>
             )}
             {typeof replacement === 'string' && (
               <li>
-                <Link realmId={realmId} id={replacement}>
+                <TransactionLink realmId={realmId} id={replacement}>
                   Vorhandene Ersatzbuchung
-                </Link>
+                </TransactionLink>
               </li>
             )}
           </ul>

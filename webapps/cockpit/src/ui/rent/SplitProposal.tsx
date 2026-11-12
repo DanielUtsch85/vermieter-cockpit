@@ -8,12 +8,12 @@ import { addCents, decimalToCents, differenceAsDecimal } from '../../transaction
 import { splitsEditable } from '../../transactions/split-draft';
 import { MoneyText } from '../format';
 import { ErrorState, LoadingState, Notice, secondaryButtonClass } from '../states';
-import { NamedId } from '../technical';
+import { IdText } from '../IdText';
 import type { DraftSlot } from '../transactions/SplitEditor';
 import { inputClass } from '../transactions/SplitRows';
 import { categoryName, type References } from '../transactions/references';
 import { rentRefusalText } from './rent-labels';
-import { Code, TenantText, TermText } from './RentParts';
+import { TenantText, TermText } from './RentParts';
 
 const INPUT_TEXTS: Readonly<Record<TenantIdProblem | TermProblem | 'DUPLICATE', string>> = {
   TENANT_MISSING: 'Bitte die ID des Mieters in MRE angeben.',
@@ -50,7 +50,7 @@ function FlagText({ flag, currency }: { readonly flag: RentSplitProposalDto['fla
   return (
     <>
       {'Hinweis des Servers '}
-      <Code value={flag.code} />
+      <IdText id={flag.code} />
     </>
   );
 }
@@ -116,7 +116,8 @@ function TermCard(props: {
  * source. Several terms make a collective payment (several months or Tenants); the combined lines never exceed the
  * payment and a remainder is shown and taken over as its own row without a category. „Vorschlag in Aufteilung
  * übernehmen“ fills the split editor's draft only: nothing is saved until „Aufteilung speichern“, nothing is confirmed,
- * matched or written to MRE (§6.6: three separate confirmations, no „Alles erledigen“).
+ * matched or written to MRE (§6.6: three separate confirmations, no „Alles erledigen“). The block starts collapsed, its
+ * first sentence as the summary (Issue #353 des Projektinhabers, 2026-11-12, point 9).
  */
 export function SplitProposal(props: {
   readonly references: References;
@@ -184,146 +185,158 @@ export function SplitProposal(props: {
   const termText = termProblem === undefined ? (duplicate ? INPUT_TEXTS.DUPLICATE : undefined) : INPUT_TEXTS[termProblem];
 
   return (
-    <section aria-labelledby="aufteilungsvorschlag" className="flex flex-col gap-3 rounded-card border border-border p-4">
-      <h4 id="aufteilungsvorschlag" className="font-semibold">
+    <section aria-labelledby="aufteilungsvorschlag" className="flex flex-col gap-2 rounded-card border border-border p-4">
+      <h3 id="aufteilungsvorschlag" className="font-semibold">
         Aufteilungsvorschlag aus MRE
-      </h4>
-      <p className="text-muted">
-        Für einen Mieteingang: Mieter und Miettermin in MRE wählen, bei einer Sammelzahlung mehrere. DE liest die Beträge des Mietvertrags aus MRE und schlägt
-        Kaltmiete und Nebenkosten vor. Übernommen wird nur in den Entwurf; gespeichert wird erst mit „Aufteilung speichern“. Das ist weder „Buchung bestätigen“
-        noch eine Mietzuordnung noch eine Übertragung an MRE.
-      </p>
-      <form aria-label="Termin für den Vorschlag wählen" noValidate onSubmit={add} className="flex flex-wrap items-end gap-4">
-        <div className="flex flex-col gap-1">
-          <label htmlFor="vorschlag-mieter" className="text-label text-muted">
-            Mieter in MRE (ID)
-          </label>
-          <input
-            id="vorschlag-mieter"
-            className={`${inputClass} font-mono`}
-            value={tenant}
-            spellCheck={false}
-            aria-invalid={tried && tenantText !== undefined}
-            aria-describedby={tried && tenantText !== undefined ? 'vorschlag-mieter-hinweis' : undefined}
-            onChange={(event) => setTenant(event.target.value)}
-          />
-          {hint('vorschlag-mieter-hinweis', tenantText)}
-        </div>
-        <div className="flex flex-col gap-1">
-          <label htmlFor="vorschlag-termin" className="text-label text-muted">
-            Miettermin (MRE-Schlüssel JJJJMMTTHH)
-          </label>
-          <input
-            id="vorschlag-termin"
-            className={`${inputClass} font-mono`}
-            value={termKey}
-            inputMode="numeric"
-            aria-invalid={tried && termText !== undefined}
-            aria-describedby={['vorschlag-termin-format', tried && termText !== undefined ? 'vorschlag-termin-hinweis' : undefined].filter(Boolean).join(' ')}
-            onChange={(event) => setTermKey(event.target.value)}
-          />
-          <p id="vorschlag-termin-format" className="text-label text-muted">
-            Monatstermine enden in MRE auf 0100, z. B. 2026100100 für Oktober 2026.
+      </h3>
+      <details>
+        <summary className="min-h-touch cursor-pointer py-2 text-muted">
+          Für einen Mieteingang: Mieter und Miettermin in MRE wählen, bei einer Sammelzahlung mehrere.
+        </summary>
+        <div className="flex flex-col gap-3">
+          <p className="text-muted">
+            DE liest die Beträge des Mietvertrags aus MRE und schlägt Kaltmiete und Nebenkosten vor. Übernommen wird nur in den Entwurf; gespeichert wird erst
+            mit „Aufteilung speichern“. Das ist weder „Buchung bestätigen“ noch eine Mietzuordnung noch eine Übertragung an MRE.
           </p>
-          {hint('vorschlag-termin-hinweis', termText)}
-        </div>
-        <button type="submit" className={secondaryButtonClass} disabled={props.slot.disabled}>
-          Vorschlag laden
-        </button>
-      </form>
-      {terms.length > 0 && (
-        <ul aria-label="Gewählte Termine" className="flex flex-col gap-2">
-          {terms.map((term, index) => {
-            const read = reads[index];
-            return (
-              <TermCard
-                key={`${term.mreTenantId}/${term.mreRentTerm}`}
-                term={term}
-                read={{ status: read?.status ?? 'pending', data: read?.data, error: read?.error }}
-                currency={currency}
-                removeDisabled={props.slot.disabled}
-                onRemove={() => remove(index)}
+          <form aria-label="Termin für den Vorschlag wählen" noValidate onSubmit={add} className="flex flex-wrap items-end gap-4">
+            <div className="flex flex-col gap-1">
+              <label htmlFor="vorschlag-mieter" className="text-label text-muted">
+                Mieter in MRE (ID)
+              </label>
+              <input
+                id="vorschlag-mieter"
+                className={`${inputClass} font-mono`}
+                value={tenant}
+                spellCheck={false}
+                aria-invalid={tried && tenantText !== undefined}
+                aria-describedby={tried && tenantText !== undefined ? 'vorschlag-mieter-hinweis' : undefined}
+                onChange={(event) => setTenant(event.target.value)}
               />
-            );
-          })}
-        </ul>
-      )}
-      {combined !== undefined && (
-        <div className="flex flex-col gap-2">
-          <table className="w-full text-left">
-            <caption className="text-left font-semibold">Vorgeschlagene Aufteilung</caption>
-            <thead className="border-b border-border text-label text-muted">
-              <tr>
-                <th scope="col" className="p-2">
-                  Kategorie
-                </th>
-                <th scope="col" className="p-2 text-right">
-                  Betrag
-                </th>
-                <th scope="col" className="p-2">
-                  Termin
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {combined.lines.map((line, i) => (
-                <tr key={i}>
-                  <td className="p-2">
-                    <NamedId name={categoryName(props.references, line.financialCategoryCode)} id={line.financialCategoryCode} missing="Unbekannte Kategorie" />
-                  </td>
-                  <td className="p-2 text-right">
-                    {money(line.amount, currency)}
-                    {line.cut && <span className="block text-label text-muted">gekürzt auf den Rest der Zahlung</span>}
-                  </td>
-                  <td className="p-2">
-                    <TenantText id={line.source.mreTenantId} /> · <TermText term={line.source.mreRentTerm} />
-                  </td>
-                </tr>
-              ))}
-              <tr>
-                <td className="p-2 font-semibold">Nicht zugeordneter Rest</td>
-                <td className="p-2 text-right font-semibold">{money(combined.remainder, currency)}</td>
-                <td className="p-2 text-muted">
-                  {combined.remainder === '0.00'
-                    ? 'Die Teilbeträge decken die Zahlung genau.'
-                    : 'Wird als eigene Zeile ohne Kategorie übernommen; bitte selbst zuordnen.'}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-          {versusDue !== undefined && (
-            <p>
-              {`Zahlung ${formatMoney(t.amount) ?? t.amount.amount} gegenüber der Summe der Sollbeträge (MRE) ${formatMoney({ amount: differenceAsDecimal(dues ?? '0', '0'), currency }) ?? ''}: `}
-              {versusDue === '0.00'
-                ? 'deckt sie genau.'
-                : versusDue.startsWith('-')
-                  ? `${formatMoney({ amount: versusDue.slice(1), currency }) ?? versusDue} weniger (Teilzahlung).`
-                  : `${formatMoney({ amount: versusDue, currency }) ?? versusDue} mehr (Überzahlung).`}
-            </p>
+              {hint('vorschlag-mieter-hinweis', tenantText)}
+            </div>
+            <div className="flex flex-col gap-1">
+              <label htmlFor="vorschlag-termin" className="text-label text-muted">
+                Miettermin (MRE-Schlüssel JJJJMMTTHH)
+              </label>
+              <input
+                id="vorschlag-termin"
+                className={`${inputClass} font-mono`}
+                value={termKey}
+                inputMode="numeric"
+                aria-invalid={tried && termText !== undefined}
+                aria-describedby={['vorschlag-termin-format', tried && termText !== undefined ? 'vorschlag-termin-hinweis' : undefined]
+                  .filter(Boolean)
+                  .join(' ')}
+                onChange={(event) => setTermKey(event.target.value)}
+              />
+              <p id="vorschlag-termin-format" className="text-label text-muted">
+                Monatstermine enden in MRE auf 0100, z. B. 2026100100 für Oktober 2026.
+              </p>
+              {hint('vorschlag-termin-hinweis', termText)}
+            </div>
+            <button type="submit" className={secondaryButtonClass} disabled={props.slot.disabled}>
+              Vorschlag laden
+            </button>
+          </form>
+          {terms.length > 0 && (
+            <ul aria-label="Gewählte Termine" className="flex flex-col gap-2">
+              {terms.map((term, index) => {
+                const read = reads[index];
+                return (
+                  <TermCard
+                    key={`${term.mreTenantId}/${term.mreRentTerm}`}
+                    term={term}
+                    read={{ status: read?.status ?? 'pending', data: read?.data, error: read?.error }}
+                    currency={currency}
+                    removeDisabled={props.slot.disabled}
+                    onRemove={() => remove(index)}
+                  />
+                );
+              })}
+            </ul>
           )}
-          {draft === undefined ? (
-            <Notice tone="warning">Der Vorschlag enthält keinen übernehmbaren Teilbetrag (oder mehr als 100 Zeilen).</Notice>
-          ) : (
-            <div className="flex flex-wrap items-center gap-4">
-              <button type="button" className={secondaryButtonClass} disabled={props.slot.disabled} onClick={apply}>
-                Vorschlag in Aufteilung übernehmen
-              </button>
-              <span className="text-label text-muted">Ersetzt den Entwurf unten; „Entwurf verwerfen“ stellt die gespeicherte Aufteilung wieder her.</span>
+          {combined !== undefined && (
+            <div className="flex flex-col gap-2">
+              <table className="w-full text-left">
+                <caption className="text-left font-semibold">Vorgeschlagene Aufteilung</caption>
+                <thead className="border-b border-border text-label text-muted">
+                  <tr>
+                    <th scope="col" className="p-2">
+                      Kategorie
+                    </th>
+                    <th scope="col" className="p-2 text-right">
+                      Betrag
+                    </th>
+                    <th scope="col" className="p-2">
+                      Termin
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {combined.lines.map((line, i) => (
+                    <tr key={i}>
+                      <td className="p-2">
+                        <IdText
+                          name={categoryName(props.references, line.financialCategoryCode)}
+                          id={line.financialCategoryCode}
+                          missing="Unbekannte Kategorie"
+                        />
+                      </td>
+                      <td className="p-2 text-right">
+                        {money(line.amount, currency)}
+                        {line.cut && <span className="block text-label text-muted">gekürzt auf den Rest der Zahlung</span>}
+                      </td>
+                      <td className="p-2">
+                        <TenantText id={line.source.mreTenantId} /> · <TermText term={line.source.mreRentTerm} />
+                      </td>
+                    </tr>
+                  ))}
+                  <tr>
+                    <td className="p-2 font-semibold">Nicht zugeordneter Rest</td>
+                    <td className="p-2 text-right font-semibold">{money(combined.remainder, currency)}</td>
+                    <td className="p-2 text-muted">
+                      {combined.remainder === '0.00'
+                        ? 'Die Teilbeträge decken die Zahlung genau.'
+                        : 'Wird als eigene Zeile ohne Kategorie übernommen; bitte selbst zuordnen.'}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+              {versusDue !== undefined && (
+                <p>
+                  {`Zahlung ${formatMoney(t.amount) ?? t.amount.amount} gegenüber der Summe der Sollbeträge (MRE) ${formatMoney({ amount: differenceAsDecimal(dues ?? '0', '0'), currency }) ?? ''}: `}
+                  {versusDue === '0.00'
+                    ? 'deckt sie genau.'
+                    : versusDue.startsWith('-')
+                      ? `${formatMoney({ amount: versusDue.slice(1), currency }) ?? versusDue} weniger (Teilzahlung).`
+                      : `${formatMoney({ amount: versusDue, currency }) ?? versusDue} mehr (Überzahlung).`}
+                </p>
+              )}
+              {draft === undefined ? (
+                <Notice tone="warning">Der Vorschlag enthält keinen übernehmbaren Teilbetrag (oder mehr als 100 Zeilen).</Notice>
+              ) : (
+                <div className="flex flex-wrap items-center gap-4">
+                  <button type="button" className={secondaryButtonClass} disabled={props.slot.disabled} onClick={apply}>
+                    Vorschlag in Aufteilung übernehmen
+                  </button>
+                  <span className="text-label text-muted">Ersetzt den Entwurf unten; „Entwurf verwerfen“ stellt die gespeicherte Aufteilung wieder her.</span>
+                </div>
+              )}
             </div>
           )}
+          {loaded === undefined && reads.some((read) => read.status === 'error') && (
+            <p className="text-muted">Übernehmen erst, wenn jeder gewählte Termin gelesen ist; einen nicht lesbaren Termin bitte entfernen.</p>
+          )}
+          {applied === t.version && (
+            <div role="status">
+              <Notice tone="info">Vorschlag in den Entwurf übernommen. Noch ist nichts gespeichert: „Aufteilung speichern“ sendet die Aufteilung.</Notice>
+            </div>
+          )}
+          {reads.some((read) => read.error instanceof ApiError && read.error.status === 503) && (
+            <p className="text-muted">MRE war nicht erreichbar; der Vorschlag kann später erneut geladen werden (Termin entfernen und neu wählen).</p>
+          )}
         </div>
-      )}
-      {loaded === undefined && reads.some((read) => read.status === 'error') && (
-        <p className="text-muted">Übernehmen erst, wenn jeder gewählte Termin gelesen ist; einen nicht lesbaren Termin bitte entfernen.</p>
-      )}
-      {applied === t.version && (
-        <div role="status">
-          <Notice tone="info">Vorschlag in den Entwurf übernommen. Noch ist nichts gespeichert: „Aufteilung speichern“ sendet die Aufteilung.</Notice>
-        </div>
-      )}
-      {reads.some((read) => read.error instanceof ApiError && read.error.status === 503) && (
-        <p className="text-muted">MRE war nicht erreichbar; der Vorschlag kann später erneut geladen werden (Termin entfernen und neu wählen).</p>
-      )}
+      </details>
     </section>
   );
 }

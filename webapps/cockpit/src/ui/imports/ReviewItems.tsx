@@ -2,10 +2,10 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ApiError } from '../../api/errors';
 import type { ConflictingTransactionDto, ImportBatchDto, ResolveInputDto, ReviewItemDto } from '../../api/imports';
 import type { MoneyValue } from '../../format/money';
-import { onLinkClick } from '../../navigation';
 import { importBatchPath, transactionPath } from '../../routing';
 import { DateText, MoneyText, TimestampText } from '../format';
 import { ConfirmStep, useConfirmStep } from '../ConfirmStep';
+import { Link } from '../Link';
 import type { Loadable } from '../RealmChoice';
 import { buttonClass, ErrorState, isRetryable, LoadingState, Notice, ReadProblem, secondaryButtonClass } from '../states';
 import { directionLabel } from '../transactions/labels';
@@ -96,14 +96,6 @@ function Values({ side, children }: { readonly side: Side; readonly children?: R
       <dd className="break-words">{side.externalTransactionId ?? none}</dd>
       {children}
     </dl>
-  );
-}
-
-function Link({ href, children }: { readonly href: string; readonly children: ReactNode }) {
-  return (
-    <a className="text-primary underline" href={href} onClick={(event) => onLinkClick(event, href)}>
-      {children}
-    </a>
   );
 }
 
@@ -300,6 +292,7 @@ function ReviewItemCard(props: {
             {step.asking !== undefined ? (
               <div className="mt-2">
                 <ConfirmStep
+                  level={4}
                   id={`klaerfall-${item.reviewItemId}-frage`}
                   title={QUESTIONS[step.asking].title}
                   confirmLabel={QUESTIONS[step.asking].confirm}

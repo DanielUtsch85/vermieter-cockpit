@@ -4,7 +4,7 @@ import { act as testingLibraryAct, cleanup, fireEvent, render, screen, waitFor, 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createDeClient } from '../../api/client';
 import { countingTokens, envelope, json, routedFetch, type Call } from '../../api/fetch.test-support';
-import { useLocationPath, useLocationSearch } from '../../navigation';
+import { navigate, useLocationPath, useLocationSearch } from '../../navigation';
 import { createQueryClient } from '../../query';
 import { confirmed, read, reconciliation, REC, released, suggestResult, TENANT, TERM, termCoverage, written } from '../../rent/fixtures.test-support';
 import { parseRoute } from '../../routing';
@@ -159,6 +159,30 @@ describe('suggest and the list (ui-guide.md §6.6 steps 5 and 6)', () => {
   });
 });
 
+describe('the list, one main link per row (Issue #353 des Projektinhabers, 2026-11-12, point 8)', () => {
+  it('the term date is the main text; Tenant id and term key on one small line; the only link opens the reconciliation', async () => {
+    area({ [LIST]: [() => json(200, page([reconciliation()]))] });
+    const rows = within(await screen.findByRole('list', { name: 'Zuordnungen, Seite 1 von 1' })).getAllByRole('listitem');
+    expect(rows).toHaveLength(1);
+    const row = rows[0] as HTMLElement;
+    expect(within(row).getByText('Termin 01.03.2026').className).toBe('font-semibold');
+    const keys = within(row).getByText(TENANT).parentElement as HTMLElement;
+    expect(keys.tagName).toBe('P');
+    expect(keys.className).toBe('text-label text-muted');
+    expect(keys.textContent).toBe(`Mieter in MRE ${TENANT} · Terminschlüssel ${TERM}`);
+    const links = within(row).getAllByRole('link');
+    expect(links.map((link) => [link.textContent, link.getAttribute('href')])).toEqual([['Vorschlag prüfen', `${BASE}/${REC}`]]);
+    expect(within(row).queryByRole('link', { name: 'Buchung öffnen' })).toBeNull();
+    expect(within(row).queryByRole('link', { name: 'Abdeckung des Termins' })).toBeNull();
+  });
+
+  it('the detail links the Transaction and the coverage of the term', async () => {
+    area({ [DETAIL]: [() => json(200, read())], [TX_GET]: [() => json(200, detail({ status: 'CONFIRMED' }))] }, `${BASE}/${REC}`);
+    expect((await screen.findByRole('link', { name: 'Buchung öffnen' })).getAttribute('href')).toBe(`/cockpit/r/${REALM_A}/buchungen/${TX}`);
+    expect(screen.getByRole('link', { name: 'Abdeckung des Termins' }).getAttribute('href')).toBe(`${BASE}/termin/${TENANT}/${TERM}`);
+  });
+});
+
 describe('no MRE write by rendering, refetch, tab change or remount (ui-guide.md §11)', () => {
   it('a confirmed, not written match: mount, render again, refetch, change tabs, remount: zero commands; only the click sends', async () => {
     const detailAnswer = () => json(200, read({ ...confirmed() }), { etag: '"2"' });
@@ -177,8 +201,10 @@ describe('no MRE write by rendering, refetch, tab change or remount (ui-guide.md
     await act(async () => {
       await queryClient.refetchQueries();
     });
-    // Tab change: to the list, through its status tabs, and back to the detail.
-    link('Mietabgleich');
+    // Tab change: to the list (the breadcrumb „Mietabgleich“ is the shell's, AppShell), through its status tabs, and back.
+    await act(() => {
+      navigate(BASE);
+    });
     await screen.findByText('Vorschläge und Zuordnungen');
     link('Bestätigt');
     await screen.findAllByText('Zuordnung bestätigt');
@@ -314,11 +340,25 @@ describe('the coverage of a term (ui-guide.md §6.6; api-design.md §37.2)', () 
     const mre = screen.getByRole('region', { name: 'MRE-Zahlungsstand' });
     expect(de.textContent).toContain('Summe der bestätigten Zuordnungen: 800,00 €');
     expect(mre.textContent).toContain('Sollbetrag laut MRE (ohne Vortrag): 850,00 €');
-    expect(within(mre).getByRole('list', { name: 'Zahlungen in MRE' }).textContent).toContain('02.03.2026 · 850,00 € · cash');
+    expect(within(mre).getByRole('list', { name: 'Zahlungen in MRE' }).textContent).toContain('02.03.2026 · 850,00 € · Bar');
     expect(de.textContent).not.toContain('1.650');
     const coverage = screen.getByRole('region', { name: 'Deckung' });
     expect(coverage.textContent).toContain('Teilweise zugeordnet.');
     expect(coverage.textContent).toContain('Offener Betrag: 50,00 € (Sollbetrag laut MRE abzüglich der bestätigten Zuordnungen in DE');
+  });
+
+  it('MRE payment types in German, an unknown one with its code, none as such (Issue #353, point 9)', async () => {
+    const base = termCoverage();
+    const payment = (type: string | null) => ({ date: '2026-03-02', amount: { amount: '10.00', currency: 'EUR' }, type, reference: null });
+    const types = ['transfer', 'cash', 'cheque', 'levy', 'crypto', '', null];
+    area({ [TERM_GET]: [() => json(200, { ...base, mre: { ...base.mre, payments: types.map(payment) } })] }, at);
+    const payments = await screen.findByRole('list', { name: 'Zahlungen in MRE' });
+    expect(
+      within(payments)
+        .getAllByRole('listitem')
+        .map((item) => item.textContent?.split(' · ').at(-1)),
+    ).toEqual(['Überweisung', 'Bar', 'Scheck', 'Lastschrift', 'Unbekannte Zahlungsart (crypto)', 'ohne Art', 'ohne Art']);
+    expect(payments.textContent).not.toMatch(/transfer|cash|cheque|levy/);
   });
 
   it('NOT_RETURNED and UNAVAILABLE are different texts; without MRE nothing is said to be paid and DE matches stay', async () => {

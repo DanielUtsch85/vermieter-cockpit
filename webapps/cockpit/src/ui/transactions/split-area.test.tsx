@@ -80,7 +80,7 @@ describe('step 3, the editor in the Buchungen area', () => {
   it('confirmed, corrected, ignored or unknown statuses get no editor', async () => {
     for (const status of ['CONFIRMED', 'RECONCILED', 'CORRECTED', 'IGNORED', 'SOMETHING_NEW']) {
       area({ [DETAIL]: [() => json(200, detail({ status: status as never }), { etag: '"3"' })] });
-      await screen.findByRole('heading', { name: /Buchung vom/ });
+      await screen.findByRole('heading', { name: 'Angaben zur Buchung' });
       expect(screen.queryByRole('form', { name: 'Aufteilung bearbeiten' }), status).toBeNull();
       cleanup();
     }
@@ -103,7 +103,7 @@ describe('step 3, the editor in the Buchungen area', () => {
     await screen.findByRole('form', { name: 'Aufteilung bearbeiten' });
     rerender(at(TX_REPLACEMENT));
     await waitFor(() => expect(screen.queryByRole('form', { name: 'Aufteilung bearbeiten' })).toBeNull());
-    await screen.findByRole('heading', { name: /Buchung vom/ });
+    await screen.findByRole('heading', { name: 'Angaben zur Buchung' });
     expect(screen.queryByRole('form', { name: 'Aufteilung bearbeiten' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Aufteilung speichern' })).toBeNull();
   });

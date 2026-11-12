@@ -2,9 +2,12 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { DeClient } from '../../api/client';
 import { getImportBatch, importBankTransactions, listReviewItems, resolveReviewItem, type ImportBatchDto } from '../../api/imports';
 import { listFinancialAccounts } from '../../api/transactions';
-import { navigate, onLinkClick } from '../../navigation';
+import { formatTimestamp } from '../../format/dates';
+import { navigate } from '../../navigation';
 import { realmKey } from '../../query';
 import { AREAS, areaPath, importBatchPath } from '../../routing';
+import { Link } from '../Link';
+import { PageTitle } from '../PageTitle';
 import { LoadingState, ReadProblem, secondaryButtonClass } from '../states';
 import { transactionKeys } from '../transactions/TransactionsArea';
 import { ImportForm } from './ImportForm';
@@ -87,13 +90,13 @@ function ImportBatchPage(props: {
     reread();
     void queryClient.invalidateQueries({ queryKey: transactionKeys.all(props.realmId, props.epoch) });
   };
+  const importedAt = shown === undefined ? undefined : formatTimestamp(shown.importedAt);
   return (
     <>
+      <PageTitle title={importedAt === undefined ? 'Importergebnis' : `Import vom ${importedAt}`} />
       <ImportSteps current={3} />
       <div className="flex flex-wrap items-center gap-4">
-        <a className="text-primary underline" href={newImport} onClick={(event) => onLinkClick(event, newImport)}>
-          Neue Datei importieren
-        </a>
+        <Link href={newImport}>Neue Datei importieren</Link>
         <button type="button" className={secondaryButtonClass} disabled={batch.isFetching || items.isFetching} onClick={reread}>
           Ergebnis neu laden
         </button>

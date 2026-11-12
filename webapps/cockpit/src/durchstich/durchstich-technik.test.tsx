@@ -27,22 +27,31 @@ import {
 const backend = useDurchstich();
 const TECHNICAL = /If-Match|ETag/;
 
-/** The text a user reads without opening a „Technische Angaben“ block. */
+/** The summary of the split proposal, the one collapsed block that is not „Technische Angaben“ (Issue #353, point 9). */
+const PROPOSAL_SUMMARY = 'Für einen Mieteingang: Mieter und Miettermin in MRE wählen, bei einer Sammelzahlung mehrere.';
+
+const technicalBlocks = (root: ParentNode) =>
+  [...root.querySelectorAll('details')].filter((details) => details.querySelector('summary')?.textContent === 'Technische Angaben');
+
+/** The text a user reads without opening a „Technische Angaben“ block (the proposal's text counts as visible). */
 function visibleText(): string {
   const copy = document.body.cloneNode(true) as HTMLElement;
-  for (const details of copy.querySelectorAll('details')) details.remove();
+  for (const details of technicalBlocks(copy)) details.remove();
   return copy.textContent ?? '';
 }
 
 /** The text of the collapsed blocks: where the version and the ids are kept. */
-const detailsText = () => [...document.querySelectorAll('details')].map((d) => d.textContent ?? '').join(' | ');
+const detailsText = () =>
+  technicalBlocks(document)
+    .map((d) => d.textContent ?? '')
+    .join(' | ');
 
 async function expectNoTechnicalText(where: string) {
   await settle();
   expect(visibleText(), where).not.toMatch(TECHNICAL);
   for (const details of document.querySelectorAll('details')) {
     expect(details.open, where).toBe(false);
-    expect(details.querySelector('summary')?.textContent, where).toBe('Technische Angaben');
+    expect(['Technische Angaben', PROPOSAL_SUMMARY], where).toContain(details.querySelector('summary')?.textContent);
   }
 }
 

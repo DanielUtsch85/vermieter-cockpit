@@ -3,6 +3,7 @@ import type { FieldError } from '../../api/errors';
 import { formatBusinessDate } from '../../format/dates';
 import { filterValues, PAGE_SIZES, paramsFromForm, reviewableSet, type FilterName, type ListParams } from '../../transactions/list-params';
 import { describeFieldError } from '../error-text';
+import { Link } from '../Link';
 import { buttonClass } from '../states';
 import { accountStatusLabel, PROVENANCE_CODES, provenanceLabel, STATUS_CODES, statusLabel } from './labels';
 import type { References } from './references';
@@ -96,7 +97,7 @@ export function FilterBar(props: {
   const accounts = references.accounts.status === 'success' ? references.accounts.data.items : [];
   const properties = references.properties.status === 'success' ? references.properties.data.items : [];
   const categories = references.categories.status === 'success' ? references.categories.data : [];
-  // „Nur prüfbare“ is a shortcut: while it is set, the status choice is empty and locked, so the bar never offers a
+  // „Nur zu prüfende“ is a shortcut: while it is set, the status choice is empty and locked, so the bar never offers a
   // status together with `reviewable=true` (Entscheidung des Projektinhabers, 2026-11-10). The bar is keyed by the
   // URL (TransactionList), so this state starts afresh from every URL.
   const [reviewable, setReviewable] = useState(reviewableSet(params));
@@ -211,7 +212,7 @@ export function FilterBar(props: {
           </div>
           {reviewable && (
             <p id={STATUS_LOCK_NOTE} className="text-label text-muted">
-              Gesperrt, solange „Nur prüfbare“ gesetzt ist.
+              Gesperrt, solange „Nur zu prüfende“ gesetzt ist.
               {urlStatuses.length > 0 &&
                 ` Aus der Adresse gilt für diese Liste zusätzlich der Status: ${urlStatuses.map((code) => statusLabel(code).text).join(', ')}. Mit „Filter anwenden“ entfällt er.`}
             </p>
@@ -247,7 +248,7 @@ export function FilterBar(props: {
       <div className="flex flex-wrap gap-x-6">
         {(
           [
-            ['reviewable', 'Nur prüfbare (Importiert oder Ungeprüft)'],
+            ['reviewable', 'Nur zu prüfende (Importiert oder Ungeprüft)'],
             ['current', 'Nur aktuelle (bestätigt oder abgeglichen, ohne Storno und Korrigierte)'],
           ] as const
         ).map(([name, label]) => (
@@ -302,9 +303,9 @@ export function FilterBar(props: {
         <button type="submit" className={buttonClass}>
           Filter anwenden
         </button>
-        <a className="text-primary underline" href={props.resetHref}>
+        <Link href={props.resetHref} reload>
           Filter zurücksetzen
-        </a>
+        </Link>
       </div>
     </form>
   );

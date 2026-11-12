@@ -77,7 +77,7 @@ describe('„Stornieren“ in the Buchungen area', () => {
     ];
     for (const [name, response, offered] of cases) {
       area({ [at(TX)]: [() => response] });
-      await screen.findByRole('heading', { name: /Buchung vom/ });
+      await screen.findByRole('heading', { name: 'Angaben zur Buchung' });
       const korrigieren = screen.queryByRole('button', { name: 'Korrektur erfassen' });
       const stornieren = screen.queryByRole<HTMLButtonElement>('button', { name: 'Stornieren' });
       expect(stornieren !== null, name).toBe(offered);

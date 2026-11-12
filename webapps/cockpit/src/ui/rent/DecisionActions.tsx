@@ -98,9 +98,9 @@ export function DecisionActions(props: {
 
   return (
     <section aria-labelledby="vorschlag-pruefen" className="rounded-card border border-border bg-surface p-6">
-      <h3 id="vorschlag-pruefen" className="mb-2 text-section font-semibold">
+      <h2 id="vorschlag-pruefen" className="mb-2 text-section font-semibold">
         Vorschlag prüfen
-      </h3>
+      </h2>
       <p className="text-muted">
         „Zuordnung bestätigen“ ordnet die Zahlung in DE dem Termin zu. An MRE wird dabei nichts übertragen; das ist danach ein eigener Schritt.
       </p>

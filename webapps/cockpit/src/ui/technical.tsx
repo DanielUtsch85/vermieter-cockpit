@@ -27,16 +27,3 @@ export function TechnicalDetails({
     </details>
   );
 }
-
-/**
- * A resolved name with its id as a tooltip (`title`); without a name the id stays visible, it is then the only way to
- * tell the reference apart (Issue #352: a code value stays only where there is no name).
- */
-export function NamedId({ name, id, missing = 'Name nicht verfügbar' }: { readonly name: string | undefined; readonly id: string; readonly missing?: string }) {
-  if (name !== undefined) return <span title={id}>{name}</span>;
-  return (
-    <>
-      <span className="text-muted">{missing}</span> <code className="font-mono text-label">{id}</code>
-    </>
-  );
-}

@@ -27,9 +27,9 @@ export function TransactionRentSection({
 }) {
   return (
     <section aria-labelledby="buchung-mietabgleich" className="rounded-card border border-border bg-surface p-6">
-      <h3 id="buchung-mietabgleich" className="mb-2 text-section font-semibold">
+      <h2 id="buchung-mietabgleich" className="mb-2 text-section font-semibold">
         Mietabgleich dieser Buchung
-      </h3>
+      </h2>
       {coverage.status === 'pending' ? (
         <LoadingState label="Mietabgleich wird geladen …" />
       ) : coverage.status === 'error' ? (

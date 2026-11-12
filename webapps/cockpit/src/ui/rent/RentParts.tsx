@@ -1,18 +1,14 @@
 import type { ReactNode } from 'react';
 import type { RentReconciliationDto } from '../../api/rent-reconciliations';
 import { formatBusinessDate } from '../../format/dates';
-import { onLinkClick } from '../../navigation';
 import { reconciliationPath, rentTermPath, transactionPath } from '../../routing';
 import { termDate } from '../../rent/reconciliation-rules';
-import type { CodeLabel } from '../transactions/labels';
-import { TONES } from '../transactions/TransactionList';
+import { Badge } from '../Badge';
+import { IdText } from '../IdText';
+import { Link } from '../Link';
 import { reconciliationStatusLabel, writeBackStateLabel } from './rent-labels';
 
 /** Shared pieces of step 6: the two badges, the term, the Tenant and the links (ui-guide.md §6.6). */
-
-export function Badge({ label }: { readonly label: CodeLabel }) {
-  return <span className={`inline-block whitespace-nowrap rounded-input border px-2 text-label ${TONES[label.tone]}`}>{label.text}</span>;
-}
 
 /** Status **and** `mreWriteBackState`: two separate badges, never merged into one (§6.6). */
 export function ReconciliationBadges({ r }: { readonly r: Pick<RentReconciliationDto, 'status' | 'mreWriteBackState'> }) {
@@ -30,22 +26,17 @@ export function ReconciliationBadges({ r }: { readonly r: Pick<RentReconciliatio
   );
 }
 
-export function Link({ href, children }: { readonly href: string; readonly children: ReactNode }) {
-  return (
-    <a className="text-primary underline" href={href} onClick={(event) => onLinkClick(event, href)}>
-      {children}
-    </a>
-  );
+/** The date an MRE term key names („Termin 01.10.2026“), or that it names none. */
+export function TermDate({ term }: { readonly term: string }) {
+  const date = termDate(term);
+  return date === undefined ? <span className="text-muted">Termin nicht lesbar</span> : <>{`Termin ${formatBusinessDate(date) ?? date}`}</>;
 }
-
-export const Code = ({ value }: { readonly value: string }) => <code className="font-mono text-label">{value}</code>;
 
 /** MRE's term key with the date it names; the key itself stays visible (ui-guide.md §5.2: a key, not a timestamp). */
 export function TermText({ term }: { readonly term: string }) {
-  const date = termDate(term);
   return (
     <>
-      {date === undefined ? <span className="text-muted">Termin nicht lesbar</span> : `Termin ${formatBusinessDate(date) ?? date}`} <Code value={term} />
+      <TermDate term={term} /> <IdText id={term} />
     </>
   );
 }
@@ -57,7 +48,7 @@ export function TermText({ term }: { readonly term: string }) {
 export function TenantText({ id }: { readonly id: string }) {
   return (
     <>
-      <span className="text-muted">Mieter in MRE</span> <Code value={id} />
+      <span className="text-muted">Mieter in MRE</span> <IdText id={id} />
     </>
   );
 }

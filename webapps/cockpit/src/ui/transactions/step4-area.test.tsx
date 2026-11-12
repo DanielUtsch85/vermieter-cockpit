@@ -72,7 +72,7 @@ describe('step 4 in the Buchungen area', () => {
     });
     fireEvent.click(await screen.findByRole('button', { name: 'Buchung bestätigen' }));
     expect(screen.getByRole('form', { name: 'Aufteilung bearbeiten' })).toBeTruthy();
-    const heading = screen.getByRole('heading', { name: /Buchung vom/ }).parentElement as HTMLElement;
+    const heading = screen.getByRole('heading', { name: 'Angaben zur Buchung' }).parentElement as HTMLElement;
     expect(within(heading).getByText('Aufgeteilt')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Jetzt bestätigen' }));
     await screen.findByText(/Buchung bestätigt \(Version 5/);
@@ -128,7 +128,7 @@ describe('step 4 in the Buchungen area', () => {
     ];
     for (const [name, response] of cases) {
       area({ [at(TX)]: [() => response] });
-      await screen.findByRole('heading', { name: /Buchung vom/ });
+      await screen.findByRole('heading', { name: 'Angaben zur Buchung' });
       expect(screen.queryByRole('button', { name: 'Korrektur erfassen' }), name).toBeNull();
       if (name !== 'CLASSIFIED') expect(screen.queryByRole('button', { name: 'Buchung bestätigen' }), name).toBeNull();
       if (name === 'CORRECTED') expect(screen.queryByRole('form', { name: 'Aufteilung bearbeiten' })).toBeNull();
@@ -145,7 +145,7 @@ describe('step 4 in the Buchungen area', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Jetzt bestätigen' }));
     await screen.findByText('Antwort eines anderen Bestands');
     expect(screen.queryByText(/Buchung bestätigt \(/)).toBeNull();
-    const heading = screen.getByRole('heading', { name: /Buchung vom/ }).parentElement as HTMLElement;
+    const heading = screen.getByRole('heading', { name: 'Angaben zur Buchung' }).parentElement as HTMLElement;
     expect(within(heading).getByText('Aufgeteilt')).toBeTruthy();
   });
 

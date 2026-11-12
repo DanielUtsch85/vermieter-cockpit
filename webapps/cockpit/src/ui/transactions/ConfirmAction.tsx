@@ -181,7 +181,7 @@ export function ConfirmAction(props: {
           onCancel={cancel}
         >
           <p>
-            {`Bestätigt wird die gespeicherte Aufteilung (Version ${t.version}). Danach sind Betrag, Datum, Konto und Aufteilung unveränderlich; ändern lässt sich die Buchung nur noch über eine Korrektur.`}
+            {`Bestätigt wird die gespeicherte Aufteilung (Version ${t.version}). Danach sind Betrag, Datum, Konto und Aufteilung unveränderlich; ändern lässt sich die Buchung nur noch über eine Korrektur oder ein Storno.`}
           </p>
         </ConfirmStep>
       ) : (
@@ -217,9 +217,9 @@ export function ConfirmAction(props: {
 function ConfirmCard({ children }: { readonly children: ReactNode }) {
   return (
     <section aria-labelledby="bestaetigen" className="rounded-card border border-border bg-surface p-6">
-      <h3 id="bestaetigen" className="mb-2 text-section font-semibold">
+      <h2 id="bestaetigen" className="mb-2 text-section font-semibold">
         Bestätigen
-      </h3>
+      </h2>
       <p className="mb-3 text-muted">
         Mit der Bestätigung wird die gespeicherte Aufteilung eingefroren. Danach lässt sich die Buchung nur noch über eine Korrektur oder ein Storno ändern.
       </p>

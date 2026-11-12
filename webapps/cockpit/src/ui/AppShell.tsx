@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 
 import { onLinkClick } from '../navigation';
 import { AREAS, areaPath, leaveRealm, signOutAndReload, type Area } from '../routing';
 import { useSession } from '../session/use-session';
+import { Breadcrumbs } from './Breadcrumbs';
+import { PageTitleContext } from './PageTitle';
 import { pageTitle, secondaryButtonClass, useDocumentTitle } from './states';
 
 const NAV_ID = 'hauptnavigation';
@@ -12,6 +14,9 @@ const NAV_ID = 'hauptnavigation';
  * On small screens the navigation is a drawer behind the "Menü" button (§4.2); it closes with Escape, which returns the
  * focus to the button, and with the choice of an area. After a navigation inside the Realm the focus moves to the new
  * page's title (also from the list to a Transaction and back), so keyboard and screen reader users start on the new page (§4.3, §11).
+ * The `h1` names the page: on a sub-page the title its `PageTitle` gives („Buchung vom 03.11.2026“), with the area in
+ * the breadcrumbs and in the browser tab; on an area's own page the area (Issue #353 des Projektinhabers, 2026-11-12,
+ * point 5). The `h1` stays one element while the title changes, so the focus stays on it when the page has loaded.
  */
 export function AppShell(props: {
   readonly realmId: string;
@@ -30,8 +35,9 @@ export function AppShell(props: {
   const focusKey = props.focusKey ?? props.area.id;
   const shownPage = useRef(focusKey);
   const realmLabel = props.realmName ?? props.realmId;
+  const [subPage, setSubPage] = useState<string | undefined>(undefined);
 
-  useDocumentTitle(pageTitle(props.area.label, realmLabel));
+  useDocumentTitle(pageTitle(subPage ?? '', props.area.label, realmLabel));
 
   useEffect(() => {
     if (shownPage.current === focusKey) return;
@@ -111,11 +117,14 @@ export function AppShell(props: {
             </button>
           </header>
           <main id="inhalt" className="flex flex-col gap-6 px-6 py-6">
-            <h1 ref={heading} tabIndex={-1} className="text-title font-semibold">
-              {props.area.label}
-            </h1>
+            <div className="flex flex-col gap-2">
+              {subPage !== undefined && <Breadcrumbs items={[{ label: props.area.label, href: areaPath(props.realmId, props.area) }, { label: subPage }]} />}
+              <h1 ref={heading} tabIndex={-1} className="text-title font-semibold">
+                {subPage ?? props.area.label}
+              </h1>
+            </div>
             {props.access}
-            {props.children}
+            <PageTitleContext.Provider value={setSubPage}>{props.children}</PageTitleContext.Provider>
           </main>
         </div>
       </div>

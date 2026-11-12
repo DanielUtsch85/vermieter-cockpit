@@ -1,7 +1,8 @@
 import type { TermCoverageDto } from '../../api/rent-reconciliations';
 import { DateText, MoneyText } from '../format';
-import { coverageText, mreStatusText } from './rent-labels';
-import { Code, ReconciliationBadges, ReconciliationLink, TenantText, TermText, TransactionLink } from './RentParts';
+import { coverageText, mrePaymentTypeText, mreStatusText } from './rent-labels';
+import { ReconciliationBadges, ReconciliationLink, TenantText, TermText, TransactionLink } from './RentParts';
+import { IdText } from '../IdText';
 
 /**
  * The coverage of one MRE rent term (api-design.md §37.2; ui-guide.md §6.6): DE's confirmed matches and MRE's own
@@ -14,7 +15,7 @@ export function TermCoverageView({ realmId, coverage: c }: { readonly realmId: s
     <>
       <section aria-labelledby="termin" className="rounded-card border border-border bg-surface p-6">
         <h2 id="termin" className="mb-2 text-section font-semibold">
-          Abdeckung des Termins
+          Mieter und Termin
         </h2>
         <p>
           <TenantText id={c.mreTenantId} /> · <TermText term={c.mreRentTerm} />
@@ -22,9 +23,9 @@ export function TermCoverageView({ realmId, coverage: c }: { readonly realmId: s
       </section>
       <div className="grid gap-4 md:grid-cols-2">
         <section aria-labelledby="termin-de" className="rounded-card border border-border bg-surface p-6">
-          <h3 id="termin-de" className="mb-2 text-section font-semibold">
+          <h2 id="termin-de" className="mb-2 text-section font-semibold">
             Aus bestätigten Buchungen (DE)
-          </h3>
+          </h2>
           <p>
             {'Summe der bestätigten Zuordnungen: '}
             <MoneyText money={c.matchedTotal} />
@@ -44,9 +45,9 @@ export function TermCoverageView({ realmId, coverage: c }: { readonly realmId: s
           )}
         </section>
         <section aria-labelledby="termin-mre" className="rounded-card border border-border bg-surface p-6">
-          <h3 id="termin-mre" className="mb-2 text-section font-semibold">
+          <h2 id="termin-mre" className="mb-2 text-section font-semibold">
             MRE-Zahlungsstand
-          </h3>
+          </h2>
           <p>{mreStatusText(c.mreStatus)}</p>
           {c.mre !== null && (
             <>
@@ -61,11 +62,11 @@ export function TermCoverageView({ realmId, coverage: c }: { readonly realmId: s
                 <ul aria-label="Zahlungen in MRE" className="mt-2 flex flex-col gap-1">
                   {c.mre.payments.map((p, i) => (
                     <li key={i}>
-                      <DateText value={p.date} /> · <MoneyText money={p.amount} /> · {p.type === null || p.type === '' ? 'ohne Art' : p.type}
+                      <DateText value={p.date} /> · <MoneyText money={p.amount} /> · {mrePaymentTypeText(p.type)}
                       {p.reference !== null && p.reference !== '' && (
                         <>
                           {' · Kennung '}
-                          <Code value={p.reference} />
+                          <IdText id={p.reference} />
                         </>
                       )}
                     </li>
@@ -77,9 +78,9 @@ export function TermCoverageView({ realmId, coverage: c }: { readonly realmId: s
         </section>
       </div>
       <section aria-labelledby="termin-deckung" className="rounded-card border border-border bg-surface p-6">
-        <h3 id="termin-deckung" className="mb-2 text-section font-semibold">
+        <h2 id="termin-deckung" className="mb-2 text-section font-semibold">
           Deckung
-        </h3>
+        </h2>
         <p>{coverageText(c.coverage)}</p>
         {c.openAmount !== null && c.coverage !== null && (
           <p className="mt-2">

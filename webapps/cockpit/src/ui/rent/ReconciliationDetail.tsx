@@ -9,7 +9,8 @@ import { TechnicalDetails } from '../technical';
 import { directionLabel } from '../transactions/labels';
 import { StatusBadge } from '../transactions/TransactionList';
 import { confidenceText, suggestionReasonText, writeBackErrorText } from './rent-labels';
-import { Code, ReconciliationBadges, TenantText, TermLink, TermText, TransactionLink } from './RentParts';
+import { ReconciliationBadges, TenantText, TermLink, TermText, TransactionLink } from './RentParts';
+import { IdText } from '../IdText';
 
 function Row({ label, children }: { readonly label: string; readonly children: ReactNode }) {
   return (
@@ -48,7 +49,7 @@ function TransactionSummary({ realmId, id, read }: { readonly realmId: string; r
       read.error instanceof ApiError && read.error.status === 404 ? 'Buchung nicht gefunden oder nicht zugänglich' : 'Buchung konnte nicht gelesen werden';
     return (
       <>
-        {none(text)} <Code value={id} /> <TransactionLink realmId={realmId} id={id} />
+        {none(text)} <IdText id={id} /> <TransactionLink realmId={realmId} id={id} />
       </>
     );
   }
@@ -88,7 +89,7 @@ export function ReconciliationDetailView({
     <section aria-labelledby="zuordnung" className="rounded-card border border-border bg-surface p-6">
       <div className="mb-2 flex flex-wrap items-center gap-3">
         <h2 id="zuordnung" className="text-section font-semibold">
-          Mietzuordnung
+          Angaben zur Zuordnung
         </h2>
         <ReconciliationBadges r={r} />
       </div>
@@ -126,7 +127,7 @@ export function ReconciliationDetailView({
           {r.mrePayment !== null && (
             <span className="block">
               {'Zahlung in MRE: '}
-              {mreDateText(r.mrePayment.date)} · <MoneyText money={r.mrePayment.amount} /> · Kennung <Code value={r.mrePayment.reference} />
+              {mreDateText(r.mrePayment.date)} · <MoneyText money={r.mrePayment.amount} /> · Kennung <IdText id={r.mrePayment.reference} />
             </span>
           )}
         </Row>

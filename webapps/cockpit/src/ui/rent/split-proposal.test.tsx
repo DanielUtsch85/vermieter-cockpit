@@ -62,6 +62,21 @@ async function choose(tenant: string, term: string) {
 
 afterEach(cleanup);
 
+describe('the proposal starts collapsed (Issue #353 des Projektinhabers, 2026-11-12, point 9)', () => {
+  it('a details block, closed, its first sentence as the summary; the heading stays visible as a section of the editor', async () => {
+    area({ [DETAIL]: [() => imported('850.00')] });
+    const region = await screen.findByRole('region', { name: 'Aufteilungsvorschlag aus MRE' });
+    expect(within(region).getByRole('heading', { level: 3, name: 'Aufteilungsvorschlag aus MRE' })).toBeTruthy();
+    const block = region.querySelector('details');
+    expect(block?.open).toBe(false);
+    expect(block?.querySelector('summary')?.textContent).toBe('Für einen Mieteingang: Mieter und Miettermin in MRE wählen, bei einer Sammelzahlung mehrere.');
+    // The rest of the explanation and the form are inside the block, not in its summary.
+    expect(block?.textContent).toContain('Das ist weder „Buchung bestätigen“ noch eine Mietzuordnung noch eine Übertragung an MRE.');
+    expect(block?.querySelector('summary')?.textContent).not.toContain('Kaltmiete');
+    expect(block?.contains(screen.getByRole('form', { name: 'Termin für den Vorschlag wählen' }))).toBe(true);
+  });
+});
+
 describe('step 8: a collective payment for two months (§6.6 steps 2 and 3)', () => {
   it('both terms read and shown with their source; taken over into the draft only; the sum is the payment; saved only by the save', async () => {
     const saved = [
@@ -269,7 +284,7 @@ describe('step 8: partial, over and multi-Tenant payments; refusals; what is not
     expect(screen.queryByRole('region', { name: 'Aufteilungsvorschlag aus MRE' })).toBeNull();
     cleanup();
     area({ [DETAIL]: [() => json(200, detail({ status: 'CONFIRMED', splits: [split({ amount: { amount: '850.00', currency: 'EUR' } })] }), { etag: '"3"' })] });
-    await screen.findByRole('heading', { name: /Buchung vom/ });
+    await screen.findByRole('heading', { name: 'Angaben zur Buchung' });
     expect(screen.queryByRole('region', { name: 'Aufteilungsvorschlag aus MRE' })).toBeNull();
     expect(screen.queryByLabelText('Miettermin (MRE-Schlüssel JJJJMMTTHH)')).toBeNull();
   });

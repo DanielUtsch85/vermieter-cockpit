@@ -183,9 +183,9 @@ export function ManualMatch(props: {
 
   return (
     <div className="mt-4 flex flex-col gap-3 border-t border-border pt-4">
-      <h4 id="manuell-zuordnen" className="font-semibold">
+      <h3 id="manuell-zuordnen" className="font-semibold">
         Manuell zuordnen
-      </h4>
+      </h3>
       {!open ? (
         <>
           <p className="text-muted">
@@ -280,6 +280,7 @@ export function ManualMatch(props: {
             {step.asking === 'match' && sent !== undefined ? (
               <div className="basis-full">
                 <ConfirmStep
+                  level={4}
                   id="zuordnen-frage"
                   title="Zahlung jetzt manuell zuordnen?"
                   confirmLabel="Jetzt zuordnen"

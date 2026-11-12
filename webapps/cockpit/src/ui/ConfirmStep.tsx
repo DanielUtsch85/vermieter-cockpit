@@ -10,6 +10,11 @@ import { buttonClass, secondaryButtonClass } from './states';
 export function ConfirmStep(props: {
   /** The id of the heading; the text below it is `${id}-text`. Unique on the page. */
   readonly id: string;
+  /**
+   * The level of its heading: one below the section it is in, `h3` in a section of a page (Issue #353 des
+   * Projektinhabers, 2026-11-12, point 6), `h4` in a part of a section (a review item, „Manuell zuordnen“).
+   */
+  readonly level?: 3 | 4;
   readonly title: string;
   readonly children: ReactNode;
   readonly confirmLabel: string;
@@ -39,9 +44,15 @@ export function ConfirmStep(props: {
       className="rounded-card border border-border bg-surface p-4"
       onKeyDown={onKeyDown}
     >
-      <h4 id={props.id} ref={heading} tabIndex={-1} className="font-semibold">
-        {props.title}
-      </h4>
+      {props.level === 4 ? (
+        <h4 id={props.id} ref={heading} tabIndex={-1} className="font-semibold">
+          {props.title}
+        </h4>
+      ) : (
+        <h3 id={props.id} ref={heading} tabIndex={-1} className="font-semibold">
+          {props.title}
+        </h3>
+      )}
       <div id={`${props.id}-text`}>{props.children}</div>
       <div className="mt-3 flex flex-wrap gap-4">
         <button type="button" className={buttonClass} disabled={props.sending || props.disabled} aria-describedby={props.describedBy} onClick={props.onConfirm}>

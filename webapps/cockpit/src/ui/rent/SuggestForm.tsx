@@ -6,7 +6,8 @@ import { checkSuggestWindow, MAX_SUGGEST_MONTHS, suggestBookingRange, type Windo
 import { describeFieldError } from '../error-text';
 import { MoneyText } from '../format';
 import { buttonClass, ErrorState, isRetryable, Notice } from '../states';
-import { Link, ReconciliationLink, TenantText, TermText } from './RentParts';
+import { ReconciliationLink, TenantText, TermText } from './RentParts';
+import { Link } from '../Link';
 import { useCommand } from './use-command';
 
 const WINDOW_TEXTS: Readonly<Record<WindowProblem, string>> = {

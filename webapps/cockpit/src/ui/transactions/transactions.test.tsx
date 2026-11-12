@@ -165,6 +165,45 @@ describe('step 2, the transaction list in its states (ui-guide.md §6.3, §7.4, 
   });
 });
 
+describe('the table at 1280 px (Issue #353 des Projektinhabers, 2026-11-12, point 7)', () => {
+  const LONG = 'Miete Oktober Testwohnung Musterstraße 12, 2. OG links, Mieterkonto 4711, Abschlag Nebenkosten und Stellplatz, Zahlung per Dauerauftrag';
+  const cells = (html: string) => [...html.matchAll(/<td[^>]*>(.*?)<\/td>/gs)].map((match) => match[0]);
+
+  it('the purpose wraps to two lines with the whole text as title; the counterparty keeps one line with its title', () => {
+    const html = list({ status: 'success', data: page([transaction({ description: LONG, counterpartyNameRaw: 'Erika Beispiel' })]) });
+    expect(html).toContain('<th scope="col" class="min-w-[14rem] p-3">Gegenpartei und Verwendungszweck</th>');
+    const purpose = cells(html)[3] ?? '';
+    expect(purpose).toContain(`<p class="line-clamp-2 text-label text-muted" title="${LONG}">${LONG}</p>`);
+    expect(purpose).toContain('<p class="line-clamp-1" title="Erika Beispiel">Erika Beispiel</p>');
+    expect(purpose).not.toContain('truncate');
+    expect(purpose).not.toContain('max-w-xs');
+  });
+
+  it('the account stays on one line, cut with its whole name as title; without a name the id', () => {
+    const named = list({ status: 'success', data: page([transaction()]) });
+    expect(cells(named)[6]).toBe('<td class="p-3"><p class="max-w-[12rem] truncate" title="Girokonto Testbank">Girokonto Testbank</p></td>');
+    const unnamed = list({ status: 'success', data: page([transaction()]) }, '', { ...loaded, accounts: { status: 'pending' } });
+    expect(cells(unnamed)[6]).toBe(`<td class="p-3"><code class="font-mono text-label">${ACCOUNT}</code></td>`);
+  });
+
+  it('no title where there is nothing to cut: no counterparty, no purpose', () => {
+    const html = list({ status: 'success', data: page([transaction({ description: null, counterpartyNameRaw: null })]) });
+    const purpose = cells(html)[3] ?? '';
+    expect(purpose).not.toContain('title=');
+    expect(text(purpose)).toContain('Keine Gegenpartei angegeben');
+    expect(text(purpose)).toContain('Ohne Verwendungszweck');
+  });
+});
+
+describe('one word for the statuses to check (Issue #353 des Projektinhabers, 2026-11-12, point 9)', () => {
+  it('the badge and the filter both say „zu prüfen“; „prüfbar“ is gone', () => {
+    expect(statusLabel('IMPORTED').text).toBe('Importiert · zu prüfen');
+    const html = list({ status: 'success', data: page([transaction()]) });
+    expect(text(html)).toContain('Nur zu prüfende (Importiert oder Ungeprüft)');
+    expect(html).not.toMatch(/prüfbar/i);
+  });
+});
+
 describe('step 2, refusals of the list (ui-guide.md §7.4)', () => {
   const fields = [
     { field: 'bookingDateTo', code: 'INVALID_RANGE' },
@@ -302,8 +341,9 @@ describe('step 2, one Transaction (ui-guide.md §6.3, §6.1: the correction chai
     const t = detail({ propertyReferenceId: PROPERTY, status: 'CONFIRMED', confirmedAt: '2026-03-31T23:30:00.000Z', confirmedBy: 'admin1@example.com' });
     const html = view({ status: 'success', data: { transaction: t, etag: '"3"' } });
     const plain = text(html);
-    expect(html).toContain('<nav aria-label="Brotkrumen">');
-    expect(html).toContain('<li aria-current="page">Buchung vom 01.03.2026</li>');
+    // The page title „Buchung vom 01.03.2026“ and the breadcrumbs are the shell's (PageTitle; durchstich-seiten.test.tsx).
+    expect(html).toContain('<h2 id="buchung" class="text-section font-semibold">Angaben zur Buchung</h2>');
+    expect(html).not.toContain('<nav aria-label="Brotkrumen">');
     for (const expected of [
       `850,00${NBSP}€ (Eingang)`,
       '01.03.2026',
