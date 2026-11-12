@@ -13,6 +13,7 @@ import {
 import { describeFieldError } from '../error-text';
 import { MoneyText } from '../format';
 import { secondaryButtonClass } from '../states';
+import { NamedId } from '../technical';
 import { categoryName, propertyName, type References } from './references';
 
 /**
@@ -237,8 +238,8 @@ function KeptReference(props: {
       </p>
       {property !== undefined && (
         <p id={propertyId} tabIndex={-1} className="text-label text-muted" aria-invalid={errors === undefined ? undefined : true}>
-          {`Objekt: ${propertyName(props.references, property) ?? 'Name nicht verfügbar'} `}
-          <code className="font-mono">{property}</code>
+          {'Objekt: '}
+          <NamedId name={propertyName(props.references, property)} id={property} />
         </p>
       )}
       {errors !== undefined && <p className="text-label text-danger-text">{errors.map((e) => describeFieldError(e).text).join(', ')}</p>}

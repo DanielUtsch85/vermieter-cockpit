@@ -1,5 +1,5 @@
-import { expect, test, type Page } from '@playwright/test';
-import { expectAccess, realmPath, signIn } from './session';
+import { devices, expect, test, type Page } from '@playwright/test';
+import { expectAccess, expectNoSideScroll, realmPath, signIn } from './session';
 import { ACCOUNT_IBAN, ACCOUNT_NAME, mrePayments, seed, TERM_OCT, WALK_CSV, WALK_CSV_NAME } from './stack';
 
 /**
@@ -26,6 +26,7 @@ test('import, review items, split from the MRE proposal, confirm, rent suggestio
   await page.goto(realmPath(W));
   await signIn(page, s.admin);
   await expectAccess(page, W);
+  await expectNoSideScroll(page, 'overview');
 
   // Step 5: import the synthetic statement; the new row is booked, the two rows of the earlier import are review items.
   await nav(page, 'Import');
@@ -38,7 +39,10 @@ test('import, review items, split from the MRE proposal, confirm, rent suggestio
   const rows = page.getByRole('region', { name: 'Zeilen der Datei' }).getByRole('row');
   // By default only the rows with a hint; every row with „Alle Zeilen“.
   await expect(rows).toHaveCount(3);
+  await expectNoSideScroll(page, 'import result');
   await page.getByRole('button', { name: 'Alle Zeilen' }).click();
+  // „Alle Zeilen“ is the URL's `?zeilen=alle` (review of #349; optional, the owner has not decided on it).
+  await expect(page).toHaveURL(/[?&]zeilen=alle$/);
   await expect(rows).toHaveCount(4);
   await expect(rows.filter({ hasText: 'Neu angelegt' })).toHaveCount(1);
   await expect(rows.filter({ hasText: 'Klärfall' })).toHaveCount(2);
@@ -55,6 +59,7 @@ test('import, review items, split from the MRE proposal, confirm, rent suggestio
 
   // Step 2: the rent in the list, opened by its date.
   await nav(page, 'Buchungen');
+  await expectNoSideScroll(page, 'booking list');
   await page.getByRole('link', { name: 'Buchung vom 01.10.2026 öffnen' }).click();
   await expect(page.getByText('Miete Oktober Testwohnung').first()).toBeVisible();
 
@@ -75,6 +80,17 @@ test('import, review items, split from the MRE proposal, confirm, rent suggestio
   await editor.getByRole('button', { name: 'Aufteilung speichern' }).click();
   expect((await split).status()).toBe(200);
   await expect(editor.getByText(/Aufteilung gespeichert \(Version \d+, Status „Aufgeteilt“\)/)).toBeVisible();
+  // The saved split at a phone's width: no side scroll, and both amounts of the read-only table whole on the screen.
+  await expect(page.getByRole('region', { name: 'Aufteilung', exact: true }).getByRole('row')).toHaveCount(3);
+  await expectNoSideScroll(page, 'booking detail');
+  await page.setViewportSize({ width: 390, height: 844 });
+  for (const amount of [euro('700,00'), euro('150,00')]) {
+    const cell = page.getByRole('region', { name: 'Aufteilung', exact: true }).getByText(amount, { exact: true });
+    await cell.scrollIntoViewIfNeeded();
+    const box = await cell.boundingBox();
+    expect(box !== null && box.x >= 0 && box.x + box.width <= 390, amount).toBe(true);
+  }
+  await page.setViewportSize(devices['Desktop Chrome'].viewport);
 
   // Step 4: confirm the booking with its confirmation step; the proposal is gone, the rent cash is free for matching.
   await page.getByRole('button', { name: 'Buchung bestätigen' }).click();
@@ -90,6 +106,7 @@ test('import, review items, split from the MRE proposal, confirm, rent suggestio
   await page.getByLabel('Letzter Monat').fill('2026-10');
   await page.getByRole('button', { name: 'Vorschläge ermitteln' }).click();
   await expect(page.getByText('1 neuer Vorschlag für 2026-10 bis 2026-10.')).toBeVisible();
+  await expectNoSideScroll(page, 'rent suggestions');
   await page.getByRole('list', { name: 'Neue Vorschläge' }).getByRole('link', { name: 'Vorschlag prüfen' }).click();
   await expect(page.getByLabel('Zu bestätigender Betrag (€)')).toHaveValue('850,00');
   await page.getByRole('button', { name: 'Zuordnung bestätigen' }).click();
@@ -101,6 +118,7 @@ test('import, review items, split from the MRE proposal, confirm, rent suggestio
   await page.getByRole('button', { name: 'Jetzt an MRE übertragen' }).click();
   expect((await writeBack).status()).toBe(200);
   await expect(page.getByText('MRE: übertragen')).toBeVisible();
+  await expectNoSideScroll(page, 'rent reconciliation');
   const reconciliation = new URL(page.url()).pathname.split('/').at(-1) ?? '';
   expect(await mrePayments(s, TERM_OCT)).toEqual([{ amount: 850, reference: `DE-RPR-${reconciliation}` }]);
 });

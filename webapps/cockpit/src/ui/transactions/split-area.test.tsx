@@ -117,14 +117,18 @@ describe('step 3, the editor in the Buchungen area', () => {
   });
 
   it('after a save, a re-read naming another Realm is refused and not shown; the draft stays', async () => {
-    area({
+    const calls = area({
       [DETAIL]: [() => json(200, detail(), { etag: '"3"' }), () => json(200, detail({ mreRealmId: REALM_B, description: 'Fremde Buchung' }), { etag: '"9"' })],
-      [PUT]: [splitsAnswer],
+      [PUT]: [splitsAnswer, splitsAnswer],
     });
     await saveWholeAmountOnObject();
     await screen.findByText('Antwort eines anderen Bestands');
     expect(screen.queryByText('Fremde Buchung')).toBeNull();
     expect(screen.getByRole('form', { name: 'Aufteilung bearbeiten' })).toBeTruthy();
-    expect(screen.getByText('Gesendet wird mit If-Match "4".')).toBeTruthy();
+    // The base stays the ETag of the own save, never the "9" of the refused read: the next save sends it as If-Match.
+    expect(document.body.textContent).not.toMatch(/If-Match|ETag/);
+    fireEvent.click(screen.getByRole('button', { name: 'Aufteilung speichern' }));
+    await waitFor(() => expect(calls.filter((call) => call.method === 'PUT')).toHaveLength(2));
+    expect(calls.filter((call) => call.method === 'PUT').map((call) => call.headers.get('if-match'))).toEqual(['"3"', '"4"']);
   });
 });

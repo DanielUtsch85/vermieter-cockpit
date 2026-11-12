@@ -42,7 +42,7 @@ function Control(props: {
   const entries = props.errors.get(props.name);
   const aria = entries === undefined ? {} : { 'aria-invalid': true, 'aria-describedby': errorId(props.name) };
   return (
-    <div className="flex flex-col gap-1">
+    <div className="flex min-w-0 flex-col gap-1">
       <label htmlFor={controlId(props.name)} className="text-label text-muted">
         {props.label}
       </label>
@@ -56,7 +56,12 @@ function Control(props: {
   );
 }
 
-const inputClass = 'min-h-touch rounded-input border border-border bg-surface px-3 text-base';
+/**
+ * `w-full min-w-0`: a select is as wide as its longest option; without these it pushed the page past 390 px (Issue #352
+ * des Projektinhabers, 2026-11-12, point 1, ui-guide.md §4.2: the page never scrolls sideways). The option text is cut
+ * in the closed control only; the open list shows it whole.
+ */
+const inputClass = 'min-h-touch w-full min-w-0 rounded-input border border-border bg-surface px-3 text-base';
 
 /** The current value as an option even when its list has not loaded or does not hold it, so a filter never vanishes. */
 function extraOption(value: string | undefined, known: boolean, text: string) {
@@ -185,7 +190,7 @@ export function FilterBar(props: {
         <fieldset
           id={controlId('status')}
           tabIndex={-1}
-          className="flex flex-col gap-1"
+          className="flex min-w-0 flex-col gap-1"
           aria-describedby={describedBy([errors.has('status') ? errorId('status') : undefined, reviewable ? STATUS_LOCK_NOTE : undefined])}
         >
           <legend className="text-label text-muted">Status</legend>
@@ -220,7 +225,7 @@ export function FilterBar(props: {
         <fieldset
           id={controlId('provenance')}
           tabIndex={-1}
-          className="flex flex-col gap-1"
+          className="flex min-w-0 flex-col gap-1"
           aria-describedby={errors.has('provenance') ? errorId('provenance') : undefined}
         >
           <legend className="text-label text-muted">Herkunft</legend>

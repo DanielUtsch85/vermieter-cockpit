@@ -7,6 +7,7 @@ import { transactionPath } from '../../routing';
 import { DateText, MoneyText, TimestampText } from '../format';
 import type { Loadable } from '../RealmChoice';
 import { LoadingState, ReadProblem } from '../states';
+import { NamedId, TechnicalDetails } from '../technical';
 import { correctionRoleLabel, directionLabel, provenanceLabel } from './labels';
 import { accountName, categoryName, propertyName, type References } from './references';
 import { StatusBadge } from './TransactionList';
@@ -122,16 +123,13 @@ export function TransactionDetailView(props: {
           <Row label="Verwendungszweck">{t.description ?? <span className="text-muted">Ohne Verwendungszweck</span>}</Row>
           <Row label="Herkunft">{provenanceLabel(t.provenance).text}</Row>
           <Row label="Konto">
-            {accountName(references, t.financialAccountId) ?? <span className="text-muted">Name nicht verfügbar</span>} <Id value={t.financialAccountId} />
+            <NamedId name={accountName(references, t.financialAccountId)} id={t.financialAccountId} />
           </Row>
           <Row label="Objekt der Buchung">
             {t.propertyReferenceId === null ? (
               <span className="text-muted">Keines (Objekte können auch an der Aufteilung hängen)</span>
             ) : (
-              <>
-                {propertyName(references, t.propertyReferenceId) ?? <span className="text-muted">Name nicht verfügbar</span>}{' '}
-                <Id value={t.propertyReferenceId} />
-              </>
+              <NamedId name={propertyName(references, t.propertyReferenceId)} id={t.propertyReferenceId} />
             )}
           </Row>
           <Row label="Angelegt">
@@ -147,11 +145,15 @@ export function TransactionDetailView(props: {
               </>
             )}
           </Row>
-          <Row label="Version">
-            <span className="tabular-nums">{t.version}</span>
-            {etag !== undefined && <span className="text-label text-muted"> (ETag {etag})</span>}
-          </Row>
         </dl>
+        <TechnicalDetails
+          entries={[
+            ['Buchungs-ID', t.transactionId],
+            ['Version', `${t.version}${etag === undefined ? '' : ` (ETag ${etag})`}`],
+            ['Konto-ID', t.financialAccountId],
+            ...(t.propertyReferenceId === null ? [] : [['Objekt-ID', t.propertyReferenceId] as const]),
+          ]}
+        />
       </section>
       <CorrectionChain realmId={props.realmId} transaction={t} />
       <Splits splits={read.data.transaction.splits} references={references} />
@@ -206,7 +208,7 @@ function SplitReferences({ split, references }: { readonly split: TransactionSpl
   if (split.propertyReferenceId !== null) {
     entries.push(
       <li key="property">
-        Objekt: {propertyName(references, split.propertyReferenceId) ?? 'Name nicht verfügbar'} <Id value={split.propertyReferenceId} />
+        Objekt: <NamedId name={propertyName(references, split.propertyReferenceId)} id={split.propertyReferenceId} />
       </li>,
     );
   }
@@ -228,6 +230,22 @@ function SplitReferences({ split, references }: { readonly split: TransactionSpl
   return entries.length === 0 ? <span className="text-muted">Kein Bezug</span> : <ul>{entries}</ul>;
 }
 
+/**
+ * One cell of the split table. Below `sm` the rows are cards (Issue #352 point 1, ui-guide.md §4.2: the amount must not
+ * be lost on a phone): each cell is a line with its column name in front (CSS `content`, so the text of the cell stays
+ * what it is) and nothing scrolls sideways; from `sm` on it is the plain table in its frame.
+ */
+function Cell({ label, className = '', children }: { readonly label: string; readonly className?: string; readonly children: ReactNode }) {
+  return (
+    <td
+      data-label={label}
+      className={`p-2 max-sm:flex max-sm:justify-between max-sm:gap-4 max-sm:px-0 max-sm:py-1 max-sm:before:shrink-0 max-sm:before:text-label max-sm:before:text-muted max-sm:before:content-[attr(data-label)] ${className}`}
+    >
+      <div className="min-w-0 max-sm:text-right">{children}</div>
+    </td>
+  );
+}
+
 function Splits({ splits, references }: { readonly splits: readonly TransactionSplitDto[]; readonly references: References }) {
   return (
     <section aria-labelledby="aufteilung" className="rounded-card border border-border bg-surface p-6">
@@ -237,10 +255,10 @@ function Splits({ splits, references }: { readonly splits: readonly TransactionS
       {splits.length === 0 ? (
         <p className="text-muted">Noch nicht aufgeteilt.</p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-left">
+        <div className="sm:overflow-x-auto">
+          <table className="w-full text-left max-sm:block">
             <caption className="sr-only">Aufteilung der Buchung</caption>
-            <thead className="border-b border-border text-label text-muted">
+            <thead className="border-b border-border text-label text-muted max-sm:sr-only">
               <tr>
                 <th scope="col" className="p-2">
                   Position
@@ -248,7 +266,7 @@ function Splits({ splits, references }: { readonly splits: readonly TransactionS
                 <th scope="col" className="p-2">
                   Kategorie
                 </th>
-                <th scope="col" className="p-2 text-right">
+                <th scope="col" className="min-w-[8rem] p-2 text-right">
                   Betrag
                 </th>
                 <th scope="col" className="p-2">
@@ -259,21 +277,22 @@ function Splits({ splits, references }: { readonly splits: readonly TransactionS
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-border">
+            <tbody className="divide-y divide-border max-sm:block">
               {splits.map((split) => (
-                <tr key={split.splitId}>
-                  <td className="p-2 tabular-nums">{split.position}</td>
-                  <td className="p-2">
-                    {categoryName(references, split.financialCategoryCode) ?? <span className="text-muted">Unbekannte Kategorie</span>}{' '}
-                    <Id value={split.financialCategoryCode} />
-                  </td>
-                  <td className="p-2 text-right">
+                <tr key={split.splitId} className="max-sm:block max-sm:py-2">
+                  <Cell label="Position" className="tabular-nums">
+                    {split.position}
+                  </Cell>
+                  <Cell label="Kategorie">
+                    <NamedId name={categoryName(references, split.financialCategoryCode)} id={split.financialCategoryCode} missing="Unbekannte Kategorie" />
+                  </Cell>
+                  <Cell label="Betrag" className="whitespace-nowrap text-right">
                     <MoneyText money={split.amount} />
-                  </td>
-                  <td className="p-2">
+                  </Cell>
+                  <Cell label="Bezug">
                     <SplitReferences split={split} references={references} />
-                  </td>
-                  <td className="p-2">{split.description ?? <span className="text-muted">Ohne Beschreibung</span>}</td>
+                  </Cell>
+                  <Cell label="Beschreibung">{split.description ?? <span className="text-muted">Ohne Beschreibung</span>}</Cell>
                 </tr>
               ))}
             </tbody>

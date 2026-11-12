@@ -23,21 +23,21 @@ export interface Area {
   readonly label: string;
   /** The path segment after the Realm; empty for the overview. */
   readonly segment: string;
-  /** Where the area, or the rest of it, is built (ui-guide.md §10, "Erster nutzbarer Durchstich"); undefined when done. */
-  readonly slice?: string;
-  /** What of the area can be used already; undefined while the area is a placeholder. */
+  /**
+   * What the area offers, as the overview says it; undefined for the overview itself. Every area of version 1 is built,
+   * so no area names a step of the Durchstich any more (Issue #352 des Projektinhabers, 2026-11-12, point 2).
+   */
   readonly available?: string;
 }
 
 /** Version 1: exactly the P0 areas and the overview as working navigation (ui-guide.md §3.1, decision of 30.10.2026). */
 export const AREAS: readonly Area[] = [
-  { id: 'uebersicht', label: 'Übersicht', segment: '', slice: 'Integrations-Gate' },
+  { id: 'uebersicht', label: 'Übersicht', segment: '' },
   {
     id: 'buchungen',
     label: 'Buchungen',
     segment: 'buchungen',
-    slice: 'Durchstich Schritte 3 und 4',
-    available: 'Liste mit Filtern und Detail',
+    available: 'Liste mit Filtern, Detail, Aufteilung, Bestätigen, Korrigieren und Stornieren',
   },
   { id: 'import', label: 'Import', segment: 'import', available: 'Datei und Konto wählen, Import ausführen, Ergebnis und Klärfälle' },
   {

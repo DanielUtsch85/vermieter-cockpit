@@ -335,7 +335,8 @@ describe('the confirmation steps before An MRE uebertragen and Aus MRE entfernen
       const dialog = screen.getByRole('dialog', { name: c.title });
       expect(document.activeElement).toBe(screen.getByRole('heading', { name: c.title }));
       expect(dialog.textContent).toContain('DE schreibt jetzt in MRE');
-      expect(dialog.textContent).toContain(`Gesendet wird mit If-Match ${c.ifMatch}.`);
+      // The version travels as the If-Match header (asserted below), never as a text of the step (Issue #352, point 3).
+      expect(document.body.textContent).not.toMatch(/If-Match|ETag/);
       expect(screen.queryByRole('button', { name: c.name })).toBeNull();
       await settle();
       expect(calls).toHaveLength(0);

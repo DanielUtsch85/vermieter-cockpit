@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act as testingLibraryAct, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act as testingLibraryAct, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createDeClient } from '../../api/client';
 import { countingTokens, envelope, json, scriptedFetch, type Call } from '../../api/fetch.test-support';
@@ -213,5 +213,58 @@ describe('step 4, Buchung bestaetigen (ui-guide.md §4.4, §6.3, §7.3, §8)', (
       await pending;
     });
     expect(onConfirmed).not.toHaveBeenCalled();
+  });
+});
+
+describe('the card Bestaetigen (Issue #352 des Projektinhabers, 2026-11-12, point 4)', () => {
+  const card = () => screen.getByRole('region', { name: 'Bestätigen' });
+
+  it('a card with its title and what confirming does; the button inside it, no technical text', () => {
+    setup();
+    const section = card();
+    expect(section.tagName).toBe('SECTION');
+    expect(within(section).getByRole('heading', { level: 3, name: 'Bestätigen' })).toBeTruthy();
+    expect(section.textContent).toContain(
+      'Mit der Bestätigung wird die gespeicherte Aufteilung eingefroren. Danach lässt sich die Buchung nur noch über eine Korrektur oder ein Storno ändern.',
+    );
+    expect(within(section).getByRole('button', { name: 'Buchung bestätigen' })).toBe(trigger());
+    expect(section.textContent).not.toMatch(/If-Match|ETag/);
+  });
+
+  it('the confirmation step and the answer appear inside the same card', async () => {
+    setup({ answers: [confirmedAnswer] });
+    fireEvent.click(trigger());
+    expect(within(card()).getByRole('dialog', { name: 'Buchung jetzt bestätigen?' })).toBeTruthy();
+    fireEvent.click(confirmNow());
+    await settle();
+    expect(within(card()).getByRole('status').textContent).toContain('Buchung bestätigt (Version 5');
+    expect(screen.getAllByRole('region')).toHaveLength(1);
+  });
+
+  it('the lock of an unsaved draft is inside the card and named by the button', () => {
+    const de = createDeClient({ tokens: countingTokens(), realmId: REALM_A, fetch: scriptedFetch().fetch });
+    render(
+      <ConfirmAction
+        transaction={CLASSIFIED}
+        etag={'"4"'}
+        stale={false}
+        confirm={(ifMatch) => confirmTransaction(de, TX, ifMatch)}
+        onConfirmed={() => undefined}
+        reload={() => undefined}
+        draftUnsaved
+      />,
+    );
+    const hint = within(card()).getByText('Zuerst Aufteilung speichern oder verwerfen');
+    expect(trigger().disabled).toBe(true);
+    expect(trigger().getAttribute('aria-describedby')).toBe(hint.id);
+  });
+
+  it('a booking without splits gets the card with its hint; a status that cannot be confirmed gets none', () => {
+    setup({ transaction: detail({ status: 'IMPORTED', splits: [] }) });
+    expect(card().textContent).toContain('Bestätigen ist möglich, sobald die Aufteilung gespeichert ist');
+    expect(screen.queryByRole('button', { name: 'Buchung bestätigen' })).toBeNull();
+    cleanup();
+    setup({ transaction: detail({ status: 'CONFIRMED', splits: [split()] }) });
+    expect(screen.queryByRole('region', { name: 'Bestätigen' })).toBeNull();
   });
 });

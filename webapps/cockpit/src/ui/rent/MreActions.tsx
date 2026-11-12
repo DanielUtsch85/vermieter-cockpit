@@ -104,7 +104,6 @@ export function MreActions(props: {
         onCancel={step.cancel}
       >
         <p>{question.text}</p>
-        <p className="text-label text-muted">{`Gesendet wird mit If-Match ${props.etag}.`}</p>
       </ConfirmStep>
     );
   };
@@ -152,11 +151,9 @@ export function MreActions(props: {
             <button ref={step.trigger('writeBack')} type="button" className={buttonClass} disabled={locked} onClick={() => step.ask('writeBack')}>
               An MRE übertragen
             </button>
-            <span className="text-label text-muted">
-              {r.mreWriteBackState === 'FAILED'
-                ? 'Der letzte Versuch ist fehlgeschlagen; ein neuer Versuch liest den Termin zuerst.'
-                : `Gesendet wird mit If-Match ${props.etag}.`}
-            </span>
+            {r.mreWriteBackState === 'FAILED' && (
+              <span className="text-label text-muted">Der letzte Versuch ist fehlgeschlagen; ein neuer Versuch liest den Termin zuerst.</span>
+            )}
           </div>
         )}
         {(writeBack === 'running' || removal === 'running') && (
