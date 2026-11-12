@@ -234,7 +234,9 @@ describe('the card Bestaetigen (Issue #352 des Projektinhabers, 2026-11-12, poin
   it('the confirmation step and the answer appear inside the same card', async () => {
     setup({ answers: [confirmedAnswer] });
     fireEvent.click(trigger());
-    expect(within(card()).getByRole('dialog', { name: 'Buchung jetzt bestätigen?' })).toBeTruthy();
+    const dialog = within(card()).getByRole('dialog', { name: 'Buchung jetzt bestätigen?' });
+    // The step says what the card says: afterwards only a correction or a reversal (review of #354).
+    expect(dialog.textContent).toContain('ändern lässt sich die Buchung nur noch über eine Korrektur oder ein Storno.');
     fireEvent.click(confirmNow());
     await settle();
     expect(within(card()).getByRole('status').textContent).toContain('Buchung bestätigt (Version 5');

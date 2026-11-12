@@ -181,7 +181,7 @@ export function ConfirmAction(props: {
           onCancel={cancel}
         >
           <p>
-            {`Bestätigt wird die gespeicherte Aufteilung (Version ${t.version}). Danach sind Betrag, Datum, Konto und Aufteilung unveränderlich; ändern lässt sich die Buchung nur noch über eine Korrektur.`}
+            {`Bestätigt wird die gespeicherte Aufteilung (Version ${t.version}). Danach sind Betrag, Datum, Konto und Aufteilung unveränderlich; ändern lässt sich die Buchung nur noch über eine Korrektur oder ein Storno.`}
           </p>
         </ConfirmStep>
       ) : (
