@@ -69,7 +69,7 @@ export function readListParams(search: string): ListParams {
   return fromEntries(new URLSearchParams(search), true);
 }
 
-/** Whether the shortcut „Nur prüfbare“ (`reviewable=true`) is set. */
+/** Whether the shortcut „Nur zu prüfende“ (`reviewable=true`) is set. */
 export const reviewableSet = (params: ListParams): boolean => params.filters.reviewable === 'true';
 
 /**

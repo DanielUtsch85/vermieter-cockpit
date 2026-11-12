@@ -8,7 +8,7 @@ import type { References } from './references';
 import { TransactionListView } from './TransactionList';
 
 /**
- * „Nur prüfbare“ as a shortcut (Entscheidung des Projektinhabers, 2026-11-10, to #323 F3): while `reviewable` is set,
+ * „Nur zu prüfende“ as a shortcut (Entscheidung des Projektinhabers, 2026-11-10, to #323 F3): while `reviewable` is set,
  * the status choice is empty and locked, so the bar never writes a URL with both. Both stay URL parameters, and a URL
  * that holds both is still asked as it is (the backend's AND, api-design.md §30.1).
  */
@@ -34,11 +34,11 @@ function bar(search: string) {
   return applied;
 }
 
-const shortcut = () => screen.getByRole<HTMLInputElement>('checkbox', { name: 'Nur prüfbare (Importiert oder Ungeprüft)' });
+const shortcut = () => screen.getByRole<HTMLInputElement>('checkbox', { name: 'Nur zu prüfende (Importiert oder Ungeprüft)' });
 const statusBoxes = () => [...document.querySelectorAll<HTMLInputElement>('input[name="status"]')];
 const status = (name: string) => screen.getByRole<HTMLInputElement>('checkbox', { name });
 const apply = () => fireEvent.click(screen.getByRole('button', { name: 'Filter anwenden' }));
-const LOCK_NOTE = 'Gesperrt, solange „Nur prüfbare“ gesetzt ist.';
+const LOCK_NOTE = 'Gesperrt, solange „Nur zu prüfende“ gesetzt ist.';
 
 /** Every applied URL: never `status` together with `reviewable`. */
 const neverBoth = (applied: readonly string[]) => {
@@ -59,7 +59,7 @@ describe('the shortcut Nur pruefbare in the filter bar (#323 F3)', () => {
     expect(box.tabIndex).toBe(0);
     box.focus();
     expect(document.activeElement).toBe(box);
-    expect(box.closest('label')?.textContent).toBe('Nur prüfbare (Importiert oder Ungeprüft)');
+    expect(box.closest('label')?.textContent).toBe('Nur zu prüfende (Importiert oder Ungeprüft)');
   });
 
   it('setting it clears and locks the status choice; the URL it writes holds reviewable only', () => {

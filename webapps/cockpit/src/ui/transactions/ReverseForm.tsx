@@ -134,9 +134,9 @@ export function ReverseForm(props: ReverseFormProps) {
 
   return (
     <section aria-labelledby="stornieren" className="flex flex-col gap-4 rounded-card border border-border bg-surface p-6">
-      <h3 id="stornieren" ref={heading} tabIndex={-1} className="text-section font-semibold">
+      <h2 id="stornieren" ref={heading} tabIndex={-1} className="text-section font-semibold">
         Stornieren
-      </h3>
+      </h2>
       {!open ? (
         <>
           <p className="text-muted">

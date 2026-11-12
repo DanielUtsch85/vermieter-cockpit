@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { useLocationPath, useLocationSearch } from '../navigation';
 import { BASE_PATH, parseRoute, realmSwitchEffect, realmSwitching, reloadPage, type RealmLock } from '../routing';
 import { useSession, useSessionState } from '../session/use-session';
+import { Link } from './Link';
 import { LoginPage } from './LoginPage';
 import { RealmChoice } from './RealmChoice';
 import { RealmPage } from './RealmPage';
@@ -44,9 +45,9 @@ export function App({ realmLock, reload = reloadPage }: { readonly realmLock: Re
       if (route.kind === 'notFound') {
         return (
           <CenteredPage title="Seite nicht gefunden">
-            <a className="text-primary underline" href={BASE_PATH}>
+            <Link href={BASE_PATH} reload>
               Zur Auswahl des Bestands
-            </a>
+            </Link>
           </CenteredPage>
         );
       }

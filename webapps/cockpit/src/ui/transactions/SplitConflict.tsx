@@ -51,9 +51,9 @@ export function SplitConflict({
   const current = state.error instanceof ApiError ? state.error.details?.['currentVersion'] : undefined;
   return (
     <div role="alert" aria-labelledby="split-konflikt" className="rounded-card border border-warning-text bg-warning-bg p-4 text-warning-text">
-      <h4 id="split-konflikt" ref={heading} tabIndex={-1} className="font-semibold">
+      <h3 id="split-konflikt" ref={heading} tabIndex={-1} className="font-semibold">
         Inzwischen geändert
-      </h4>
+      </h3>
       <p>
         {`Die Buchung wurde seit dem Laden geändert${typeof current === 'number' ? ` (auf dem Server jetzt Version ${current})` : ''}. `}
         Ihr Entwurf ist nicht gespeichert und bleibt erhalten; es wird nichts von selbst wiederholt.

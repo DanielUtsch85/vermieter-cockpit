@@ -58,6 +58,18 @@ const SUGGESTION_REASON: Readonly<Record<string, string>> = {
   EXACT_AMOUNT_IN_ORDER: 'Betrag stimmt genau, zugeordnet in Zahlungsreihenfolge (bitte prüfen)',
 };
 
+/**
+ * The payment types of MRE's own payment records (`payments[].type`, api-design.md §37.2), as MRE's form offers them;
+ * DE's own write-back is a `transfer` (§37.4). Shown in German, an unknown type with its code, an empty one as such
+ * (Issue #353 des Projektinhabers, 2026-11-12, point 9: no English MRE value on the page).
+ */
+const MRE_PAYMENT_TYPES: Readonly<Record<string, string>> = { transfer: 'Überweisung', cash: 'Bar', cheque: 'Scheck', levy: 'Lastschrift' };
+
+export function mrePaymentTypeText(code: string | null): string {
+  if (code === null || code === '') return 'ohne Art';
+  return Object.hasOwn(MRE_PAYMENT_TYPES, code) ? (MRE_PAYMENT_TYPES[code] ?? code) : `Unbekannte Zahlungsart (${code})`;
+}
+
 export const confidenceText = (code: string | null): string =>
   code === null ? 'keine (manuelle Zuordnung)' : Object.hasOwn(CONFIDENCE, code) ? (CONFIDENCE[code] ?? code) : `unbekannt (${code})`;
 export const suggestionReasonText = (code: string | null): string =>

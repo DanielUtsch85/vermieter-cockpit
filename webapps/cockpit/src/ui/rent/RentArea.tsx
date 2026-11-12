@@ -16,13 +16,14 @@ import {
 import { getTransaction } from '../../api/transactions';
 import { AREAS, areaPath, type RentTermKey } from '../../routing';
 import { rentKeys } from './rent-keys';
+import { Link } from '../Link';
+import { PageTitle } from '../PageTitle';
 import { LoadingState, ReadProblem, secondaryButtonClass } from '../states';
 import { transactionKeys } from '../transactions/TransactionsArea';
 import { DecisionActions } from './DecisionActions';
 import { MreActions } from './MreActions';
 import { ReconciliationDetailView } from './ReconciliationDetail';
 import { readRentListParams, ReconciliationListView, rentListSearch } from './ReconciliationList';
-import { Link } from './RentParts';
 import { SuggestForm } from './SuggestForm';
 import { TermCoverageView } from './TermCoverage';
 
@@ -38,7 +39,8 @@ interface AreaProps {
  * The Mietabgleich area of a Realm (ui-guide.md §3.1, §6.6; step 6 of §10): suggestions and the list at
  * `…/mietabgleich`, one reconciliation with its separate actions at `…/mietabgleich/<id>`, and the coverage of one MRE
  * rent term at `…/mietabgleich/termin/<mreTenantId>/<mreRentTerm>`. Rendering, a refetch or moving between them never
- * sends a command: every command is a click (§11).
+ * sends a command: every command is a click (§11). The two sub-pages give the shell their title („Zuordnung“, „Abdeckung
+ * eines Termins“; Issue #353 des Projektinhabers, 2026-11-12, point 5).
  */
 export function RentArea(
   props: AreaProps & { readonly reconciliationId: string | undefined; readonly rentTerm: RentTermKey | undefined; readonly search: string },
@@ -51,20 +53,6 @@ export function RentArea(
     return <TermPage key={`${props.rentTerm.mreTenantId}/${props.rentTerm.mreRentTerm}`} {...props} rentTerm={props.rentTerm} listHref={listHref} />;
   }
   return <RentOverview {...props} listHref={listHref} />;
-}
-
-function Breadcrumbs({ listHref, current }: { readonly listHref: string; readonly current: string }) {
-  return (
-    <nav aria-label="Brotkrumen">
-      <ol className="flex flex-wrap gap-2 text-label text-muted">
-        <li>
-          <Link href={listHref}>Mietabgleich</Link>
-          <span aria-hidden="true"> ›</span>
-        </li>
-        <li aria-current="page">{current}</li>
-      </ol>
-    </nav>
-  );
 }
 
 function RentOverview(props: AreaProps & { readonly search: string; readonly listHref: string }) {
@@ -112,7 +100,7 @@ function ReconciliationPage(props: AreaProps & { readonly reconciliationId: stri
   const id = props.reconciliationId;
   return (
     <>
-      <Breadcrumbs listHref={props.listHref} current="Zuordnung" />
+      <PageTitle title="Zuordnung" />
       {read.status === 'pending' ? (
         <LoadingState label="Zuordnung wird geladen …" />
       ) : read.status === 'error' ? (
@@ -172,7 +160,7 @@ function TermPage(props: AreaProps & { readonly rentTerm: RentTermKey; readonly 
   } else body = <TermCoverageView realmId={props.realmId} coverage={coverage.data} />;
   return (
     <>
-      <Breadcrumbs listHref={props.listHref} current="Abdeckung eines Termins" />
+      <PageTitle title="Abdeckung eines Termins" />
       <div>
         <button type="button" className={secondaryButtonClass} disabled={coverage.isFetching} onClick={() => void coverage.refetch()}>
           Abdeckung neu laden

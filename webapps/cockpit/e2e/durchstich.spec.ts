@@ -60,11 +60,24 @@ test('import, review items, split from the MRE proposal, confirm, rent suggestio
   // Step 2: the rent in the list, opened by its date.
   await nav(page, 'Buchungen');
   await expectNoSideScroll(page, 'booking list');
+  // At 1280 px the account stays on one line; the purpose carries its whole text as title (Issue #353, point 7).
+  const rent = page.getByRole('row').filter({ hasText: 'Miete Oktober Testwohnung' });
+  await expect(rent.getByTitle('Miete Oktober Testwohnung', { exact: true })).toBeVisible();
+  const account = rent.getByTitle(ACCOUNT_NAME, { exact: true });
+  expect(await account.evaluate((el) => el.getBoundingClientRect().height <= parseFloat(getComputedStyle(el).lineHeight) * 1.5)).toBe(true);
   await page.getByRole('link', { name: 'Buchung vom 01.10.2026 öffnen' }).click();
   await expect(page.getByText('Miete Oktober Testwohnung').first()).toBeVisible();
+  // The h1 names the page; the area is in the breadcrumbs and the tab, the focus is on the title (Issue #353, point 5).
+  const title = page.getByRole('heading', { level: 1, name: 'Buchung vom 01.10.2026' });
+  await expect(title).toBeFocused();
+  await expect(page.getByRole('navigation', { name: 'Brotkrumen' }).getByRole('link', { name: 'Buchungen' })).toBeVisible();
+  await expect(page).toHaveTitle(/^Buchung vom 01\.10\.2026 · Buchungen · /);
 
   // Step 8 into step 3: MRE's proposal for the October term, taken over into the draft, then saved exactly.
   const proposal = page.getByRole('region', { name: 'Aufteilungsvorschlag aus MRE' });
+  // The proposal starts collapsed, its first sentence as the summary (Issue #353, point 9).
+  await expect(proposal.getByLabel('Mieter in MRE (ID)')).toBeHidden();
+  await proposal.getByText('Für einen Mieteingang: Mieter und Miettermin in MRE wählen, bei einer Sammelzahlung mehrere.').click();
   await proposal.getByLabel('Mieter in MRE (ID)').fill(s.tenantId);
   await proposal.getByLabel('Miettermin (MRE-Schlüssel JJJJMMTTHH)').fill(TERM_OCT);
   await proposal.getByRole('button', { name: 'Vorschlag laden' }).click();
@@ -108,6 +121,7 @@ test('import, review items, split from the MRE proposal, confirm, rent suggestio
   await expect(page.getByText('1 neuer Vorschlag für 2026-10 bis 2026-10.')).toBeVisible();
   await expectNoSideScroll(page, 'rent suggestions');
   await page.getByRole('list', { name: 'Neue Vorschläge' }).getByRole('link', { name: 'Vorschlag prüfen' }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Zuordnung' })).toBeFocused();
   await expect(page.getByLabel('Zu bestätigender Betrag (€)')).toHaveValue('850,00');
   await page.getByRole('button', { name: 'Zuordnung bestätigen' }).click();
   await expect(page.getByText('Zuordnung bestätigt', { exact: false }).first()).toBeVisible();

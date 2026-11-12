@@ -1,22 +1,14 @@
-import type { ReactNode } from 'react';
 import type { ImportBatchDto, ImportRowDto } from '../../api/imports';
 import type { FinancialAccountDto } from '../../api/transactions';
 import { formatDecimal, formatMoney } from '../../format/money';
 import { rowHasHint } from '../../imports/row-hints';
 import { showsAllRows, withAllRows } from '../../imports/row-view';
-import { onLinkClick, replaceSearch } from '../../navigation';
+import { replaceSearch } from '../../navigation';
 import { importBatchPath, transactionPath } from '../../routing';
 import { TimestampText } from '../format';
+import { Link } from '../Link';
 import { secondaryButtonClass } from '../states';
 import { ambiguityText, batchStatusText, orderText, previousExportText, resolutionText, rowErrorText } from './import-labels';
-
-function Link({ href, children }: { readonly href: string; readonly children: ReactNode }) {
-  return (
-    <a className="text-primary underline" href={href} onClick={(event) => onLinkClick(event, href)}>
-      {children}
-    </a>
-  );
-}
 
 const short = (id: string) => id.slice(0, 8);
 

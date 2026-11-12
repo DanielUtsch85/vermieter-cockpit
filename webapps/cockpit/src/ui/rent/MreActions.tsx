@@ -112,9 +112,9 @@ export function MreActions(props: {
 
   return (
     <section aria-labelledby="mre-aktionen" className="rounded-card border border-border bg-surface p-6">
-      <h3 id="mre-aktionen" className="mb-2 text-section font-semibold">
+      <h2 id="mre-aktionen" className="mb-2 text-section font-semibold">
         Übertragung an MRE und Aufheben
-      </h3>
+      </h2>
       <p className="text-muted">
         Drei getrennte Schritte: „An MRE übertragen“ trägt die Zahlung in MRE ein. „Zuordnung aufheben“ ändert nur DE; Aufheben ist kein Entfernen aus MRE. Eine
         übertragene Zahlung wird danach gesondert mit „Aus MRE entfernen“ entfernt.

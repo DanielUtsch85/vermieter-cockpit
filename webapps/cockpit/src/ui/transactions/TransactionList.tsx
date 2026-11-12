@@ -1,28 +1,22 @@
 import { useMemo } from 'react';
 import { ApiError, partitionFieldErrors, type FieldError } from '../../api/errors';
 import type { PageDto, TransactionDto } from '../../api/transactions';
-import { onLinkClick } from '../../navigation';
 import { AREAS, areaPath, transactionPath } from '../../routing';
 import { hasFilters, LIST_FIELD_NAMES, pageCount, toSearch, withPage, type ListParams } from '../../transactions/list-params';
 import { formatBusinessDate } from '../../format/dates';
+import { Badge } from '../Badge';
 import { DateText, MoneyText } from '../format';
+import { IdText } from '../IdText';
+import { Link } from '../Link';
 import type { Loadable } from '../RealmChoice';
 import { LoadingState, Notice, ReadProblem } from '../states';
 import { FilterBar } from './FilterBar';
-import { directionLabel, provenanceLabel, statusLabel, type Tone } from './labels';
+import { directionLabel, provenanceLabel, statusLabel } from './labels';
 import { accountName, type References } from './references';
-
-export const TONES: Readonly<Record<Tone, string>> = {
-  warning: 'border-warning-text bg-warning-bg text-warning-text',
-  success: 'border-success-text bg-success-bg text-success-text',
-  neutral: 'border-border bg-background text-text',
-  info: 'border-info-text bg-info-bg text-info-text',
-};
 
 /** StatusBadge (ui-guide.md §4.3): the text always says the status, the colour only repeats it (§4.1). */
 export function StatusBadge({ code }: { readonly code: string }) {
-  const label = statusLabel(code);
-  return <span className={`inline-block whitespace-nowrap rounded-input border px-2 text-label ${TONES[label.tone]}`}>{label.text}</span>;
+  return <Badge label={statusLabel(code)} />;
 }
 
 /** The field errors of a refused list read, by parameter name; the ones the filter bar has no control for stay out. */
@@ -90,9 +84,9 @@ function ListContent(props: {
     return (
       <ReadProblem error={list.error} onRetry={props.onRetry}>
         {list.error instanceof ApiError && list.error.status === 400 && (
-          <a className="text-primary underline" href={props.resetHref}>
+          <Link href={props.resetHref} reload>
             Filter zurücksetzen
-          </a>
+          </Link>
         )}
       </ReadProblem>
     );
@@ -103,9 +97,9 @@ function ListContent(props: {
     return hasFilters(params) ? (
       <Notice tone="info">
         <p>Keine Buchung passt zu diesen Filtern.</p>
-        <a className="text-primary underline" href={props.resetHref}>
+        <Link href={props.resetHref} reload>
           Filter zurücksetzen
-        </a>
+        </Link>
       </Notice>
     ) : (
       <Notice tone="info">
@@ -118,9 +112,7 @@ function ListContent(props: {
     return (
       <Notice tone="warning">
         <p>{`Seite ${page.page} gibt es nicht; die Liste hat ${pages} ${pages === 1 ? 'Seite' : 'Seiten'}.`}</p>
-        <a className="text-primary underline" href={last} onClick={(event) => onLinkClick(event, last)}>
-          Zur letzten Seite
-        </a>
+        <Link href={last}>Zur letzten Seite</Link>
       </Notice>
     );
   }
@@ -140,7 +132,7 @@ function ListContent(props: {
               <th scope="col" className="p-3">
                 Richtung
               </th>
-              <th scope="col" className="p-3">
+              <th scope="col" className="min-w-[14rem] p-3">
                 Gegenpartei und Verwendungszweck
               </th>
               <th scope="col" className="p-3">
@@ -166,30 +158,45 @@ function ListContent(props: {
   );
 }
 
+/**
+ * One row. At 1280 px the purpose column takes the room and wraps to two lines, the account stays on one line (Issue
+ * #353 des Projektinhabers, 2026-11-12, point 7); text cut off at the end of its line or lines has the whole text as
+ * `title`.
+ */
 function Row({ realmId, transaction, references }: { readonly realmId: string; readonly transaction: TransactionDto; readonly references: References }) {
-  const href = transactionPath(realmId, transaction.transactionId);
   const date = formatBusinessDate(transaction.bookingDate) ?? transaction.bookingDate;
+  const account = accountName(references, transaction.financialAccountId);
   return (
     <tr>
       <td className="p-3">
-        <a className="text-primary underline" href={href} aria-label={`Buchung vom ${date} öffnen`} onClick={(event) => onLinkClick(event, href)}>
+        <Link href={transactionPath(realmId, transaction.transactionId)} aria-label={`Buchung vom ${date} öffnen`}>
           <DateText value={transaction.bookingDate} />
-        </a>
+        </Link>
       </td>
       <td className="p-3 text-right">
         <MoneyText money={transaction.amount} direction={transaction.direction} />
       </td>
       <td className="p-3">{directionLabel(transaction.direction).text}</td>
-      <td className="max-w-xs p-3">
-        <p className="truncate">{transaction.counterpartyNameRaw ?? <span className="text-muted">Keine Gegenpartei angegeben</span>}</p>
-        <p className="truncate text-label text-muted">{transaction.description ?? 'Ohne Verwendungszweck'}</p>
+      <td className="p-3">
+        <p className="line-clamp-1" title={transaction.counterpartyNameRaw ?? undefined}>
+          {transaction.counterpartyNameRaw ?? <span className="text-muted">Keine Gegenpartei angegeben</span>}
+        </p>
+        <p className="line-clamp-2 text-label text-muted" title={transaction.description ?? undefined}>
+          {transaction.description ?? 'Ohne Verwendungszweck'}
+        </p>
       </td>
       <td className="p-3">
         <StatusBadge code={transaction.status} />
       </td>
       <td className="p-3">{provenanceLabel(transaction.provenance).text}</td>
       <td className="p-3">
-        {accountName(references, transaction.financialAccountId) ?? <code className="font-mono text-label">{transaction.financialAccountId}</code>}
+        {account === undefined ? (
+          <IdText id={transaction.financialAccountId} />
+        ) : (
+          <p className="max-w-[12rem] truncate" title={account}>
+            {account}
+          </p>
+        )}
       </td>
     </tr>
   );
@@ -210,17 +217,17 @@ function Pagination(props: {
       {previous === undefined ? (
         <span className="text-muted">Vorherige Seite</span>
       ) : (
-        <a className="text-primary underline" href={previous} rel="prev" onClick={(event) => onLinkClick(event, previous)}>
+        <Link href={previous} rel="prev">
           Vorherige Seite
-        </a>
+        </Link>
       )}
       <p className="tabular-nums">{`Seite ${props.page} von ${props.pages} · ${props.total} ${props.total === 1 ? 'Buchung' : 'Buchungen'}`}</p>
       {next === undefined ? (
         <span className="text-muted">Nächste Seite</span>
       ) : (
-        <a className="text-primary underline" href={next} rel="next" onClick={(event) => onLinkClick(event, next)}>
+        <Link href={next} rel="next">
           Nächste Seite
-        </a>
+        </Link>
       )}
     </nav>
   );

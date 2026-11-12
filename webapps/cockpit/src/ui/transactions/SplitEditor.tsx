@@ -299,9 +299,9 @@ export function SplitEditor(props: SplitEditorProps) {
 function EditorFrame({ children }: { readonly children: ReactNode }) {
   return (
     <section aria-labelledby="aufteilung-bearbeiten" className="flex flex-col gap-4 rounded-card border border-border bg-surface p-6">
-      <h3 id="aufteilung-bearbeiten" className="text-section font-semibold">
+      <h2 id="aufteilung-bearbeiten" className="text-section font-semibold">
         Aufteilung bearbeiten
-      </h3>
+      </h2>
       {children}
     </section>
   );

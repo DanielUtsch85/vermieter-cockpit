@@ -223,7 +223,7 @@ describe('the card Bestaetigen (Issue #352 des Projektinhabers, 2026-11-12, poin
     setup();
     const section = card();
     expect(section.tagName).toBe('SECTION');
-    expect(within(section).getByRole('heading', { level: 3, name: 'Bestätigen' })).toBeTruthy();
+    expect(within(section).getByRole('heading', { level: 2, name: 'Bestätigen' })).toBeTruthy();
     expect(section.textContent).toContain(
       'Mit der Bestätigung wird die gespeicherte Aufteilung eingefroren. Danach lässt sich die Buchung nur noch über eine Korrektur oder ein Storno ändern.',
     );

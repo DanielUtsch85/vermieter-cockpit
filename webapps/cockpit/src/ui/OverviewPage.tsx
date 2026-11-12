@@ -1,11 +1,12 @@
 import { useState, type ReactNode } from 'react';
 import type { HealthDto } from '../api/health';
-import { onLinkClick } from '../navigation';
 import { AREAS, areaPath } from '../routing';
 import { useSession } from '../session/use-session';
 import { describeError } from './error-text';
 import { secondaryButtonClass } from './states';
-import { NamedId, TechnicalDetails } from './technical';
+import { IdText } from './IdText';
+import { Link } from './Link';
+import { TechnicalDetails } from './technical';
 
 const berlinDate = new Intl.DateTimeFormat('de-DE', { dateStyle: 'full', timeZone: 'Europe/Berlin' });
 const berlinTime = new Intl.DateTimeFormat('de-DE', { timeStyle: 'medium', timeZone: 'Europe/Berlin' });
@@ -52,7 +53,7 @@ export function OverviewPage(props: {
         <dl className="divide-y divide-border">
           <Row label="Heute">{berlinDate.format(new Date())}</Row>
           <Row label="Bestand">
-            <NamedId name={props.realmName} id={props.realmId} />
+            <IdText name={props.realmName} id={props.realmId} />
           </Row>
           <Row label="Fachdaten (DE)">{props.health === undefined ? 'Wird geprüft …' : 'Zugriff bestätigt für diesen Bestand'}</Row>
           <Row label="Sitzung erneuert">
@@ -75,17 +76,12 @@ export function OverviewPage(props: {
           Arbeitsbereiche
         </h2>
         <ul className="flex flex-col gap-2">
-          {AREAS.filter((area) => area.id !== 'uebersicht').map((area) => {
-            const href = areaPath(props.realmId, area);
-            return (
-              <li key={area.id}>
-                <a className="text-primary underline" href={href} onClick={(event) => onLinkClick(event, href)}>
-                  {area.label}
-                </a>{' '}
-                {area.available !== undefined && <span className="text-muted">{`· ${area.available}`}</span>}
-              </li>
-            );
-          })}
+          {AREAS.filter((area) => area.id !== 'uebersicht').map((area) => (
+            <li key={area.id}>
+              <Link href={areaPath(props.realmId, area)}>{area.label}</Link>{' '}
+              {area.available !== undefined && <span className="text-muted">{`· ${area.available}`}</span>}
+            </li>
+          ))}
         </ul>
       </section>
       <section aria-label="Technische Angaben der Verbindung" className="rounded-card border border-border bg-surface px-6 py-2">

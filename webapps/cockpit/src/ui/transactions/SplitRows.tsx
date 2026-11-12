@@ -13,7 +13,7 @@ import {
 import { describeFieldError } from '../error-text';
 import { MoneyText } from '../format';
 import { secondaryButtonClass } from '../states';
-import { NamedId } from '../technical';
+import { IdText } from '../IdText';
 import { categoryName, propertyName, type References } from './references';
 
 /**
@@ -239,7 +239,7 @@ function KeptReference(props: {
       {property !== undefined && (
         <p id={propertyId} tabIndex={-1} className="text-label text-muted" aria-invalid={errors === undefined ? undefined : true}>
           {'Objekt: '}
-          <NamedId name={propertyName(props.references, property)} id={property} />
+          <IdText name={propertyName(props.references, property)} id={property} />
         </p>
       )}
       {errors !== undefined && <p className="text-label text-danger-text">{errors.map((e) => describeFieldError(e).text).join(', ')}</p>}

@@ -245,7 +245,9 @@ describe('step 2, the Buchungen area in the app (ui-guide.md §6.3, §7.3, §10)
     const queryClient = seeded(A);
     queryClient.setQueryData(transactionKeys.detail(A, 0, TX), { transaction: detail({ mreRealmId: A }), etag: '"3"' });
     const html = render(await signedIn(), `/cockpit/r/${A}/buchungen/${TX.toUpperCase()}`, { queryClient });
-    expect(html).toContain('<li aria-current="page">Buchung vom 01.03.2026</li>');
+    // The detail of Realm A from its cache; its title „Buchung vom 01.03.2026“ is set by the page (durchstich-seiten.test.tsx).
+    expect(html).toContain('<h2 id="buchung" class="text-section font-semibold">Angaben zur Buchung</h2>');
+    expect(html).toContain('Miete Maerz Testwohnung');
     const other = seeded(B);
     other.setQueryData(transactionKeys.detail(A, 0, TX), { transaction: detail({ mreRealmId: A }), etag: '"3"' });
     expect(render(await signedIn(), `/cockpit/r/${B}/buchungen/${TX}`, { queryClient: other })).toContain('Buchung wird geladen');

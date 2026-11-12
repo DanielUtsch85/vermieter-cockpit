@@ -4,7 +4,9 @@ import { MoneyText } from '../format';
 import type { Loadable } from '../RealmChoice';
 import { LoadingState, ReadProblem } from '../states';
 import { STATUS_FILTERS } from './rent-labels';
-import { Link, ReconciliationBadges, ReconciliationLink, TenantText, TermLink, TermText, TransactionLink } from './RentParts';
+import { IdText } from '../IdText';
+import { Link } from '../Link';
+import { ReconciliationBadges, ReconciliationLink, TermDate } from './RentParts';
 
 /** The list's filter and page in the URL (ui-guide.md §3.2): `?status=CONFIRMED&page=2`; `alle` lists every status. */
 export interface RentListParams {
@@ -39,9 +41,12 @@ const EMPTY: Readonly<Record<string, string>> = {
 };
 
 /**
- * The reconciliations of the Realm (api-design.md §37.1: newest first), one status at a time, with their references:
- * the Transaction (a link), the MRE Tenant and term by id, the amount, and status and write-back state as two badges.
- * Loading, empty and error are distinct states (ui-guide.md §7.4); pages from the server's `total`.
+ * The reconciliations of the Realm (api-design.md §37.1: newest first), one status at a time: the term's date as the
+ * main text, the amount, status and write-back state as two badges, the MRE Tenant id and the term key on one small
+ * line (they stay visible until there are Tenant names; Entscheidung des Projektinhabers, 2026-11-11), and one link per
+ * row, to the reconciliation; its Transaction and the term's coverage are linked from there (Issue #353 des
+ * Projektinhabers, 2026-11-12, point 8). Loading, empty and error are distinct states (ui-guide.md §7.4); pages from
+ * the server's `total`.
  */
 export function ReconciliationListView(props: {
   readonly realmId: string;
@@ -106,18 +111,22 @@ function Rows(props: {
         {page.items.map((r) => (
           <li key={r.reconciliationId} className="flex flex-col gap-1 py-3">
             <div className="flex flex-wrap items-center gap-3">
+              <span className="font-semibold">
+                <TermDate term={r.mreRentTerm} />
+              </span>
               <MoneyText money={r.matchedAmount} />
               <ReconciliationBadges r={r} />
             </div>
+            <p className="text-label text-muted">
+              {'Mieter in MRE '}
+              <IdText id={r.mreTenantId} />
+              {' · Terminschlüssel '}
+              <IdText id={r.mreRentTerm} />
+            </p>
             <div>
-              <TenantText id={r.mreTenantId} /> · <TermText term={r.mreRentTerm} />
-            </div>
-            <div className="flex flex-wrap gap-4">
               <ReconciliationLink realmId={props.realmId} id={r.reconciliationId}>
                 {r.status === 'SUGGESTED' ? 'Vorschlag prüfen' : 'Zuordnung öffnen'}
               </ReconciliationLink>
-              <TransactionLink realmId={props.realmId} id={r.transactionId} />
-              <TermLink realmId={props.realmId} r={r} />
             </div>
           </li>
         ))}

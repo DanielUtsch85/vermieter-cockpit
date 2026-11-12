@@ -2,12 +2,14 @@ import type { ReactNode } from 'react';
 import { ApiError } from '../../api/errors';
 import type { TransactionRead, TransactionSplitDto } from '../../api/transactions';
 import { formatBusinessDate } from '../../format/dates';
-import { onLinkClick } from '../../navigation';
 import { transactionPath } from '../../routing';
 import { DateText, MoneyText, TimestampText } from '../format';
 import type { Loadable } from '../RealmChoice';
 import { LoadingState, ReadProblem } from '../states';
-import { NamedId, TechnicalDetails } from '../technical';
+import { IdText } from '../IdText';
+import { Link } from '../Link';
+import { PageTitle } from '../PageTitle';
+import { TechnicalDetails } from '../technical';
 import { correctionRoleLabel, directionLabel, provenanceLabel } from './labels';
 import { accountName, categoryName, propertyName, type References } from './references';
 import { StatusBadge } from './TransactionList';
@@ -21,33 +23,12 @@ function Row({ label, children }: { readonly label: string; readonly children: R
   );
 }
 
-const Id = ({ value }: { readonly value: string }) => <code className="font-mono text-label">{value}</code>;
-
 function TransactionLink({ realmId, id, children }: { readonly realmId: string; readonly id: string; readonly children: ReactNode }) {
-  const href = transactionPath(realmId, id);
-  return (
-    <a className="text-primary underline" href={href} onClick={(event) => onLinkClick(event, href)}>
-      {children}
-    </a>
-  );
+  return <Link href={transactionPath(realmId, id)}>{children}</Link>;
 }
 
-/** Breadcrumbs (ui-guide.md §3.2: sub-pages with breadcrumbs): Buchungen › this Transaction. */
-function Breadcrumbs({ listHref, current }: { readonly listHref: string; readonly current: string }) {
-  return (
-    <nav aria-label="Brotkrumen">
-      <ol className="flex flex-wrap gap-2 text-label text-muted">
-        <li>
-          <a className="text-primary underline" href={listHref} onClick={(event) => onLinkClick(event, listHref)}>
-            Buchungen
-          </a>
-          <span aria-hidden="true"> ›</span>
-        </li>
-        <li aria-current="page">{current}</li>
-      </ol>
-    </nav>
-  );
-}
+/** The page's title while the Transaction is not read (yet): the shell shows it as the `h1`. */
+const UNREAD_TITLE = 'Buchung';
 
 /**
  * One Transaction (ui-guide.md §6.3, §10 step 2): date, amount and direction, counterparty, purpose, origin, status,
@@ -55,6 +36,8 @@ function Breadcrumbs({ listHref, current }: { readonly listHref: string; readonl
  * timeline in version 1). Read only: the actions are their own sections below it, shown by the page for the statuses
  * that allow them: „Buchung bestätigen“ (`ConfirmAction`), the split editor of step 3 (`SplitEditor`) and „Korrigieren“
  * (`CorrectionForm`) of step 4, and „Stornieren“ (`ReverseForm`, §35.9). A `404` says "not found or not accessible", never where it might exist.
+ * The page's title is „Buchung vom <date>“ (`PageTitle`: the shell's `h1`, with „Buchungen“ in the breadcrumbs; Issue
+ * #353 des Projektinhabers, 2026-11-12, point 5); the card of its data and every section below are `h2`.
  */
 export function TransactionDetailView(props: {
   readonly realmId: string;
@@ -67,7 +50,7 @@ export function TransactionDetailView(props: {
   if (read.status === 'pending') {
     return (
       <>
-        <Breadcrumbs listHref={props.listHref} current="Buchung" />
+        <PageTitle title={UNREAD_TITLE} />
         <LoadingState label="Buchung wird geladen …" />
       </>
     );
@@ -75,13 +58,9 @@ export function TransactionDetailView(props: {
   if (read.status === 'error') {
     return (
       <>
-        <Breadcrumbs listHref={props.listHref} current="Buchung" />
+        <PageTitle title={UNREAD_TITLE} />
         <ReadProblem error={read.error} onRetry={props.onRetry}>
-          {read.error instanceof ApiError && read.error.status === 404 && (
-            <a className="text-primary underline" href={props.listHref} onClick={(event) => onLinkClick(event, props.listHref)}>
-              Zur Buchungsliste
-            </a>
-          )}
+          {read.error instanceof ApiError && read.error.status === 404 && <Link href={props.listHref}>Zur Buchungsliste</Link>}
         </ReadProblem>
       </>
     );
@@ -91,11 +70,11 @@ export function TransactionDetailView(props: {
   const references = props.references;
   return (
     <>
-      <Breadcrumbs listHref={props.listHref} current={title} />
+      <PageTitle title={title} />
       <section aria-labelledby="buchung" className="rounded-card border border-border bg-surface p-6">
         <div className="mb-2 flex flex-wrap items-center gap-3">
           <h2 id="buchung" className="text-section font-semibold">
-            {title}
+            Angaben zur Buchung
           </h2>
           <StatusBadge code={t.status} />
         </div>
@@ -123,13 +102,13 @@ export function TransactionDetailView(props: {
           <Row label="Verwendungszweck">{t.description ?? <span className="text-muted">Ohne Verwendungszweck</span>}</Row>
           <Row label="Herkunft">{provenanceLabel(t.provenance).text}</Row>
           <Row label="Konto">
-            <NamedId name={accountName(references, t.financialAccountId)} id={t.financialAccountId} />
+            <IdText name={accountName(references, t.financialAccountId)} id={t.financialAccountId} />
           </Row>
           <Row label="Objekt der Buchung">
             {t.propertyReferenceId === null ? (
               <span className="text-muted">Keines (Objekte können auch an der Aufteilung hängen)</span>
             ) : (
-              <NamedId name={propertyName(references, t.propertyReferenceId)} id={t.propertyReferenceId} />
+              <IdText name={propertyName(references, t.propertyReferenceId)} id={t.propertyReferenceId} />
             )}
           </Row>
           <Row label="Angelegt">
@@ -194,9 +173,9 @@ function CorrectionChain({ realmId, transaction: t }: { readonly realmId: string
   }
   return (
     <section aria-labelledby="korrektur" className="rounded-card border border-border bg-surface p-6">
-      <h3 id="korrektur" className="mb-2 text-section font-semibold">
+      <h2 id="korrektur" className="mb-2 text-section font-semibold">
         Korrekturen
-      </h3>
+      </h2>
       {links.length === 0 ? <p className="text-muted">Keine Korrektur verknüpft.</p> : <ul className="flex flex-col gap-1">{links}</ul>}
     </section>
   );
@@ -208,7 +187,7 @@ function SplitReferences({ split, references }: { readonly split: TransactionSpl
   if (split.propertyReferenceId !== null) {
     entries.push(
       <li key="property">
-        Objekt: <NamedId name={propertyName(references, split.propertyReferenceId)} id={split.propertyReferenceId} />
+        Objekt: <IdText name={propertyName(references, split.propertyReferenceId)} id={split.propertyReferenceId} />
       </li>,
     );
   }
@@ -222,7 +201,7 @@ function SplitReferences({ split, references }: { readonly split: TransactionSpl
     if (id !== null) {
       entries.push(
         <li key={key}>
-          {label}: <Id value={id} />
+          {label}: <IdText id={id} />
         </li>,
       );
     }
@@ -249,9 +228,9 @@ function Cell({ label, className = '', children }: { readonly label: string; rea
 function Splits({ splits, references }: { readonly splits: readonly TransactionSplitDto[]; readonly references: References }) {
   return (
     <section aria-labelledby="aufteilung" className="rounded-card border border-border bg-surface p-6">
-      <h3 id="aufteilung" className="mb-2 text-section font-semibold">
+      <h2 id="aufteilung" className="mb-2 text-section font-semibold">
         Aufteilung
-      </h3>
+      </h2>
       {splits.length === 0 ? (
         <p className="text-muted">Noch nicht aufgeteilt.</p>
       ) : (
@@ -284,7 +263,7 @@ function Splits({ splits, references }: { readonly splits: readonly TransactionS
                     {split.position}
                   </Cell>
                   <Cell label="Kategorie">
-                    <NamedId name={categoryName(references, split.financialCategoryCode)} id={split.financialCategoryCode} missing="Unbekannte Kategorie" />
+                    <IdText name={categoryName(references, split.financialCategoryCode)} id={split.financialCategoryCode} missing="Unbekannte Kategorie" />
                   </Cell>
                   <Cell label="Betrag" className="whitespace-nowrap text-right">
                     <MoneyText money={split.amount} />
