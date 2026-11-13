@@ -5,6 +5,7 @@ import { reconciliationPath, transactionPath } from '../../routing';
 import { DateText, MoneyText } from '../format';
 import { Link } from '../Link';
 import { secondaryButtonClass } from '../states';
+import { TechnicalDetails } from '../technical';
 import { statusLabel } from './labels';
 import { StatusBadge } from './TransactionList';
 
@@ -23,15 +24,14 @@ function Member({ realmId, label, transaction: t }: { readonly realmId: string; 
       <span className="text-muted">
         <DateText value={t.bookingDate} />
       </span>
-      <span className="text-label text-muted">{`Version ${t.version}`}</span>
     </li>
   );
 }
 
 /**
  * The answer of a correction (api-design.md §35.1, §35.3; ui-guide.md §8: original, reversal and replacement, not one
- * record): each member with a link to its own detail, its status, its amount with direction and its version, exactly as
- * the server answered them. The heading takes the focus (§11).
+ * record): each member with a link to its own detail, its status, its amount with direction, exactly as the server
+ * answered them; their versions in „Technische Angaben“. The heading takes the focus (§11).
  */
 export function CorrectionResult({
   realmId,
@@ -53,6 +53,13 @@ export function CorrectionResult({
         <Member realmId={realmId} label="Storno" transaction={result.reversal} />
         <Member realmId={realmId} label="Ersatzbuchung" transaction={result.replacement} />
       </ol>
+      <ChainVersions
+        members={[
+          ['Original', result.original],
+          ['Storno', result.reversal],
+          ['Ersatzbuchung', result.replacement],
+        ]}
+      />
     </section>
   );
 }
@@ -74,8 +81,23 @@ export function ReversalResult({ realmId, result }: { readonly realmId: string; 
         <Member realmId={realmId} label="Original" transaction={result.original} />
         <Member realmId={realmId} label="Storno" transaction={result.reversal} />
       </ol>
+      <ChainVersions
+        members={[
+          ['Original', result.original],
+          ['Storno', result.reversal],
+        ]}
+      />
     </section>
   );
+}
+
+/**
+ * The versions of the chain as the server answered them, in „Technische Angaben“ (Entscheidung des Projektinhabers,
+ * 2026-11-13: „#355 F3, Versionsnummern in Erfolgs- und Rückfragetexten: aus dem Sichtbereich, die Version steht in
+ * „Technische Angaben“.“).
+ */
+function ChainVersions({ members }: { readonly members: readonly (readonly [string, TransactionDto])[] }) {
+  return <TechnicalDetails spacing="" entries={members.map(([label, t]) => [`Version ${label}`, String(t.version)] as const)} />;
 }
 
 /** Which command was refused: the texts name it (`correct` „Korrektur“, `reverse` „Storno“). */

@@ -5,6 +5,7 @@ import type { Confirmed, TransactionDetailDto } from '../../api/transactions';
 import { confirmable, needsSplitsBeforeConfirm } from '../../transactions/correction-draft';
 import { ConfirmStep } from '../ConfirmStep';
 import { buttonClass, ErrorState, isRetryable, Notice, secondaryButtonClass } from '../states';
+import { TechnicalDetails, versionText } from '../technical';
 import { statusLabel } from './labels';
 
 /** `409`/`422` reasons of `confirm` (api-design.md §34.2): said in German, an unknown one with its code. */
@@ -115,7 +116,8 @@ export function ConfirmAction(props: {
     return (
       <ConfirmCard>
         <div ref={result} tabIndex={-1} role="status">
-          <Notice tone="success">{`Buchung bestätigt (Version ${done.transaction.version}, Status „${statusLabel(done.transaction.status).text}“). Die Aufteilung ist jetzt unveränderlich.`}</Notice>
+          <Notice tone="success">{`Buchung bestätigt (Status „${statusLabel(done.transaction.status).text}“). Die Aufteilung ist jetzt unveränderlich.`}</Notice>
+          <TechnicalDetails entries={[['Version', versionText(done.transaction.version, done.etag)]]} />
         </div>
       </ConfirmCard>
     );
@@ -181,7 +183,7 @@ export function ConfirmAction(props: {
           onCancel={cancel}
         >
           <p>
-            {`Bestätigt wird die gespeicherte Aufteilung (Version ${t.version}). Danach sind Betrag, Datum, Konto und Aufteilung unveränderlich; ändern lässt sich die Buchung nur noch über eine Korrektur oder ein Storno.`}
+            {`Bestätigt wird die gespeicherte Aufteilung. Danach sind Betrag, Datum, Konto und Aufteilung unveränderlich; ändern lässt sich die Buchung nur noch über eine Korrektur oder ein Storno.`}
           </p>
         </ConfirmStep>
       ) : (

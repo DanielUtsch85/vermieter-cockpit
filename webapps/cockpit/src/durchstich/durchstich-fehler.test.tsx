@@ -28,6 +28,7 @@ import {
   useDurchstich,
   WRITE_BACK_NOW,
 } from './walk.test-support';
+import { findSaved } from '../ui/technical.test-support';
 
 /**
  * Step 7 (ui-guide.md §10, §11, §12 point 5): the conflict and error cases at the point of the Durchstich where they
@@ -159,7 +160,7 @@ describe('412: changed in the meantime; the draft stays, nothing is overwritten 
     click('Entwurf behalten und Serverstand ansehen');
     await screen.findByText(/Aktueller Stand auf dem Server: Version 2/);
     click('Aufteilung speichern');
-    await screen.findByText(/Aufteilung gespeichert \(Version 3/);
+    await findSaved(/Aufteilung gespeichert \(Status/, 3);
     expect(ifMatches('PUT', PUT_SPLITS)).toEqual(['"1"', '"2"']);
     expect(t.splits.map((s) => s.amount.toJSON().amount)).toEqual(['700.00', '150.00']);
     expect(t.description).toBe('Miete Oktober (anderer Tab)');
@@ -330,7 +331,7 @@ describe('a lost answer: the same intent again, the server deduplicates, nothing
     click('Jetzt bestätigen');
     expect(await screen.findByText(/Ob die Buchung bestätigt wurde, ist unklar/)).toBeTruthy();
     click('Erneut senden');
-    await screen.findByText(/Buchung bestätigt \(Version 3/);
+    await findSaved(/Buchung bestätigt \(Status/, 3);
     expect(ifMatches('POST', /\/confirm$/)).toEqual(['"2"', '"2"']);
     expect([t.status, t.version]).toEqual(['CONFIRMED', 3]);
   });
@@ -343,7 +344,7 @@ describe('a lost answer: the same intent again, the server deduplicates, nothing
     expect(await screen.findByText(/Ob die Aufteilung gespeichert wurde, ist unklar/)).toBeTruthy();
     expect([t.version, t.splits.length]).toEqual([2, 2]);
     click('Erneut senden');
-    await screen.findByText(/Aufteilung gespeichert \(Version 2/);
+    await findSaved(/Aufteilung gespeichert \(Status/, 2);
     const sent = requests(backend(), 'PUT', PUT_SPLITS);
     expect(sent.map((s) => s.headers.get('if-match'))).toEqual(['"1"', '"1"']);
     expect(sent[1]?.body).toBe(sent[0]?.body);

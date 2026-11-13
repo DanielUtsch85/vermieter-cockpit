@@ -7,6 +7,7 @@ import { countingTokens, json, routedFetch } from '../../api/fetch.test-support'
 import { createQueryClient } from '../../query';
 import { category, detail, page, property, PROPERTY, REALM_A, REALM_B, split, TX, TX_REPLACEMENT } from '../../transactions/fixtures.test-support';
 import { TransactionsArea } from './TransactionsArea';
+import { findSaved, visibleText } from '../technical.test-support';
 
 /**
  * Step 3 in the Buchungen area (jsdom): the editor appears on the detail of a Transaction whose status allows splits,
@@ -69,7 +70,7 @@ describe('step 3, the editor in the Buchungen area', () => {
       [PUT]: [splitsAnswer],
     });
     await saveWholeAmountOnObject();
-    await screen.findByText(/Aufteilung gespeichert \(Version 4/);
+    await findSaved(/Aufteilung gespeichert \(Status/, 4);
     const put = calls.find((call) => call.method === 'PUT');
     expect(put?.headers.get('if-match')).toBe('"3"');
     expect(calls.map((call) => call.headers.get('organizationid'))).toEqual(calls.map(() => REALM_A));
@@ -126,7 +127,9 @@ describe('step 3, the editor in the Buchungen area', () => {
     expect(screen.queryByText('Fremde Buchung')).toBeNull();
     expect(screen.getByRole('form', { name: 'Aufteilung bearbeiten' })).toBeTruthy();
     // The base stays the ETag of the own save, never the "9" of the refused read: the next save sends it as If-Match.
-    expect(document.body.textContent).not.toMatch(/If-Match|ETag/);
+    // The ETag of the answer is only in „Technische Angaben“, never the refused one.
+    expect(visibleText(document.body)).not.toMatch(/If-Match|ETag/);
+    expect(document.body.textContent).not.toContain('"9"');
     fireEvent.click(screen.getByRole('button', { name: 'Aufteilung speichern' }));
     await waitFor(() => expect(calls.filter((call) => call.method === 'PUT')).toHaveLength(2));
     expect(calls.filter((call) => call.method === 'PUT').map((call) => call.headers.get('if-match'))).toEqual(['"3"', '"4"']);

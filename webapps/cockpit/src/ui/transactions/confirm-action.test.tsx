@@ -6,6 +6,7 @@ import { countingTokens, envelope, json, scriptedFetch, type Call } from '../../
 import { confirmTransaction, type Confirmed, type TransactionDetailDto } from '../../api/transactions';
 import { detail, REALM_A, split, transaction, TX } from '../../transactions/fixtures.test-support';
 import { ConfirmAction } from './ConfirmAction';
+import { expectSaved } from '../technical.test-support';
 
 /**
  * Step 4, „Buchung bestätigen“ as a component (jsdom, `fireEvent` only): every confirm goes through the real client
@@ -83,7 +84,7 @@ describe('step 4, Buchung bestaetigen (ui-guide.md §4.4, §6.3, §7.3, §8)', (
       await pending;
     });
     await settle();
-    const done = screen.getByText(/Buchung bestätigt \(Version 5, Status „Bestätigt“\)/);
+    const done = expectSaved(screen.getByText('Buchung bestätigt (Status „Bestätigt“). Die Aufteilung ist jetzt unveränderlich.'), 5);
     expect(document.activeElement).toBe(done.closest('[tabindex="-1"]'));
     expect(onConfirmed).toHaveBeenCalledTimes(1);
     expect(onConfirmed.mock.calls[0]?.[0]).toMatchObject({ etag: '"5"', transaction: { status: 'CONFIRMED' } });
@@ -239,7 +240,7 @@ describe('the card Bestaetigen (Issue #352 des Projektinhabers, 2026-11-12, poin
     expect(dialog.textContent).toContain('ändern lässt sich die Buchung nur noch über eine Korrektur oder ein Storno.');
     fireEvent.click(confirmNow());
     await settle();
-    expect(within(card()).getByRole('status').textContent).toContain('Buchung bestätigt (Version 5');
+    expect(within(card()).getByRole('status').textContent).toContain('Buchung bestätigt (Status „Bestätigt“)');
     expect(screen.getAllByRole('region')).toHaveLength(1);
   });
 

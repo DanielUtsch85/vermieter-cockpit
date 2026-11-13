@@ -22,6 +22,7 @@ import {
   useDurchstich,
 } from './walk.test-support';
 import { TERM_OCT } from './fake-backend.test-support';
+import { findSaved } from '../ui/technical.test-support';
 
 /**
  * Issue #353 des Projektinhabers, 2026-11-12, points 5 and 6 (the whole App against the fake backend, `fireEvent`
@@ -150,7 +151,7 @@ describe('heading order on every page of the walk (Issue #353 des Projektinhaber
     await splitRent(PROPERTY, false);
     await expectOutline('detail with draft', 'Buchung vom 01.10.2026');
     click('Aufteilung speichern');
-    await screen.findByText(/Aufteilung gespeichert \(Version 2/);
+    await findSaved(/Aufteilung gespeichert \(Status/, 2);
     await expectOutline('detail saved', 'Buchung vom 01.10.2026');
     // The card of the data and its sibling sections are all h2, their parts h3 (point 6).
     expect(outline()).toEqual([

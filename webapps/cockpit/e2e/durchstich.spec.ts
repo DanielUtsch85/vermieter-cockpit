@@ -60,11 +60,14 @@ test('import, review items, split from the MRE proposal, confirm, rent suggestio
   // Step 2: the rent in the list, opened by its date.
   await nav(page, 'Buchungen');
   await expectNoSideScroll(page, 'booking list');
-  // At 1280 px the account stays on one line; the purpose carries its whole text as title (Issue #353, point 7).
+  // At 1280 px the purpose carries its whole text as title (Issue #353, point 7); the account takes at most two lines,
+  // with its whole name as title (Entscheidung des Projektinhabers, 2026-11-13). Herkunft is the short text without „Aus“.
   const rent = page.getByRole('row').filter({ hasText: 'Miete Oktober Testwohnung' });
   await expect(rent.getByTitle('Miete Oktober Testwohnung', { exact: true })).toBeVisible();
   const account = rent.getByTitle(ACCOUNT_NAME, { exact: true });
-  expect(await account.evaluate((el) => el.getBoundingClientRect().height <= parseFloat(getComputedStyle(el).lineHeight) * 1.5)).toBe(true);
+  expect(await account.evaluate((el) => el.getBoundingClientRect().height <= parseFloat(getComputedStyle(el).lineHeight) * 2.5)).toBe(true);
+  expect(await account.evaluate((el) => getComputedStyle(el).webkitLineClamp)).toBe('2');
+  await expect(rent.getByRole('cell', { name: 'Bankimport (CSV)', exact: true })).toBeVisible();
   await page.getByRole('link', { name: 'Buchung vom 01.10.2026 öffnen' }).click();
   await expect(page.getByText('Miete Oktober Testwohnung').first()).toBeVisible();
   // The h1 names the page; the area is in the breadcrumbs and the tab, the focus is on the title (Issue #353, point 5).
@@ -92,7 +95,8 @@ test('import, review items, split from the MRE proposal, confirm, rent suggestio
   const split = page.waitForResponse((r) => /\/api\/v1\/transactions\/[^/]+\/splits$/.test(r.url()) && r.request().method() === 'PUT');
   await editor.getByRole('button', { name: 'Aufteilung speichern' }).click();
   expect((await split).status()).toBe(200);
-  await expect(editor.getByText(/Aufteilung gespeichert \(Version \d+, Status „Aufgeteilt“\)/)).toBeVisible();
+  // The version is in „Technische Angaben“, not in the message (Entscheidung des Projektinhabers, 2026-11-13).
+  await expect(editor.getByText('Aufteilung gespeichert (Status „Aufgeteilt“).', { exact: true })).toBeVisible();
   // The saved split at a phone's width: no side scroll, and both amounts of the read-only table whole on the screen.
   await expect(page.getByRole('region', { name: 'Aufteilung', exact: true }).getByRole('row')).toHaveCount(3);
   await expectNoSideScroll(page, 'booking detail');
@@ -108,7 +112,7 @@ test('import, review items, split from the MRE proposal, confirm, rent suggestio
   // Step 4: confirm the booking with its confirmation step; the proposal is gone, the rent cash is free for matching.
   await page.getByRole('button', { name: 'Buchung bestätigen' }).click();
   await page.getByRole('button', { name: 'Jetzt bestätigen' }).click();
-  await expect(page.getByText(/Buchung bestätigt \(Version \d+/)).toBeVisible();
+  await expect(page.getByText('Buchung bestätigt (Status „Bestätigt“). Die Aufteilung ist jetzt unveränderlich.', { exact: true })).toBeVisible();
   await expect(page.getByRole('region', { name: 'Aufteilungsvorschlag aus MRE' })).toHaveCount(0);
   const coverage = page.getByRole('region', { name: 'Mietabgleich dieser Buchung' });
   await expect(coverage).toContainText(`Mietanteil der Buchung${euro('850,00')}Davon bestätigt zugeordnet${euro('0,00')}Noch frei${euro('850,00')}`);

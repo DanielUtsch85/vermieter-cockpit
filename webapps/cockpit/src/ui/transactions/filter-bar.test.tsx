@@ -138,7 +138,7 @@ describe('the bar follows the URL of the list (#334 H1: the key on FilterBar in 
     );
     const { rerender } = render(list('?reviewable=true&provenance=BANK_CSV'));
     expect(shortcut().checked).toBe(true);
-    expect(status('Aus Bankimport (CSV)').checked).toBe(true);
+    expect(status('Bankimport (CSV)').checked).toBe(true);
     // An unapplied choice in the bar: it belongs to the old URL and must not survive the move.
     fireEvent.click(shortcut());
     rerender(list('?status=IGNORED,CONFIRMED'));
@@ -146,7 +146,7 @@ describe('the bar follows the URL of the list (#334 H1: the key on FilterBar in 
     expect(status('Ignoriert').checked).toBe(true);
     expect(status('Bestätigt').checked).toBe(true);
     expect(statusBoxes().every((box) => !box.disabled)).toBe(true);
-    expect(status('Aus Bankimport (CSV)').checked).toBe(false);
+    expect(status('Bankimport (CSV)').checked).toBe(false);
     rerender(list('?reviewable=true'));
     expect(shortcut().checked).toBe(true);
     expect(statusBoxes().every((box) => !box.checked && box.disabled)).toBe(true);

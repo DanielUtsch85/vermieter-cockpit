@@ -163,7 +163,7 @@ export async function splitRent(property: string, save: boolean | ((name: string
 export async function confirmTransaction(press: (name: string) => unknown = click) {
   fireEvent.click(await screen.findByRole('button', { name: 'Buchung bestätigen' }));
   await press('Jetzt bestätigen');
-  await screen.findByText(/Buchung bestätigt \(Version/);
+  await screen.findByText(/Buchung bestätigt \(Status/);
 }
 
 export async function suggestOctober(press: (name: string) => unknown = click) {

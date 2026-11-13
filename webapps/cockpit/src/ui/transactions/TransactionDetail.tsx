@@ -9,7 +9,7 @@ import { LoadingState, ReadProblem } from '../states';
 import { IdText } from '../IdText';
 import { Link } from '../Link';
 import { PageTitle } from '../PageTitle';
-import { TechnicalDetails } from '../technical';
+import { TechnicalDetails, versionText } from '../technical';
 import { correctionRoleLabel, directionLabel, provenanceLabel } from './labels';
 import { accountName, categoryName, propertyName, type References } from './references';
 import { StatusBadge } from './TransactionList';
@@ -128,7 +128,7 @@ export function TransactionDetailView(props: {
         <TechnicalDetails
           entries={[
             ['Buchungs-ID', t.transactionId],
-            ['Version', `${t.version}${etag === undefined ? '' : ` (ETag ${etag})`}`],
+            ['Version', versionText(t.version, etag)],
             ['Konto-ID', t.financialAccountId],
             ...(t.propertyReferenceId === null ? [] : [['Objekt-ID', t.propertyReferenceId] as const]),
           ]}

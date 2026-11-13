@@ -117,7 +117,7 @@ describe('step 2, the transaction list in its states (ui-guide.md §6.3, §7.4, 
       'Miete Maerz Testwohnung',
       'Importiert · zu prüfen',
       'Bestätigt',
-      'Aus Bankimport (CSV)',
+      'Bankimport (CSV)',
       'Manuell erfasst',
       'Girokonto Testbank',
       'Keine Gegenpartei angegeben',
@@ -165,6 +165,38 @@ describe('step 2, the transaction list in its states (ui-guide.md §6.3, §7.4, 
   });
 });
 
+describe('Herkunft in the table and the filter (Entscheidung des Projektinhabers, 2026-11-13, zu #355 F4)', () => {
+  const SHORT = [
+    ['MANUAL', 'Manuell erfasst'],
+    ['BANK_CSV', 'Bankimport (CSV)'],
+    ['BANK_API', 'Bankschnittstelle'],
+    ['MIGRATION', 'Datenübernahme'],
+    ['CORRECTION', 'Korrektur'],
+  ] as const;
+  /** The Herkunft cell (the sixth) of every body row. */
+  const provenanceCells = (html: string) =>
+    [...html.matchAll(/<tr>(.*?)<\/tr>/gs)]
+      .map((row) => [...(row[1] ?? '').matchAll(/<td[^>]*>(.*?)<\/td>/gs)].map((cell) => cell[1]))
+      .filter((row) => row.length > 0)
+      .map((row) => row[5]);
+  /** The choices of the filter „Herkunft“: code and label. */
+  const filterChoices = (html: string) => [...html.matchAll(/name="provenance" value="([^"]*)"[^>]*\/>([^<]*)</g)].map((m) => [m[1], m[2]]);
+
+  it('every kind shows the same short text without Aus in the table and in the filter', () => {
+    const items = SHORT.map(([code], i) => transaction({ transactionId: TX.replace(/.$/, String(i)), provenance: code }));
+    const html = list({ status: 'success', data: page(items) });
+    expect(provenanceCells(html)).toEqual(SHORT.map(([, label]) => label));
+    expect(filterChoices(html)).toEqual(SHORT.map(([code, label]) => [code, label]));
+    expect(text(html)).not.toMatch(/Aus (Bankimport|Bankschnittstelle|Datenübernahme|Korrektur)/);
+  });
+
+  it('an unknown kind keeps its code in the table and is no filter choice', () => {
+    const html = list({ status: 'success', data: page([transaction({ provenance: unknownCode('FAX_IMPORT') })]) });
+    expect(provenanceCells(html)).toEqual(['Unbekannte Herkunft (FAX_IMPORT)']);
+    expect(filterChoices(html).map(([code]) => code)).not.toContain('FAX_IMPORT');
+  });
+});
+
 describe('the table at 1280 px (Issue #353 des Projektinhabers, 2026-11-12, point 7)', () => {
   const LONG = 'Miete Oktober Testwohnung Musterstraße 12, 2. OG links, Mieterkonto 4711, Abschlag Nebenkosten und Stellplatz, Zahlung per Dauerauftrag';
   const cells = (html: string) => [...html.matchAll(/<td[^>]*>(.*?)<\/td>/gs)].map((match) => match[0]);
@@ -179,9 +211,17 @@ describe('the table at 1280 px (Issue #353 des Projektinhabers, 2026-11-12, poin
     expect(purpose).not.toContain('max-w-xs');
   });
 
-  it('the account stays on one line, cut with its whole name as title; without a name the id', () => {
+  it('the account wraps to at most two lines with its whole name as title; without a name the id', () => {
+    // Entscheidung des Projektinhabers, 2026-11-13: the account column on two lines with line-clamp-2, not cut off.
     const named = list({ status: 'success', data: page([transaction()]) });
-    expect(cells(named)[6]).toBe('<td class="p-3"><p class="max-w-[12rem] truncate" title="Girokonto Testbank">Girokonto Testbank</p></td>');
+    expect(cells(named)[6]).toBe('<td class="p-3"><p class="line-clamp-2 max-w-[12rem]" title="Girokonto Testbank">Girokonto Testbank</p></td>');
+    expect(cells(named)[6]).not.toContain('truncate');
+    const longName = 'Gemeinschaftskonto Hausverwaltung Musterstraße 12 Rücklage und Instandhaltung';
+    const long = list({ status: 'success', data: page([transaction()]) }, '', {
+      ...loaded,
+      accounts: { status: 'success', data: page([account({ displayName: longName })]) },
+    });
+    expect(cells(long)[6]).toBe(`<td class="p-3"><p class="line-clamp-2 max-w-[12rem]" title="${longName}">${longName}</p></td>`);
     const unnamed = list({ status: 'success', data: page([transaction()]) }, '', { ...loaded, accounts: { status: 'pending' } });
     expect(cells(unnamed)[6]).toBe(`<td class="p-3"><code class="font-mono text-label">${ACCOUNT}</code></td>`);
   });
@@ -352,7 +392,7 @@ describe('step 2, one Transaction (ui-guide.md §6.3, §6.1: the correction chai
       'DE00 0000 0000 0000 0000 00',
       'Wie in der Bankdatei angegeben',
       'Miete Maerz Testwohnung',
-      'Aus Bankimport (CSV)',
+      'Bankimport (CSV)',
       'Bestätigt',
       'Konto Girokonto Testbank Objekt der Buchung Testhaus Wohnung 1 Angelegt',
       '02.03.2026, 09:15',

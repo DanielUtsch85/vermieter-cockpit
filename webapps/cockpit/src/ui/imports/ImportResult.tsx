@@ -8,6 +8,7 @@ import { importBatchPath, transactionPath } from '../../routing';
 import { TimestampText } from '../format';
 import { Link } from '../Link';
 import { secondaryButtonClass } from '../states';
+import { TechnicalDetails } from '../technical';
 import { ambiguityText, batchStatusText, orderText, previousExportText, resolutionText, rowErrorText } from './import-labels';
 
 const short = (id: string) => id.slice(0, 8);
@@ -20,8 +21,9 @@ function Balance({ amount, currency }: { readonly amount: string; readonly curre
 }
 
 /**
- * Step 3 of the import (ui-guide.md §6.5): the batch as the server answered it, never recomputed: its id, file,
- * account, adapter, status and counters, the continuity report and every row's outcome in file order (api-design.md
+ * Step 3 of the import (ui-guide.md §6.5): the batch as the server answered it, never recomputed: its status, file,
+ * account, adapter and counters, its id in „Technische Angaben“ (Entscheidung des Projektinhabers, 2026-11-13: the page
+ * title with the time and the file name identify the import), the continuity report and every row's outcome in file order (api-design.md
  * §32.1a). A row that refers to a review item of an earlier batch links that batch, where the item is decided. The row
  * table shows the rows with a hint (`rowHasHint`) unless „Alle Zeilen“ is on; the counters always count every row
  * (Entscheidung des Projektinhabers, 2026-11-11). The toggle is the URL's `zeilen=alle` (row-view.ts; Entscheidung des
@@ -49,10 +51,6 @@ export function ImportResult(props: {
           Ergebnis des Imports
         </h2>
         <dl className="grid gap-x-4 gap-y-1 sm:grid-cols-[14rem_1fr]">
-          <dt className="text-muted">Import</dt>
-          <dd>
-            <code className="font-mono">{b.importBatchId}</code>
-          </dd>
           <dt className="text-muted">Status</dt>
           <dd>{batchStatusText(b.status)}</dd>
           <dt className="text-muted">Datei</dt>
@@ -75,6 +73,7 @@ export function ImportResult(props: {
             </div>
           ))}
         </dl>
+        <TechnicalDetails entries={[['Import-ID', b.importBatchId]]} />
       </section>
       <Continuity continuity={b.continuity} currency={account?.currency} />
       <section aria-labelledby="import-zeilen" className="rounded-card border border-border bg-surface p-6">

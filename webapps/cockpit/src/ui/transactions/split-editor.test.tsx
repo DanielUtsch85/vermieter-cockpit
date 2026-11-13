@@ -7,6 +7,7 @@ import { putSplits, type SplitsSaved, type TransactionDetailDto, type Transactio
 import { category, detail, page, property, PROPERTY, REALM_A, split, TX } from '../../transactions/fixtures.test-support';
 import type { References } from './references';
 import { SplitEditor } from './SplitEditor';
+import { findSaved } from '../technical.test-support';
 
 /**
  * Step 3 as component tests (jsdom and Testing Library with `fireEvent`; Entscheidung des Projektinhabers, 2026-11-10):
@@ -250,12 +251,12 @@ describe('step 3, If-Match and the new ETag (ui-guide.md §7.3, §8)', () => {
     });
     fillTwoRows();
     fireEvent.click(saveButton());
-    await screen.findByText(/Aufteilung gespeichert \(Version 4/);
+    await findSaved(/Aufteilung gespeichert \(Status/, 4);
     expect(calls[0]?.headers.get('if-match')).toBe('"3"');
     expect(onSaved).toHaveBeenCalledTimes(1);
     type(control('split-0-description'), 'Kaltmiete Maerz');
     fireEvent.click(saveButton());
-    await screen.findByText(/Aufteilung gespeichert \(Version 5/);
+    await findSaved(/Aufteilung gespeichert \(Status/, 5);
     expect(calls[1]?.headers.get('if-match')).toBe('"4"');
     expect(sentBody(calls[1]).splits[0]?.['description']).toBe('Kaltmiete Maerz');
   });
@@ -264,7 +265,7 @@ describe('step 3, If-Match and the new ETag (ui-guide.md §7.3, §8)', () => {
     const { calls } = setup({ etag: undefined, transaction: detail({ version: 9 }), answers: [json(200, answer({ version: 10 }))] });
     fillTwoRows();
     fireEvent.click(saveButton());
-    await screen.findByText(/Version 10/);
+    await findSaved(/Aufteilung gespeichert \(Status/, 10);
     expect(calls[0]?.headers.get('if-match')).toBe('"9"');
   });
 
@@ -323,7 +324,7 @@ describe('step 3, 412 keeps the draft (ui-guide.md §7.3, §11)', () => {
     expect([amount(0).value, amount(1).value]).toEqual(['700,00', '150,00']);
     expect(calls).toHaveLength(1);
     fireEvent.click(saveButton());
-    await screen.findByText(/Aufteilung gespeichert \(Version 6/);
+    await findSaved(/Aufteilung gespeichert \(Status/, 6);
     expect(calls[1]?.headers.get('if-match')).toBe('"5"');
     expect(sentBody(calls[1]).splits).toHaveLength(2);
   });
@@ -343,7 +344,7 @@ describe('step 3, 412 keeps the draft (ui-guide.md §7.3, §11)', () => {
     // The new base is the server's ETag: the next save sends it as If-Match (the header, not a text; Issue #352, point 3).
     expect(document.body.textContent).not.toMatch(/If-Match|ETag/);
     fireEvent.click(saveButton());
-    await screen.findByText(/Aufteilung gespeichert \(Version 6/);
+    await findSaved(/Aufteilung gespeichert \(Status/, 6);
     expect(calls).toHaveLength(2);
     expect(calls[1]?.headers.get('if-match')).toBe('"5"');
   });
@@ -529,7 +530,7 @@ describe('step 3, references (ui-guide.md §6.4)', () => {
     expect(control('split-0-reference').value).toBe('loan');
     expect(screen.getByText(LOAN)).toBeTruthy();
     fireEvent.click(saveButton());
-    await screen.findByText(/Version 4/);
+    await findSaved(/Aufteilung gespeichert \(Status/, 4);
     expect(sentBody(calls[0]).splits[0]).toEqual({ amount: { amount: '850.00', currency: 'EUR' }, financialCategoryCode: 'LOAN_INTEREST', loanId: LOAN });
   });
 
@@ -601,7 +602,7 @@ describe('the unsaved draft and Entwurf verwerfen (Entscheidung des Projektinhab
     fireEvent.change(document.getElementById('split-1-amount') as HTMLInputElement, { target: { value: '250,00' } });
     expect(last(onDraftChange)).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: 'Aufteilung speichern' }));
-    await screen.findByText(/Aufteilung gespeichert \(Version 4/);
+    await findSaved(/Aufteilung gespeichert \(Status/, 4);
     expect(last(onDraftChange)).toBe(false);
     fireEvent.change(document.getElementById('split-0-amount') as HTMLInputElement, { target: { value: '1,00' } });
     expect(last(onDraftChange)).toBe(true);

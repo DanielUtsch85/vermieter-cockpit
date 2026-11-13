@@ -6,6 +6,7 @@ import { checkConfirmAmount, checkReason, decidable, MAX_REASON, type AmountChec
 import { decimalToInput } from '../../transactions/split-amount';
 import { MoneyText } from '../format';
 import { buttonClass, ErrorState, isRetryable, Notice, secondaryButtonClass } from '../states';
+import { TechnicalDetails, versionText } from '../technical';
 import { rentRefusalText } from './rent-labels';
 import { useCommand } from './use-command';
 
@@ -69,12 +70,13 @@ export function DecisionActions(props: {
             <>
               {'Zuordnung bestätigt über '}
               <MoneyText money={done.matchedAmount} />
-              {` (Version ${done.version}). An MRE wurde nichts übertragen; das ist ein eigener Schritt.`}
+              {'. An MRE wurde nichts übertragen; das ist ein eigener Schritt.'}
             </>
           ) : (
-            `Vorschlag abgelehnt (Version ${done.version}). Diese Zuordnung wird nicht wieder vorgeschlagen.`
+            'Vorschlag abgelehnt. Diese Zuordnung wird nicht wieder vorgeschlagen.'
           )}
         </Notice>
+        <TechnicalDetails entries={[['Version', versionText(done.version, stage.value.etag)]]} />
       </div>
     );
   }
