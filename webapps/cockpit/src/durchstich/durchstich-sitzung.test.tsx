@@ -21,6 +21,7 @@ import {
   useDurchstich,
   WRITE_BACK_NOW,
 } from './walk.test-support';
+import { findSaved } from '../ui/technical.test-support';
 
 /**
  * Step 7 (ui-guide.md §10, §11, §12 point 5): the session and the Realm across the Durchstich. An expired token in the
@@ -64,7 +65,7 @@ describe('an expired token in the middle of a step: the sign-in, then the same U
     await settle();
     expect(requests(backend(), 'PUT', /\/splits$/)).toHaveLength(1);
     await splitRent(PROPERTY);
-    await screen.findByText(/Aufteilung gespeichert \(Version 2/);
+    await findSaved(/Aufteilung gespeichert \(Status/, 2);
     expect(requests(backend(), 'PUT', /\/splits$/).map((s) => s.headers.get('if-match'))).toEqual(['"1"', '"1"']);
     expect(t.splits).toHaveLength(2);
     expect(backend().counters.signIns).toBe(1);

@@ -21,13 +21,16 @@ const STATUS: Readonly<Record<string, readonly [text: string, tone: Tone]>> = {
   IGNORED: ['Ignoriert', 'neutral'],
 };
 
-/** §4.4: the origin said explicitly ("Aus Bankimport"). */
+/**
+ * §4.4: the origin said explicitly, in short texts without „Aus“, the same in the table and the filter (Entscheidung des
+ * Projektinhabers, 2026-11-13: „#355 F4, Herkunft-Spalte: ja, kurze Texte ohne „Aus“ in Tabelle und Filter“).
+ */
 const PROVENANCE: Readonly<Record<string, string>> = {
   MANUAL: 'Manuell erfasst',
-  BANK_CSV: 'Aus Bankimport (CSV)',
-  BANK_API: 'Aus Bankschnittstelle',
-  MIGRATION: 'Aus Datenübernahme',
-  CORRECTION: 'Aus Korrektur',
+  BANK_CSV: 'Bankimport (CSV)',
+  BANK_API: 'Bankschnittstelle',
+  MIGRATION: 'Datenübernahme',
+  CORRECTION: 'Korrektur',
 };
 
 const DIRECTION: Readonly<Record<string, string>> = { INFLOW: 'Eingang', OUTFLOW: 'Ausgang' };

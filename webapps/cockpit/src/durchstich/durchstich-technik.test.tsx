@@ -16,6 +16,7 @@ import {
   suggestOctober,
   useDurchstich,
 } from './walk.test-support';
+import { findSaved } from '../ui/technical.test-support';
 
 /**
  * Issue #352 des Projektinhabers, 2026-11-12, point 3, acceptance: no text of the cockpit says „If-Match“ or „ETag“
@@ -73,16 +74,16 @@ describe('no If-Match and no ETag in the visible text (Issue #352, point 3)', ()
     await splitRent(PROPERTY, false);
     await expectNoTechnicalText('split draft');
     fireEvent.click(screen.getByRole('button', { name: 'Aufteilung speichern' }));
-    await screen.findByText(/Aufteilung gespeichert \(Version 2/);
+    await findSaved(/Aufteilung gespeichert \(Status/, 2);
     await expectNoTechnicalText('split saved');
-    await screen.findByText(/ETag "2"/);
+    await screen.findAllByText(/ETag "2"/);
     expect(detailsText()).toContain(backend().tx('Miete Oktober Testwohnung').id);
 
     fireEvent.click(screen.getByRole('button', { name: 'Buchung bestätigen' }));
     expect(within(screen.getByRole('region', { name: 'Bestätigen' })).getByRole('dialog')).toBeTruthy();
     await expectNoTechnicalText('confirm step');
     fireEvent.click(screen.getByRole('button', { name: 'Jetzt bestätigen' }));
-    await screen.findByText(/Buchung bestätigt \(Version 3/);
+    await findSaved(/Buchung bestätigt \(Status/, 3);
     await expectNoTechnicalText('confirmed');
 
     fireEvent.click(await screen.findByRole('button', { name: 'Korrektur erfassen' }));

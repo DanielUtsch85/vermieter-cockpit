@@ -20,6 +20,7 @@ import {
   TX_REVERSAL,
 } from '../../transactions/fixtures.test-support';
 import { TransactionsArea } from './TransactionsArea';
+import { findSaved } from '../technical.test-support';
 
 /**
  * Step 4 in the Buchungen area (jsdom): confirm and correct on the detail, the re-read after the answer, the statuses
@@ -75,7 +76,7 @@ describe('step 4 in the Buchungen area', () => {
     const heading = screen.getByRole('heading', { name: 'Angaben zur Buchung' }).parentElement as HTMLElement;
     expect(within(heading).getByText('Aufgeteilt')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Jetzt bestätigen' }));
-    await screen.findByText(/Buchung bestätigt \(Version 5/);
+    await findSaved(/Buchung bestätigt \(Status/, 5);
     expect(calls.find((call) => routeOf(call) === CONFIRM)?.headers.get('if-match')).toBe('"4"');
     await waitFor(() => expect(calls.filter((call) => routeOf(call) === at(TX))).toHaveLength(2));
     await waitFor(() => expect(within(heading).getByText('Bestätigt')).toBeTruthy());

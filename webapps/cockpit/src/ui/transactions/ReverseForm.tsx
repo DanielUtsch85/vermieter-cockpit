@@ -206,7 +206,7 @@ export function ReverseForm(props: ReverseFormProps) {
                 onCancel={step.cancel}
               >
                 <p>
-                  {`Das Storno ist endgültig: DE legt eine Gegenbuchung an, die Buchung (Version ${t.version}) wird „Korrigiert/storniert“ und zählt nicht mehr. Es gibt keine Ersatzbuchung, auch später nicht; wer sie doch braucht, legt eine neue Buchung an.`}
+                  {`Das Storno ist endgültig: DE legt eine Gegenbuchung an, die Buchung wird „Korrigiert/storniert“ und zählt nicht mehr. Es gibt keine Ersatzbuchung, auch später nicht; wer sie doch braucht, legt eine neue Buchung an.`}
                 </p>
                 <p>{`Grund: „${reason.trim()}“`}</p>
               </ConfirmStep>

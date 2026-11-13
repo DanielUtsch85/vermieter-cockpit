@@ -18,6 +18,7 @@ import {
 } from '../../transactions/split-draft';
 import { decimalToCents } from '../../transactions/split-amount';
 import { buttonClass, ErrorState, isRetryable, Notice, secondaryButtonClass } from '../states';
+import { TechnicalDetails, versionText } from '../technical';
 import { statusLabel } from './labels';
 import type { References } from './references';
 import { SplitConflict, type ConflictState } from './SplitConflict';
@@ -255,7 +256,10 @@ export function SplitEditor(props: SplitEditorProps) {
         </ErrorState>
       )}
       {savedVersion !== undefined && (
-        <Notice tone="success">{`Aufteilung gespeichert (Version ${savedVersion}, Status „${statusLabel(transaction.status).text}“).`}</Notice>
+        <div>
+          <Notice tone="success">{`Aufteilung gespeichert (Status „${statusLabel(transaction.status).text}“).`}</Notice>
+          <TechnicalDetails entries={[['Version', versionText(savedVersion, base)]]} />
+        </div>
       )}
       {props.proposal?.(slot)}
       <form aria-label="Aufteilung bearbeiten" noValidate onSubmit={submit} className="flex flex-col gap-4">

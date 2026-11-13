@@ -27,6 +27,7 @@ import {
   type,
   useDurchstich,
 } from './walk.test-support';
+import { findSaved } from '../ui/technical.test-support';
 
 /**
  * Step 7 of the first slice (ui-guide.md §10, §12 point 3): the whole Durchstich in one place, against the real UI
@@ -73,7 +74,7 @@ async function walk(press: (name: string) => unknown) {
   const rent = backend().tx('Miete Oktober Testwohnung');
   await openTransaction(backend(), 'Miete Oktober Testwohnung');
   await splitRent(PROPERTY, press);
-  await screen.findByText(/Aufteilung gespeichert \(Version 2/);
+  await findSaved(/Aufteilung gespeichert \(Status/, 2);
   await confirmTransaction(press);
   expect(rent.status).toBe('CONFIRMED');
   const section = await screen.findByRole('region', { name: 'Mietabgleich dieser Buchung' });
@@ -188,7 +189,7 @@ describe('§11: amounts never through floating point', () => {
     type(control('split-2-category'), 'RENT_BASE');
     type(control('split-2-amount'), '90.071.992.547.409,63');
     click('Aufteilung speichern');
-    await screen.findByText(/Aufteilung gespeichert \(Version 2/);
+    await findSaved(/Aufteilung gespeichert \(Status/, 2);
     const [put] = requests(backend(), 'PUT', /\/splits$/);
     expect((json(put?.body) as { splits: { amount: { amount: string } }[] }).splits.map((s) => s.amount.amount)).toEqual(['0.10', '0.20', '90071992547409.63']);
     await confirmTransaction();

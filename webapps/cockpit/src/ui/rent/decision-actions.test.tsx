@@ -7,6 +7,7 @@ import { confirmReconciliation, rejectReconciliation, type RentReconciliationDto
 import { confirmed, reconciliation, REC } from '../../rent/fixtures.test-support';
 import { REALM_A } from '../../transactions/fixtures.test-support';
 import { DecisionActions } from './DecisionActions';
+import { expectSaved } from '../technical.test-support';
 
 /**
  * Step 6, the decisions on a suggestion (jsdom, `fireEvent` only, the real client to a scripted fetch): „Zuordnung
@@ -71,7 +72,8 @@ describe('step 6, Zuordnung bestaetigen (ui-guide.md §6.6 step 6; api-design.md
     expect(confirmButton().textContent).toBe('Wird bestätigt …');
     answer(json(200, confirmed('850.00'), { etag: '"2"' }));
     await settle();
-    expect(screen.getByRole('status').textContent).toContain(`Zuordnung bestätigt über 850,00${NBSP}€ (Version 2). An MRE wurde nichts übertragen`);
+    expect(screen.getByRole('status').textContent).toContain(`Zuordnung bestätigt über 850,00${NBSP}€. An MRE wurde nichts übertragen`);
+    expectSaved(screen.getByRole('status').firstElementChild as HTMLElement, 2);
     expect(onChanged).toHaveBeenCalledTimes(1);
     expect(calls.map((call) => call.url).filter((url) => /write-back|remove-from-mre|release/.test(url))).toEqual([]);
   });
@@ -207,7 +209,8 @@ describe('step 6, Vorschlag ablehnen (§37.3: with a required reason)', () => {
     expect(calls[0]?.url).toBe(`/api/v1/rent-reconciliations/${REC}/reject`);
     expect(calls[0]?.body).toBe('{"reason":"Andere Miete"}');
     expect(calls[0]?.headers.get('if-match')).toBe('"1"');
-    expect(screen.getByRole('status').textContent).toContain('Vorschlag abgelehnt (Version 2)');
+    expect(screen.getByRole('status').textContent).toContain('Vorschlag abgelehnt. Diese Zuordnung wird nicht wieder vorgeschlagen.');
+    expectSaved(screen.getByRole('status').firstElementChild as HTMLElement, 2);
     expect(onChanged).toHaveBeenCalledTimes(1);
   });
 

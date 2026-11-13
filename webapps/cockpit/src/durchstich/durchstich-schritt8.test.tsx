@@ -5,6 +5,7 @@ import { TENANT_2 } from '../rent/fixtures.test-support';
 import { rentTermPath, transactionPath } from '../routing';
 import { REALM_A } from '../transactions/fixtures.test-support';
 import { click, commands, confirmTransaction, go, MIETABGLEICH, openApp, requests, twice, type, useDurchstich } from './walk.test-support';
+import { findSaved } from '../ui/technical.test-support';
 
 /**
  * Step 8 in the Durchstich (Entscheidung des Projektinhabers, 2026-11-11; ui-guide.md §6.6 steps 2 and 3): against the
@@ -66,7 +67,7 @@ async function collective(press: (name: string) => unknown) {
 
   // §6.6 step 3: saved by the user's save, then confirmed: two separate commands.
   await press('Aufteilung speichern');
-  await screen.findByText(/Aufteilung gespeichert \(Version 2/);
+  await findSaved(/Aufteilung gespeichert \(Status/, 2);
   expect(t.splits.map((s) => [s.financialCategoryCode, s.amount.toJSON().amount])).toEqual([
     ['RENT_BASE', '700.00'],
     ['RENT_OPERATING_COST_ADVANCE', '150.00'],
@@ -166,7 +167,7 @@ describe('step 8 in the Durchstich: a partial payment with a lowered confirmatio
     click('Vorschlag in Aufteilung übernehmen');
     expect(commands(backend())).toEqual([]);
     click('Aufteilung speichern');
-    await screen.findByText(/Aufteilung gespeichert \(Version 2/);
+    await findSaved(/Aufteilung gespeichert \(Status/, 2);
     expect(t.splits.map((s) => [s.financialCategoryCode, s.amount.toJSON().amount])).toEqual([
       ['RENT_BASE', '700.00'],
       ['RENT_OPERATING_COST_ADVANCE', '100.00'],

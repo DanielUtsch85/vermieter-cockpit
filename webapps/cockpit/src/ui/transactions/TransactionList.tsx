@@ -159,9 +159,9 @@ function ListContent(props: {
 }
 
 /**
- * One row. At 1280 px the purpose column takes the room and wraps to two lines, the account stays on one line (Issue
- * #353 des Projektinhabers, 2026-11-12, point 7); text cut off at the end of its line or lines has the whole text as
- * `title`.
+ * One row. At 1280 px the purpose column takes the room and wraps to two lines (Issue #353 des Projektinhabers,
+ * 2026-11-12, point 7), the account wraps to at most two lines (Entscheidung des Projektinhabers, 2026-11-13); text cut
+ * off at the end of its line or lines has the whole text as `title`.
  */
 function Row({ realmId, transaction, references }: { readonly realmId: string; readonly transaction: TransactionDto; readonly references: References }) {
   const date = formatBusinessDate(transaction.bookingDate) ?? transaction.bookingDate;
@@ -193,7 +193,7 @@ function Row({ realmId, transaction, references }: { readonly realmId: string; r
         {account === undefined ? (
           <IdText id={transaction.financialAccountId} />
         ) : (
-          <p className="max-w-[12rem] truncate" title={account}>
+          <p className="line-clamp-2 max-w-[12rem]" title={account}>
             {account}
           </p>
         )}

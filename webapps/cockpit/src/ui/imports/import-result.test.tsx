@@ -5,6 +5,7 @@ import type { ImportBatchDto } from '../../api/imports';
 import { batch, BATCH, ITEM, mixedBatch } from '../../imports/fixtures.test-support';
 import { useLocationSearch } from '../../navigation';
 import { REALM_A, TX } from '../../transactions/fixtures.test-support';
+import { technicalBlocks, visibleText } from '../technical.test-support';
 import { ImportResult } from './ImportResult';
 
 /**
@@ -236,5 +237,27 @@ describe('the decided rows (Entscheidung des Projektinhabers, 2026-11-11, zu #34
     expect(screen.getByText('Angezeigt: 2 von 4 Zeilen, nur Zeilen mit Hinweis.')).toBeTruthy();
     fireEvent.click(toggle());
     expect(positions()).toEqual(['1', '2', '3', '4']);
+  });
+});
+
+describe('the import id in Technische Angaben (Entscheidung des Projektinhabers, 2026-11-13, zu #354 F3)', () => {
+  it('the id is only in the collapsed block; status, file and account name the import visibly', () => {
+    show(mixedBatch());
+    const card = screen.getByRole('region', { name: 'Ergebnis des Imports' });
+    expect(visibleText(card)).not.toContain(BATCH);
+    expect(visibleText(document.body)).not.toContain(BATCH);
+    const blocks = technicalBlocks(card);
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]?.open).toBe(false);
+    expect(blocks[0]?.textContent).toBe(`Technische AngabenImport-ID${BATCH}`);
+    expect(visibleText(card)).toContain('Dateiumsaetze-oktober.csv');
+  });
+
+  it('a batch without a file name says so; the id still stays in the block', () => {
+    show(mixedBatch({ sourceFilename: null }));
+    const card = screen.getByRole('region', { name: 'Ergebnis des Imports' });
+    expect(visibleText(card)).toContain('DateiNicht verfügbar');
+    expect(visibleText(card)).not.toContain(BATCH);
+    expect(technicalBlocks(card)[0]?.textContent).toContain(BATCH);
   });
 });

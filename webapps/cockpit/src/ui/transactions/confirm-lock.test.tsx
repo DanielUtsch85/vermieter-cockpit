@@ -7,6 +7,7 @@ import { countingTokens, json, routedFetch, type Call } from '../../api/fetch.te
 import { createQueryClient } from '../../query';
 import { category, detail, page, property, REALM_A, split, transaction, TX } from '../../transactions/fixtures.test-support';
 import { TransactionsArea } from './TransactionsArea';
+import { findSaved } from '../technical.test-support';
 
 /**
  * „Buchung bestätigen“ is locked while the split editor holds a draft that differs from the stored split set, with the
@@ -130,7 +131,7 @@ describe('Buchung bestaetigen waits for an unsaved split draft (#336 F2)', () =>
     type(amount(1), '200,00');
     expectLocked(true);
     fireEvent.click(screen.getByRole('button', { name: 'Aufteilung speichern' }));
-    await screen.findByText(/Aufteilung gespeichert \(Version 5/);
+    await findSaved(/Aufteilung gespeichert \(Status/, 5);
     await waitFor(() => expect(confirmButton().disabled).toBe(false));
     expectLocked(false);
     fireEvent.click(confirmButton());

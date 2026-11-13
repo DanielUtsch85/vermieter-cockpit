@@ -9,6 +9,7 @@ import { createQueryClient } from '../../query';
 import { splitProposal, TENANT, TENANT_2, TERM, TERM_2 } from '../../rent/fixtures.test-support';
 import { category, detail, page, property, REALM_A, split, TX } from '../../transactions/fixtures.test-support';
 import { TransactionsArea } from '../transactions/TransactionsArea';
+import { findSaved } from '../technical.test-support';
 
 /**
  * Step 8, the split proposal (Entscheidung des Projektinhabers, 2026-11-11; ui-guide.md §6.6 steps 2 and 3, §6.4): the
@@ -140,7 +141,7 @@ describe('step 8: a collective payment for two months (§6.6 steps 2 and 3)', ()
 
     click('Vorschlag in Aufteilung übernehmen');
     click('Aufteilung speichern');
-    await screen.findByText(/Aufteilung gespeichert \(Version 4/);
+    await findSaved(/Aufteilung gespeichert \(Status/, 4);
     expect(commands(calls)).toEqual([PUT]);
     const put = calls.find((call) => routeOf(call) === PUT);
     expect(put?.headers.get('if-match')).toBe('"3"');
