@@ -109,6 +109,8 @@ async function walk(press: (name: string) => unknown) {
   await openTransaction(backend(), 'Miete Oktober Testwohnung');
   await correctDescription(undefined, press);
   await screen.findByRole('heading', { name: 'Korrektur ausgeführt' });
+  // „Stornieren“ goes with the correction, as after a reload (Issue #381, „Nebenbei beobachtet“).
+  expect(screen.queryByRole('region', { name: 'Stornieren' })).toBeNull();
   expect(rent.status).toBe('CORRECTED');
   expect(rent.description).toBe('Miete Oktober Testwohnung');
   const chain = [...backend().transactions.values()].filter((t) => t.correctionOfTransactionId === rent.id);

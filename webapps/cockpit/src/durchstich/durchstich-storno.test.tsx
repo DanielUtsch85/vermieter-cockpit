@@ -35,7 +35,9 @@ describe('„Stornieren“ in the Durchstich (§35.9)', () => {
     // The page reads the booking again: CORRECTED, linked to its reversal, nothing to correct or reverse any more.
     const links = within(await screen.findByRole('region', { name: 'Korrekturen' }));
     await waitFor(() => expect(links.getAllByRole('link').map((a) => a.textContent)).toEqual(['Storno dieser Buchung']));
-    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Korrektur erfassen' }).disabled).toBe(true);
+    // Its section „Korrigieren“ is gone at once, as after a reload (#381).
+    expect(screen.queryByRole('region', { name: 'Korrigieren' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Korrektur erfassen' })).toBeNull();
     // The reversal itself is offered neither for correction nor for reversal.
     fireEvent.click(links.getByRole('link'), { button: 0 });
     await screen.findByText(/Storno zur/);

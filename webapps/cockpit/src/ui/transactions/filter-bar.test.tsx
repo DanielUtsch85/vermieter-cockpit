@@ -1,11 +1,17 @@
 // @vitest-environment jsdom
+import { QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
-import { readListParams, toSearch, type ListParams } from '../../transactions/list-params';
-import { account, category, page, property } from '../../transactions/fixtures.test-support';
+import { createDeClient } from '../../api/client';
+import { countingTokens, json, routedFetch } from '../../api/fetch.test-support';
+import { createQueryClient } from '../../query';
+import { readListParams, toApiQuery, toSearch, type ListParams } from '../../transactions/list-params';
+import { account, category, page, property, REALM_A } from '../../transactions/fixtures.test-support';
 import { FilterBar } from './FilterBar';
+import { statusLabel } from './labels';
 import type { References } from './references';
 import { TransactionListView } from './TransactionList';
+import { TransactionsArea } from './TransactionsArea';
 
 /**
  * „Nur zu prüfende“ as a shortcut (Entscheidung des Projektinhabers, 2026-11-10, to #323 F3): while `reviewable` is set,
@@ -93,11 +99,11 @@ describe('the shortcut Nur pruefbare in the filter bar (#323 F3)', () => {
     fireEvent.click(shortcut());
     apply();
     fireEvent.click(shortcut());
-    fireEvent.click(status('Abgeglichen'));
+    fireEvent.click(status('Ignoriert'));
     apply();
     fireEvent.click(shortcut());
     apply();
-    expect(applied).toEqual(['?reviewable=true', '?status=RECONCILED', '?reviewable=true']);
+    expect(applied).toEqual(['?reviewable=true', '?status=IGNORED', '?reviewable=true']);
     neverBoth(applied);
   });
 
@@ -150,5 +156,85 @@ describe('the bar follows the URL of the list (#334 H1: the key on FilterBar in 
     rerender(list('?reviewable=true'));
     expect(shortcut().checked).toBe(true);
     expect(statusBoxes().every((box) => !box.checked && box.disabled)).toBe(true);
+  });
+});
+
+/**
+ * Issue #381 part 1: „Abgeglichen“ aus dem Statusfilter der Buchungsliste nehmen; die Kurzwahl heißt „Nur aktuelle
+ * (bestätigt, ohne Storno und Korrigierte)“; die Beschriftung in labels.ts bleibt für später (Entscheidung des
+ * Projektinhabers, 2026-11-16). No step sets `RECONCILED` yet (api-design.md §37, P4-D3).
+ */
+describe('the status filter offers no status that no booking can have (#381 part 1)', () => {
+  const CURRENT = 'Nur aktuelle (bestätigt, ohne Storno und Korrigierte)';
+  const URL_NOTE = /Aus der Adresse gilt für diese Liste auch der Status: Abgeglichen\. Der Filter bietet ihn nicht an; mit „Filter anwenden“ entfällt er\./;
+  const boxLabels = () => statusBoxes().map((box) => box.closest('label')?.textContent);
+
+  it('the status boxes are the six a booking can have, without Abgeglichen; the label of RECONCILED stays', () => {
+    bar('');
+    expect(boxLabels()).toEqual(['Importiert · zu prüfen', 'Ungeprüft', 'Aufgeteilt', 'Bestätigt', 'Korrigiert/storniert', 'Ignoriert']);
+    expect(screen.queryByRole('checkbox', { name: 'Abgeglichen' })).toBeNull();
+    expect(screen.queryByText(/abgeglichen/i)).toBeNull();
+    // labels.ts keeps it for later: a RECONCILED booking (none today) is still named in the table and the detail.
+    expect(statusLabel('RECONCILED')).toEqual({ text: 'Abgeglichen', tone: 'success', known: true });
+  });
+
+  it('the shortcut is named Nur aktuelle (bestaetigt, ohne Storno und Korrigierte) and still writes current=true', () => {
+    const applied = bar('');
+    const box = screen.getByRole<HTMLInputElement>('checkbox', { name: CURRENT });
+    expect(box.closest('label')?.textContent).toBe(CURRENT);
+    fireEvent.click(box);
+    apply();
+    expect(applied).toEqual(['?current=true']);
+    expect(toApiQuery(readListParams(applied[0] ?? ''))).toEqual({ current: 'true', page: '1', pageSize: '50' });
+  });
+
+  it('an old bookmark with RECONCILED: the list of the URL is asked as it is, the bar names it; applying drops it, the rest kept', () => {
+    const search = '?status=CONFIRMED,RECONCILED&provenance=BANK_CSV&current=true&pageSize=100';
+    expect(toApiQuery(readListParams(search))['status']).toBe('CONFIRMED,RECONCILED');
+    const applied = bar(search);
+    expect(status('Bestätigt').checked).toBe(true);
+    expect(statusBoxes().filter((box) => box.checked)).toHaveLength(1);
+    const note = screen.getByText(URL_NOTE);
+    expect(note.textContent).toContain('„Abgeglichen“ vergibt noch kein Schritt; keine Buchung hat diesen Status.');
+    expect(document.getElementById('filter-status')?.getAttribute('aria-describedby')).toBe(note.id);
+    apply();
+    expect(applied).toEqual(['?status=CONFIRMED&provenance=BANK_CSV&current=true&pageSize=100']);
+  });
+
+  it('an old bookmark with RECONCILED alone: no box set, the note shown; applying drops the status only', () => {
+    const applied = bar('?status=RECONCILED&bookingDateFrom=2026-11-01');
+    expect(statusBoxes().every((box) => !box.checked && !box.disabled)).toBe(true);
+    expect(screen.getByText(URL_NOTE)).toBeTruthy();
+    apply();
+    expect(applied).toEqual(['?bookingDateFrom=2026-11-01']);
+  });
+
+  it('the page of such a bookmark loads: one list request with the URL status, an empty result, the bar with its note', async () => {
+    const { fetch, calls } = routedFetch({
+      'GET /api/v1/financial-accounts': [() => json(200, page([]))],
+      'GET /api/v1/property-references': [() => json(200, page([property()]))],
+      'GET /api/v1/financial-categories': [() => json(200, { items: [category()] })],
+      'GET /api/v1/transactions': [() => json(200, page([]))],
+    });
+    const client = createDeClient({ tokens: countingTokens(), realmId: REALM_A, fetch });
+    render(
+      <QueryClientProvider client={createQueryClient()}>
+        <TransactionsArea client={client} realmId={REALM_A} epoch={1} transactionId={undefined} search="?status=RECONCILED" />
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByText(/Keine Buchung passt/)).toBeTruthy();
+    expect(screen.getByText(URL_NOTE)).toBeTruthy();
+    expect(screen.queryByRole('alert')).toBeNull();
+    const lists = calls.filter((call) => new URL(call.url, 'https://cockpit.internal').pathname === '/api/v1/transactions');
+    expect(lists.map((call) => new URL(call.url, 'https://cockpit.internal').searchParams.get('status'))).toEqual(['RECONCILED']);
+  });
+
+  it('counter-check: offered statuses only, or an unknown code (refused by the backend), show no note', () => {
+    for (const search of ['?status=CONFIRMED,IGNORED', '?status=SOMETHING_NEW']) {
+      bar(search);
+      expect(screen.queryByText(/Aus der Adresse gilt/), search).toBeNull();
+      expect(document.getElementById('filter-status')?.hasAttribute('aria-describedby'), search).toBe(false);
+      cleanup();
+    }
   });
 });

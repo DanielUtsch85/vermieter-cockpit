@@ -60,6 +60,17 @@ async function reverse(reason = 'Doppelt erfasst') {
   fireEvent.click(screen.getByRole('button', { name: 'Jetzt stornieren' }));
 }
 
+async function correct() {
+  fireEvent.click(await screen.findByRole('button', { name: 'Korrektur erfassen' }));
+  fireEvent.change(document.getElementById('korrektur-reason') as HTMLTextAreaElement, { target: { value: 'Falscher Verwendungszweck' } });
+  fireEvent.change(document.getElementById('korrektur-description') as HTMLInputElement, { target: { value: 'Korrigierter Verwendungszweck' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Korrektur ausführen' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Jetzt korrigieren' }));
+}
+
+/** The `h2` sections of the page, in screen order. */
+const sections = () => screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent);
+
 afterEach(cleanup);
 
 describe('„Stornieren“ in the Buchungen area', () => {
@@ -108,13 +119,52 @@ describe('„Stornieren“ in the Buchungen area', () => {
       ).toEqual(['Storno dieser Buchung']),
     );
     expect(within(chain).getByRole('link').getAttribute('href')).toBe(`/cockpit/r/${REALM_A}/buchungen/${TX_REVERSAL}`);
-    // The correction is no longer possible on the reversed original.
-    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Korrektur erfassen' }).disabled).toBe(true);
+    // The correction is no longer possible on the reversed original: its section is gone, as after a reload (#381).
+    expect(screen.queryByRole('region', { name: 'Korrigieren' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Korrektur erfassen' })).toBeNull();
     const commands = calls.filter((call) => call.method !== 'GET');
     expect(commands.map(routeOf)).toEqual([REVERSE(TX)]);
     expect(commands[0]?.headers.get('if-match')).toBe('"5"');
     expect(commands[0]?.body).toBe('{"reason":"Doppelt erfasst"}');
     expect(calls.map((call) => call.headers.get('organizationid'))).toEqual(calls.map(() => REALM_A));
+  });
+
+  // Issue #381, „Nebenbei beobachtet“: after „Korrektur ausführen“ the section „Stornieren“ stayed with a greyed-out button
+  // until a reload. It goes at once now, whether the re-read of the original has answered or not.
+  for (const reread of ['answered', 'pending'] as const) {
+    it(`a correction done here removes the section Stornieren at once, as a reload does (re-read ${reread})`, async () => {
+      const corrected = () => json(200, detail({ ...correctionAnswer().original, splits: SPLITS }), { etag: '"6"' });
+      const never = () => new Promise<Response>(() => undefined) as unknown as Response;
+      const { calls } = area({
+        [at(TX)]: [CONFIRMED, reread === 'answered' ? corrected : never],
+        [`POST /api/v1/transactions/${TX}/correct`]: [() => json(201, correctionAnswer({ description: 'Korrigierter Verwendungszweck' }))],
+      });
+      expect(await screen.findByRole('region', { name: 'Stornieren' })).toBeTruthy();
+      await correct();
+      await screen.findByRole('heading', { name: 'Korrektur ausgeführt' });
+      if (reread === 'answered') await waitFor(() => expect(within(screen.getByRole('region', { name: 'Korrekturen' })).getAllByRole('link')).toHaveLength(2));
+      expect(screen.queryByRole('region', { name: 'Stornieren' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Stornieren' })).toBeNull();
+      expect(calls.filter((call) => call.method !== 'GET').map(routeOf)).toEqual([`POST /api/v1/transactions/${TX}/correct`]);
+      const here = sections().filter((name) => name !== 'Korrektur ausgeführt');
+      cleanup();
+      // Counter-check: the page of the corrected original, loaded afresh, has the same sections (and no „Stornieren“).
+      area({ [at(TX)]: [corrected] });
+      await screen.findByRole('heading', { name: 'Angaben zur Buchung' });
+      await waitFor(() => expect(sections()).toEqual(here));
+    });
+  }
+
+  it('a refused correction keeps the section Stornieren and its button usable', async () => {
+    const answer = correctionAnswer();
+    area({
+      [at(TX)]: [CONFIRMED],
+      [`POST /api/v1/transactions/${TX}/correct`]: [() => json(201, { ...answer, replacement: { ...answer.replacement, mreRealmId: REALM_B } })],
+    });
+    await correct();
+    await screen.findByText('Antwort eines anderen Bestands');
+    expect(screen.getByRole('region', { name: 'Stornieren' })).toBeTruthy();
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Stornieren' }).disabled).toBe(false);
   });
 
   it('a success ends the intent: the next reversal, of another booking with the same reason, gets a new key', async () => {
