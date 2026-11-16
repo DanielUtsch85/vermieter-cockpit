@@ -1555,6 +1555,7 @@ POST /api/v1/transactions/{id}/restore
 
 ```text
 POST /api/v1/imports/bank-transactions
+GET  /api/v1/imports                                                (VC-X-74, §32.6: specified)
 GET  /api/v1/imports/{importBatchId}
 GET  /api/v1/imports/{importBatchId}/review-items
 POST /api/v1/imports/{importBatchId}/review-items/{reviewItemId}/resolve
@@ -1673,6 +1674,52 @@ Version 1 plus the bank's running balance (`data-model.md` §70.6). Select it wi
 - **Identity inputs:** as §32.4; the content fingerprint keeps field set v1 (the balance is not part of it), so v1 and v2 rows of one booking have the same fingerprint. A row's balance identity is `(booking date, amount, direction, balance)`, used only when unique in its file.
 - **Stored:** every Transaction created from a row with a balance keeps it (`source_balance_after`, fixed after creation, migration 0034); it is import evidence, never a ledger balance, and not part of the Transaction responses.
 - **Switching from v1:** rows imported under v1 carry no balance; the first v2 file that overlaps them sends the shared rows to review once (§70.4).
+
+## 32.6 List the imports of a Realm (#369, VC-X-74, specified, not implemented)
+
+**Status:** specified, not implemented (backlog VC-X-74). One read, `GET /api/v1/imports`; no write. The order follows the owner: this spec, then the backend, then the cockpit's list under the import form.
+
+**Decided by the owner on 2026-11-16 (chat)** (verbatim; Entscheidung des Projektinhabers, 2026-11-16):
+
+> **#369, Liste der Importe: Ja.** Spec-PR für `GET /imports` zuerst: seitenweise, neueste zuerst, Filter Konto und Status. Dann Backend, dann die Liste unter dem Importformular mit offenen Klärfällen hervorgehoben. Die Route ändert das Inventar, der Pin zieht mit.
+
+**As the code stands (main 1fb2ddc):** a batch is read only by its id (`GET /imports/{importBatchId}`, §32.1a). The table `import_batch` (0006, 0007, 0034) holds everything the list needs except the preset (open question 6). Its only indexes are the primary key and `UNIQUE (id, mre_realm_id)`.
+
+```text
+GET /api/v1/imports[?financialAccountId=&status=&page=&pageSize=]
+```
+
+- **Domain owner:** Financial Ledger (bank-import adapter). **Authorization:** as §32.1. Every route under `/api/v1` is guarded (`401`; `403` for a caller who is not a member of the Realm or has no DE role, only `administrator` has one, mre-integration §47.1). Only the caller's Realm's batches are ever read.
+- **Query** (strict, §58W), all optional and combined with AND:
+  - `financialAccountId` (UUID; malformed → `400 INVALID_FORMAT`). An unknown or foreign account matches nothing: an empty page, not `404`, as every read filter (§30.1, §37.1). The name follows §30.1's filter of the same meaning (the owner's "Konto");
+  - `status`: a comma-separated list of `COMPLETED`, `NEEDS_REVIEW`, any of them; another value is `400 INVALID_FORMAT`;
+  - `page` and `pageSize`: the shared paging of §58W (`page` 1–1,000,000, default 1; `pageSize` 1–200, default 50). The API has no cursor paging: §58W keeps `cursor` unknown on every route, and §82's cursor is "later if needed". This list uses the same paging as every other list;
+  - unknown parameters → `400`.
+- **Order:** newest first, by `importedAt` descending, then `importBatchId` descending, so equal timestamps page stably.
+- **Items:** the single read's batch (§32.1a) **without** `rows` and `continuity`, which can hold 10,000 rows per batch (they stay on `GET /imports/{importBatchId}`):
+  - `importBatchId`, `mreRealmId`, `financialAccountId`;
+  - `adapterId`, `adapterVersion`;
+  - `sourceFilename` (may be `null`), `contentHash`;
+  - `status` (`COMPLETED` | `NEEDS_REVIEW`);
+  - the counters `transactionCount`, `duplicateCount`, `needsReviewCount`, `errorCount`, `skippedCount`;
+  - `importedAt`, `importedBy`.
+  - **Open review items:** `needsReviewCount` is already that number. It counts the batch's own `PENDING` items (§32.1), each resolve decrements it (§32.3a), and `status` is `NEEDS_REVIEW` exactly while it is above 0 (CHECK `import_batch_status_matches`, 0006). So the cockpit highlights `status = NEEDS_REVIEW` and shows `needsReviewCount`; no second field. A row that re-presents another batch's `PENDING` item is counted in the owning batch, not here (§32.1).
+- **Response `200`:** `{ items, page, pageSize, total }` (§11), count and page in one `REPEATABLE READ READ ONLY` snapshot. A Realm without imports answers an empty page.
+- **No MRE call;** nothing is written and no AuditRecord is added.
+- **Query plan:** as §30.1. The page's ids are read in list order from an index and the scan stops at offset + limit; only then are the page's rows read (without `rows`). **Proposal:** migration (the next free number at implementation, today 0078) with `import_batch_realm_imported_idx ON import_batch (mre_realm_id, imported_at DESC, id DESC)`; the account filter runs on it. A plan test (`EXPLAIN`) holds it, with a counter-check that the plan without the index is a sequential scan. Open question 5 asks whether the index waits until lists grow, as §29.3 once did.
+- **Route order:** `GET /imports` is its own path and does not meet `GET /imports/{importBatchId}`.
+
+**Example (synthetic):** two `vr-banking` imports into one account, the second with one review item open: `GET /imports?financialAccountId=A` answers the second first with `status: "NEEDS_REVIEW"`, `needsReviewCount: 1`, then the first with `COMPLETED`. After `resolve` of that item the same call shows the second `COMPLETED`, `needsReviewCount: 0`. `GET /imports?status=NEEDS_REVIEW` then answers an empty page.
+
+**Inventory and pin:** the route changes `docs/development/api-inventory.md` (`yarn api:inventory`, one more route), so `yarn api:inventory:check` and the cockpit's `backend-pin.test.ts` turn red until both move. The implementation PR regenerates the inventory, and the cockpit pin (`webapps/cockpit/src/gate/backend-pin.ts`: `commit`, `routes`, `inventorySha256`, and `USED_ROUTES` once the UI calls it) follows in it, after checking the routes and DTOs as ui-guide §2 asks.
+
+**Tests the implementation needs:** paging over more than one page with equal `importedAt`; both filters alone and together, a foreign account an empty page, a malformed one and an unknown `status` `400`; `needsReviewCount` and `status` before and after a resolve; another Realm's batches never listed (also with its `financialAccountId` as the filter); `rows` and `continuity` absent; the plan test. **Mutations** (each alone, restored byte for byte): the Realm filter dropped; the order ascending; `status` filter ignored; `total` read outside the page's snapshot; `rows` left in the items.
+
+**Open questions for review** (numbered across §32.6, §37.6 and §37.7, as in the spec PR):
+
+5. **The index.** **Proposal:** the migration with `import_batch_realm_imported_idx` in the implementation PR. **Alternative:** no migration now: a Realm has a few imports per account and month, so the index waits until lists grow, as §29.3's name index did.
+6. **The preset.** The batch stores `adapterId` and `adapterVersion`, not the `preset` (§32.5) a file was read with, so the list cannot show "vr-banking". **Proposal:** the list shows adapter and version only; no migration for it. **Alternative:** a column `preset` (nullable, set from the import's options from then on; earlier batches `null`), in the same migration as the index.
+7. **"Bis zu welchem Datum"** (#369's second observation; not in the owner's decision). **Proposal:** not in this list; the result page of a batch shows its rows. **Alternative:** `firstBookingDate` and `lastBookingDate` per item, the range of the batch's rows with a booking date (all outcomes but file errors), read from the stored `rows`, or from the Transactions created by the batch (which leaves out the duplicates).
 
 ---
 
@@ -1955,6 +2002,8 @@ GET /api/v1/rent-reconciliations                                    (VC-4-01, §
 GET /api/v1/rent-reconciliations/{id}                               (VC-4-01, §37.1; ?checkMre=true VC-4-04, §37.4)
 GET /api/v1/rent-reconciliations/suggestions                        (VC-4-03, §37.3: ?status=SUGGESTED)
 GET /api/v1/rent-reconciliations/terms/{mreTenantId}/{mreRentTerm}  (VC-4-02, §37.2)
+GET /api/v1/rent-reconciliations/tenants                            (VC-X-72, §37.7: specified)
+GET /api/v1/rent-reconciliations/terms/{mreTenantId}?from=&to=      (VC-X-72, §37.7: specified)
 GET /api/v1/transactions/{transactionId}/rent-reconciliations       (VC-4-02, §37.2)
 ```
 
@@ -2541,6 +2590,8 @@ Decision P4-D7 of `docs/development/phase-4-plan.md`: the protocol of §37.4 in 
 
 ## 37.6 Rent split proposal and the suggest hint (#126, real-data run F11, implemented)
 
+**Amended by VC-X-73 (#368): specified, not implemented.** The proposal names the lease's property and sets it on every split when exactly one property of the lease encloses the term and it is linked (open question 1 there; "The lease's property in the proposal" below).
+
 Finding F11 of `real-data-run.md`: every rent payment needs `PUT …/splits` (`RENT_BASE` + `RENT_OPERATING_COST_ADVANCE`) and `confirm` before `suggest` sees it (P4-D3), and the split always repeats MRE's own breakdown of the term. A suggest run over unsplit or unconfirmed inflows answered an empty list without saying why.
 
 ### `GET /api/v1/rent-reconciliations/split-proposal?transactionId=&mreTenantId=&mreRentTerm=`
@@ -2586,6 +2637,120 @@ Both are counts (non-negative integers), read in §37.3's snapshot; a Transactio
 - **Repository / application:** the refusals in order; the DE snapshot; no MRE call on a `400`, `404` or `NOT_PROPOSABLE`.
 - **Suggest:** `skipped` with an unconfirmed, a counted non-rent (a deposit receipt) and a counted rent inflow in the window, one outside it, an ignored one, and one of another Realm.
 - **End to end:** the real-data shape (rent plus advance) through the proposal, `PUT …/splits` with it, `confirm`, then `suggest` finds it.
+
+### The lease's property in the proposal (#368, VC-X-73, specified, not implemented)
+
+**Status:** specified, not implemented (backlog VC-X-73). It amends this section's MRE read, response and tests; the refusals, the arithmetic of the proposal and the other flags are unchanged. No migration.
+
+**Decided by the owner on 2026-11-16 (chat)** (verbatim; Entscheidung des Projektinhabers, 2026-11-16):
+
+> **#368, Objekt im Aufteilungsvorschlag: Ja.** Genau ein verknüpftes Objekt am Mietvertrag wird Bezug aller Teilbeträge, sonst leer mit Hinweis. Fehlt dem Aufteilungsvorschlag-DTO das Objekt des Mietvertrags, kommt es als kleine Ergänzung in §37.6 und ins Backend, bevor die UI es nutzt. …
+
+**As the code stands (main 1fb2ddc):** the DTO lacks it, so the addition is needed. The response above names no property: `splits` carry `financialCategoryCode` and `amount` only, and `RentSplitProposalView` (`application/rent-split-proposal.ts`) has no property field. The MRE client already reads the lease that holds it: `readRentBreakdown` (`integrations/mre/http-mre-client.ts`) walks `properties[]` of the Tenant in `GET /tenants` and keeps an entry for the term only when it has its `property` record and its `entryDate`–`exitDate` encloses the term. It then drops the record. `mre.contract.test.ts` pins that record as an object with `_id` (the MRE property id) at the baseline `479d0ad`.
+
+**The rule:**
+
+- **The term's MRE properties:** `mrePropertyIds` are the `property._id`s of the lease entries that `rent` is summed from (the same entries, in the same enclosure check at the lease's frequency), distinct, in lease order. An `_id` that is not `^[0-9a-f]{24}$` is an unexpected answer (`503`, as any malformed MRE amount). The client keeps the ids only; the property's name and address in the record are dropped and never logged, like the rest of the Tenant.
+- **The linked PropertyReference:** for each id, the Realm's PropertyReference with that `mrePropertyId` (§23.1's natural key, so at most one), whatever its `externalReferenceState` (§33 accepts every PropertyReference of the Realm on a split). DE reads it in a second short `REPEATABLE READ READ ONLY` read **after** the MRE read, because the ids are only known then. A PropertyReference linked in between is seen; one linked after the answer is not.
+- **`propertyReferenceId`** is set when **exactly one** MRE property encloses the term **and** it is linked. Otherwise it is `null`, and the reason says why (see open question 1 on "exactly one"):
+  - `NO_PROPERTY_FOR_TERM`: no lease entry with a property record encloses the term;
+  - `SEVERAL_PROPERTIES`: two or more distinct properties enclose it (e.g. a flat and a garage under one lease);
+  - `PROPERTY_NOT_LINKED`: exactly one encloses it, and the Realm has no PropertyReference for it.
+- **Every proposed split** carries that `propertyReferenceId` (the same value on all, `null` when not set), so the proposal can go to `PUT …/splits` unchanged (§33.2: `propertyReferenceId` is optional there).
+- **The note** ("sonst leer mit Hinweis"): a fourth flag `NO_PROPERTY_REFERENCE` with `details.reason` (one of the three above) and `details.mrePropertyIds`, raised exactly when `propertyReferenceId` is `null`. It is a flag like the others (data, not an error), so the proposal is still answered `200`.
+
+**Response `200`, amended:** `{ transactionId, mreTenantId, mreRentTerm, amount, term: { rent, charges, adjustments, due }, property: { mrePropertyIds, propertyReferenceId }, splits: [{ financialCategoryCode, amount, propertyReferenceId }], unallocated, flags }`. Every existing field keeps its name, its value and its order of computation; a client that ignores the new fields sees the old answer.
+
+**Example (synthetic):** a Tenant with one flat (MRE id `6a…01`) linked as PropertyReference `P`, term `2026100100`, inflow R + C: `property: { mrePropertyIds: ["6a…01"], propertyReferenceId: "P" }`, both splits with `propertyReferenceId: "P"`, no flags. The same lease with a garage `6a…02` added from 01/10/2026: `mrePropertyIds: ["6a…01", "6a…02"]`, `propertyReferenceId: null` on the property and on both splits, flag `NO_PROPERTY_REFERENCE` with `reason: "SEVERAL_PROPERTIES"`.
+
+**Unchanged:** the refusals and their order (a `400`, `404` or `NOT_PROPOSABLE` still costs no MRE call and no second DE read); `rent`, `charges`, `due`, `adjustments`, the splits' amounts, `unallocated` and the three existing flags; the Realm rules (the MRE read carries the caller's Realm; the PropertyReference read is filtered to it, so another Realm's link of the same MRE property is never found); no write in DE or MRE, no AuditRecord.
+
+**Tests the implementation needs:**
+
+- **MRE client:** `mrePropertyIds` from the entries that enclose the term (an entry ended before the term, one starting after it, one without its record, the same property twice), a malformed `_id` → `UNAVAILABLE`; the record's other fields leave no trace in the result or an error message; the fake MRE's Tenants carry `property: { _id }` as the contract pins it.
+- **Application:** each reason and the flag with its details; the PropertyReference of another Realm with the same `mrePropertyId` not found; a `MISSING` PropertyReference still taken; no PropertyReference read on a refusal.
+- **API and end to end:** the amended response shape; the proposal applied through `PUT …/splits` keeps the property on every split; Realm isolation.
+- **Mutations** (each alone, restored byte for byte): "exactly one" relaxed to "the first"; the enclosure check skipped for the ids (a property ended before the term counts); the Realm filter dropped from the PropertyReference read; the flag not raised when `null`; the `propertyReferenceId` set on the first split only.
+
+**Open questions for review** (numbered across §32.6, §37.6 and §37.7, as in the spec PR):
+
+1. **"Genau ein verknüpftes Objekt am Mietvertrag":** **Proposal:** the reading of #368, "Hat der Mietvertrag des Termins genau ein Objekt, und ist es verknüpft": exactly one MRE property encloses the term, and it is linked; a lease with a flat and a garage gets no property (`SEVERAL_PROPERTIES`), even when only the flat is linked. **Alternative:** exactly one of the enclosing properties is linked, and it is taken even when others are not, so the garage's share of the rent would be booked on the flat.
+
+## 37.7 Choosing the Tenant and the term: the Realm's Tenants and a Tenant's terms (#364, VC-X-72, specified, not implemented)
+
+**Status:** specified, not implemented (backlog VC-X-72). Two reads, no write, no migration. They add two routes to §37's route list; nothing of §37.1–37.6 changes. The routes that take `mreTenantId` and `mreRentTerm` (§37.1, §37.2, §37.6) keep them as they are, so a typed id stays possible.
+
+**Decided by the owner on 2026-11-16 (chat)** (verbatim; Entscheidung des Projektinhabers, 2026-11-16):
+
+> **#364, Mieter und Termin auswählen: Ja, mit einer Ergänzung.** Mieter-IDs aus den bisherigen Zuordnungen des Bestands und die Termine des gewählten Mieters als Liste, weiter ohne Namen. Die Terminliste braucht einen DE-Read, der die Miettermine eines Mieters aus MRE liefert (DE liest sie heute schon für Vorschlag und Aufteilungsvorschlag, nur nicht als Liste). Dafür zuerst ein kurzer Spec-Abschnitt in api-design, dann Backend, dann UI. Die ID bleibt zusätzlich als Freitext erlaubt, für einen Mieter ohne bisherige Zuordnung.
+
+- **Domain owner and authorization:** as §37.1. Every route under `/api/v1` is guarded: no or an invalid token is `401`, a caller who is not a member of the Realm or has no DE role is `403` (only the MRE Realm role `administrator` has DE access; `renter` has none, mre-integration §47.1). Both reads answer from the caller's Realm only.
+- **No names:** neither read asks MRE for a name, and the MRE client keeps no name or contact data (mre-integration §20.1). Names come later through the Persons with an MRE reference (owner's decision of 2026-11-11 on #353, point 8). Until then the cockpit shows the ids.
+
+### (a) The Tenant ids: does `GET /rent-reconciliations` suffice?
+
+No, so a small read of its own follows. `GET /rent-reconciliations` (§37.1) lists **reconciliations**, not Tenants. It has an `mreTenantId` filter, but no distinct option and no grouping. To build the list of Tenants the cockpit would page through **every** reconciliation of the Realm (at most 200 per page) and drop the duplicates itself. That list grows by one row per Tenant, term and payment each month. Each page is its own snapshot, so the pages can shift between two calls. The distinct Tenants are few and stay few; the reconciliations do not.
+
+### `GET /api/v1/rent-reconciliations/tenants`
+
+- **Query** (strict, §58W): `page` (1–1,000,000, default 1) and `pageSize` (1–200, default 50), the shared paging of §58W. No filter. Unknown parameters are `400`.
+- **Items:** one per distinct `mreTenantId` among the Realm's reconciliations of **any** status (open question 2):
+  - `mreTenantId`;
+  - `latestMreRentTerm`: the highest term key among them;
+  - `reconciliationCount`: how many reconciliations name the Tenant, any status;
+  - `latestCreatedAt`: the `createdAt` of the Tenant's latest reconciliation.
+- **Order:** `latestCreatedAt` descending, then `mreTenantId`, so the Tenant matched last comes first and pages are stable.
+- **Response `200`:** `{ items, page, pageSize, total }` (§11), with `total` and `items` in one snapshot. A Realm without reconciliations answers an empty page, never `404`.
+- **No MRE call:** the ids come from DE alone. A Tenant deleted in MRE since then is still listed; the term read below then answers `NOT_RETURNED`.
+- **In the database:** a `GROUP BY mre_tenant_id` over the Realm's `rent_payment_reconciliation` rows, served by `rent_payment_reconciliation_term_idx (mre_realm_id, mre_tenant_id, mre_rent_term)` (0030). No migration.
+- **Route order:** `tenants` is no UUID, so the route is registered before `GET /rent-reconciliations/{reconciliationId}`, which would answer it `400`.
+
+### (b) `GET /api/v1/rent-reconciliations/terms/{mreTenantId}?from=YYYY-MM&to=YYYY-MM`
+
+The list beside §37.2's single term `GET …/terms/{mreTenantId}/{mreRentTerm}`: the Tenant's terms in a window, each with its amount due from MRE and DE's matched cash.
+
+- **Path:** `mreTenantId` as §37.1 (`^[0-9a-f]{24}$`, `400 INVALID_FORMAT`).
+- **Query** (strict): `from` and `to` as `YYYY-MM`, both required (`400 REQUIRED`, `400 INVALID_FORMAT`); `from` ≤ `to` (`400 INVALID_RANGE`); at most 12 months inclusive (`400 RANGE_TOO_LONG`). These are the window rules and codes of §37.3's `suggest` (open question 3). Unknown parameters are `400`.
+- **MRE side,** read live with the caller's token, outside any database transaction (P4-D8), with what DE already reads for `suggest` and the split proposal:
+  1. `GET /tenants` of the Realm (`listTenantIds`, mre-integration §20.1): only the `_id`s are kept. The Tenant is not among them → `mreStatus = NOT_RETURNED`, and nothing more is asked of MRE;
+  2. for each month of the window, `GET /rents/:year/:month` (`listRentTerms`, §37.3), kept only for `mreTenantId`. Of each rent only the Tenant's `_id`, the `term` and `totalWithoutBalanceAmount` are read, and the occupant object is dropped (as §37.3).
+  - `mreStatus`: `AVAILABLE` when every call answered. `NOT_RETURNED` as above. `UNAVAILABLE` when MRE is down or any call gives an unexpected answer, a single month included: no partial MRE list. A refused token or caller is still `401` / `403` (§37.1), never degraded.
+  - `amountDue` per term: `totalWithoutBalanceAmount` as Money, rounded half-up to the cent as §37.2 (exponent notation included).
+  - Which terms MRE lists for a month is MRE's: a monthly lease has one term per month, ending in `0100`. DE checks the form of the key (`^\d{10}$`) and no frequency.
+- **DE side,** in one `REPEATABLE READ READ ONLY` snapshot, answered whatever `mreStatus` is (BR-MRE-004: an outage never hides DE's matches): the Realm's reconciliations of `mreTenantId` whose term key's `YYYYMM` lies in the window. `matchedTotal` per term = Σ `matchedAmount` of the `CONFIRMED` ones (as §37.2).
+- **Items:** one per term key found on either side, so a term DE matched but MRE no longer lists still appears:
+  - `mreRentTerm` (the 10-digit key `YYYYMMDDHH`) and `month` (`YYYY-MM`, its first six digits);
+  - `inMre`: whether MRE's month read listed it (`null` unless `AVAILABLE`);
+  - `amountDue`: MRE's (Money), `null` unless `AVAILABLE` and listed;
+  - `matchedTotal`: DE's (Money, `0.00` when none);
+  - `reconciliationCount`: DE's reconciliations of the term, any status;
+  - `coverage` and `openAmount`: `coverageOf(amountDue, matchedTotal)` of §37.2, `null` whenever `amountDue` is `null`.
+- **Order:** `mreRentTerm` descending (the newest term first).
+- **Response `200`:** `{ mreTenantId, from, to, mreStatus, items }`. Not paged: a window of at most 12 months holds at most one term per month for a monthly lease, and the window bounds the rest.
+- **Tenant not found:** an unknown Tenant, a Tenant of another Realm and one deleted in MRE are not `404`. They answer `200` with `mreStatus = NOT_RETURNED` and the DE side, as §37.2 answers an unknown term: the read describes. (open question 4) A deleted Tenant's earlier matches stay visible. A malformed id is `400`.
+- **Realm isolation:** the DE side is filtered to the caller's Realm. Each MRE call carries the caller's Realm in `organizationid`, so another Realm's Tenant is not in the list (`NOT_RETURNED`) and its rents are not in the months.
+- **Cost:** at most 13 MRE calls per request (the list and 12 months), each reading the whole Realm's list or month. That is as many as `suggest` makes for a 12-month window (14), and the cockpit asks only after a Tenant is chosen.
+- **In the code:** a use case beside `getRentTerm` (§37.2) built from the existing ports (`listTenantIds`, `listRentTerms`, the reconciliation read by Tenant and term range, `coverageOf`); no new MRE route and no new MRE parse. The fake MRE and `mre.contract.test.ts` need nothing new: both reads are pinned already (§20.1, §37.3).
+
+### What the cockpit does with them (pointer; UI after the backend)
+
+Choose a Tenant from (a), or type an id for a Tenant without an earlier reconciliation. Then choose a term from (b), for the Buchungsdetail's "Aufteilungsvorschlag aus MRE" (§37.6) and "Manuell zuordnen" (§37.1). The window comes from the cockpit (e.g. around the booking date); the UI text belongs in ui-guide with the UI PR.
+
+### Inventory
+
+Both routes change `docs/development/api-inventory.md` (`yarn api:inventory`, 174 → 176 routes with VC-X-72 alone). The cockpit's pin (`webapps/cockpit/src/gate/backend-pin.ts`, `BACKEND_PIN` and `USED_ROUTES`) moves in the implementation PR or, at the latest, in the UI PR that calls them.
+
+### Tests the implementation needs
+
+- **(a):** Tenants of several reconciliations and statuses counted once each; the order with equal `latestCreatedAt`; paging over more than one page; another Realm's reconciliations never listed; an unknown parameter `400`; the route not swallowed by `/{reconciliationId}`; no MRE call (the fake's call count unchanged).
+- **(b):** the query `400`s; `AVAILABLE` with a term on both sides, on the MRE side only and on the DE side only (`inMre: false`); `matchedTotal` over `CONFIRMED` only; coverage at its boundaries (as §37.2); `NOT_RETURNED` for an unknown Tenant and for one of another Realm, both with the DE side; `UNAVAILABLE` when one month of the window fails, with the DE side; `401` / `403` passed through; nothing of a Tenant but the ids in the result or a log; the window edges (a term of the month before `from` and after `to` not listed).
+- **Mutations** (each alone, restored byte for byte): the Realm filter dropped from either DE read; `RELEASED` summed into `matchedTotal`; a failed month skipped instead of `UNAVAILABLE`; the DE-only terms left out; the Tenant check skipped (an unknown Tenant answered `AVAILABLE` with an empty list); the window's upper bound exclusive.
+
+### Open questions for review (numbered across §32.6, §37.6 and §37.7, as in the spec PR)
+
+2. **Which reconciliations name a Tenant for (a).** **Proposal:** any status: each one names a Tenant MRE returned when it was made, a `REJECTED` suggestion included. **Alternative:** `CONFIRMED` and `RELEASED` only, the matches a person made or confirmed.
+3. **The window of (b).** **Proposal:** `from` and `to` required, at most 12 months, as `suggest`; the cockpit sets them, e.g. from the month before the booking date to the month after. **Alternative:** both optional, default the 12 months up to the current month (Europe/Berlin).
+4. **An unknown Tenant in (b).** **Proposal:** `200` with `mreStatus = NOT_RETURNED` and the DE side, as §37.2. **Alternative:** `404 NOT_FOUND` with `details.mreTenantId` when MRE does not list the Tenant **and** DE has no reconciliation of it.
 
 ---
 
