@@ -262,16 +262,34 @@ describe.skipIf(databaseUrl === undefined)('PostgresPropertyReferenceRepository'
     await expect(repository.linkOnce(draft('not-an-object-id'), actor)).rejects.toThrow(/check constraint/);
   });
 
-  it('findLinkedId (§37.6, #368): the Realm link of one MRE property, any state; another Realm link of the same id is not found', async () => {
+  it('findLinkedIds (§37.6, #368): the Realm links of the MRE properties, any state, per id; another Realm link of the same id is not found', async () => {
     const id = '6512f0c2a1b2c3d4e5f60730';
-    expect(await repository.findLinkedId(REALM, id)).toBeUndefined();
+    const garage = '6512f0c2a1b2c3d4e5f60731';
+    const parking = '6512f0c2a1b2c3d4e5f60732';
+    expect(await repository.findLinkedIds(REALM, [])).toEqual(new Map());
+    expect(await repository.findLinkedIds(REALM, [id, garage])).toEqual(new Map());
     const other = await repository.linkOnce(draft(id, OTHER_REALM), actor);
-    expect(await repository.findLinkedId(REALM, id)).toBeUndefined();
+    const otherGarage = await repository.linkOnce(draft(garage, OTHER_REALM), actor);
+    expect(await repository.findLinkedIds(REALM, [id, garage])).toEqual(new Map());
     const own = await repository.linkOnce(draft(id), actor);
-    expect(await repository.findLinkedId(REALM, id)).toBe(own.reference.id);
-    expect(await repository.findLinkedId(OTHER_REALM, id)).toBe(other.reference.id);
+    expect(await repository.findLinkedIds(REALM, [id, garage])).toEqual(new Map([[id, own.reference.id]]));
+    expect(await repository.findLinkedIds(OTHER_REALM, [id, garage])).toEqual(
+      new Map([
+        [id, other.reference.id],
+        [garage, otherGarage.reference.id],
+      ]),
+    );
+    const ownParking = await repository.linkOnce(draft(parking), actor);
+    expect(await repository.findLinkedIds(REALM, [id, garage, parking])).toEqual(
+      new Map([
+        [id, own.reference.id],
+        [parking, ownParking.reference.id],
+      ]),
+    );
+    // Only the ids asked for: the parking space is linked but not named.
+    expect(await repository.findLinkedIds(REALM, [garage, id])).toEqual(new Map([[id, own.reference.id]]));
     await repository.refresh(own.reference.id, REALM, { kind: 'NOT_FOUND', observedAt: new Date('2026-10-21T09:00:00Z') }, actor);
     expect((await repository.findById(own.reference.id, REALM))?.externalReferenceState).toBe('MISSING');
-    expect(await repository.findLinkedId(REALM, id)).toBe(own.reference.id);
+    expect(await repository.findLinkedIds(REALM, [id])).toEqual(new Map([[id, own.reference.id]]));
   });
 });

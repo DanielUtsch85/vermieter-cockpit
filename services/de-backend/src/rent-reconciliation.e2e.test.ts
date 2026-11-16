@@ -215,7 +215,7 @@ describe.skipIf(databaseUrl === undefined)('rent reconciliation end to end', () 
           splitProposal: getRentSplitProposal({
             queries: new PostgresTransactionQueries(db),
             readBreakdown: mreRentBreakdownReader(lookupClient),
-            findLinkedPropertyReference: (realm, id) => new PostgresPropertyReferenceRepository(db).findLinkedId(realm, id),
+            findLinkedPropertyReference: (realm, ids) => new PostgresPropertyReferenceRepository(db).findLinkedIds(realm, ids),
           }),
           removeFromMre: removeFromMre({
             repository: reconciliations,
@@ -755,20 +755,32 @@ describe.skipIf(databaseUrl === undefined)('rent reconciliation end to end', () 
     await links.linkOnce({ ...draft, mreRealmId: REALM_B }, { actorType: 'USER', actorId: 'anna@example.com' });
     const auditsBefore = await audits();
     expect(await propose(TENANT_G)).toMatchObject({
-      property: { mrePropertyIds: [FLAT_G], propertyReferenceId: null },
+      property: { mrePropertyIds: [FLAT_G], propertyReferenceId: null, unlinkedMrePropertyIds: [FLAT_G] },
       splits: splitsOf(null),
-      flags: [{ code: 'NO_PROPERTY_REFERENCE', details: { reason: 'PROPERTY_NOT_LINKED', mrePropertyIds: [FLAT_G] } }],
+      flags: [{ code: 'NO_PROPERTY_REFERENCE', details: { reason: 'PROPERTY_NOT_LINKED', mrePropertyIds: [FLAT_G], unlinkedMrePropertyIds: [FLAT_G] } }],
     });
     expect(await audits()).toBe(auditsBefore);
     const { reference } = await links.linkOnce({ ...draft, mreRealmId: REALM_G }, { actorType: 'USER', actorId: 'anna@example.com' });
-    // A flat and a garage under one lease: no property, even with the flat linked.
+    // A flat and a garage under one lease, only the flat linked: the flat is the reference of every split, the garage
+    // named as unlinked (Entscheidung des Projektinhabers, 2026-11-16). The garage linked in another Realm changes nothing.
+    const garage = { ...draft, mrePropertyId: GARAGE_G, displayName: 'Garage G' };
+    await links.linkOnce({ ...garage, mreRealmId: REALM_B }, { actorType: 'USER', actorId: 'anna@example.com' });
+    const flatOnly = {
+      property: { mrePropertyIds: [FLAT_G, GARAGE_G], propertyReferenceId: reference.id, unlinkedMrePropertyIds: [GARAGE_G] },
+      splits: [{ propertyReferenceId: reference.id }, { propertyReferenceId: reference.id }],
+      flags: [],
+    };
+    expect(await propose(TENANT_G2, '2028040100')).toMatchObject(flatOnly);
+    // Both linked in Realm G: two linked objects, no reference.
+    await links.linkOnce({ ...garage, mreRealmId: REALM_G }, { actorType: 'USER', actorId: 'anna@example.com' });
     expect(await propose(TENANT_G2, '2028040100')).toMatchObject({
-      property: { mrePropertyIds: [FLAT_G, GARAGE_G], propertyReferenceId: null },
-      flags: [{ code: 'NO_PROPERTY_REFERENCE', details: { reason: 'SEVERAL_PROPERTIES', mrePropertyIds: [FLAT_G, GARAGE_G] } }],
+      property: { mrePropertyIds: [FLAT_G, GARAGE_G], propertyReferenceId: null, unlinkedMrePropertyIds: [] },
+      splits: [{ propertyReferenceId: null }, { propertyReferenceId: null }],
+      flags: [{ code: 'NO_PROPERTY_REFERENCE', details: { reason: 'SEVERAL_PROPERTIES', mrePropertyIds: [FLAT_G, GARAGE_G], unlinkedMrePropertyIds: [] } }],
     });
     const proposal = await propose(TENANT_G);
     expect(proposal).toMatchObject({
-      property: { mrePropertyIds: [FLAT_G], propertyReferenceId: reference.id },
+      property: { mrePropertyIds: [FLAT_G], propertyReferenceId: reference.id, unlinkedMrePropertyIds: [] },
       splits: splitsOf(reference.id),
       unallocated: eur('0.00'),
       flags: [],

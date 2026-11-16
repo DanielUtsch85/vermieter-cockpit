@@ -476,7 +476,7 @@ export function usePhase2App(name: `${string}_e2e`, options: { readonly taxState
         splitProposal: getRentSplitProposal({
           queries: new PostgresTransactionQueries(db),
           readBreakdown: mreRentBreakdownReader(client),
-          findLinkedPropertyReference: (realm, id) => propertyReferences.repository.findLinkedId(realm, id),
+          findLinkedPropertyReference: (realm, ids) => propertyReferences.repository.findLinkedIds(realm, ids),
         }),
         removeFromMre: removeFromMre({
           repository: new PostgresRentReconciliationRepository(db),

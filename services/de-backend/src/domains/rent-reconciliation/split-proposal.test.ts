@@ -10,7 +10,8 @@ const totals = (overrides: Partial<Record<keyof RentTermTotals, string>> = {}): 
 };
 const FLAT = '6a0000000000000000000001';
 const GARAGE = '6a0000000000000000000002';
-const linked: ProposalProperty = { mrePropertyIds: [FLAT], propertyReferenceId: 'p-1' };
+const PARKING = '6a0000000000000000000003';
+const linked: ProposalProperty = { mrePropertyIds: [FLAT], propertyReferenceId: 'p-1', unlinkedMrePropertyIds: [] };
 const view = (p: ReturnType<typeof proposeRentSplit>) => ({
   splits: p.splits.map((s) => [s.financialCategoryCode, s.amount.amount]),
   unallocated: p.unallocated.amount,
@@ -76,33 +77,79 @@ describe('proposeRentSplit (§37.6)', () => {
 
   it('#368: the linked property on every split and in property, no flag', () => {
     const p = proposeRentSplit(eur('800.00'), totals(), false, linked);
-    expect(p.property).toEqual({ mrePropertyIds: [FLAT], propertyReferenceId: 'p-1' });
+    expect(p.property).toEqual({ mrePropertyIds: [FLAT], propertyReferenceId: 'p-1', unlinkedMrePropertyIds: [] });
+    expect(p.splits.map((s) => s.propertyReferenceId)).toEqual(['p-1', 'p-1']);
+    expect(p.flags).toEqual([]);
+  });
+
+  it('#368 (2026-11-16): flat linked, garage not: the flat on every split, the garage named as unlinked, no flag', () => {
+    const p = proposeRentSplit(eur('800.00'), totals(), false, {
+      mrePropertyIds: [FLAT, GARAGE],
+      propertyReferenceId: 'p-1',
+      unlinkedMrePropertyIds: [GARAGE],
+    });
+    expect(p.property).toEqual({ mrePropertyIds: [FLAT, GARAGE], propertyReferenceId: 'p-1', unlinkedMrePropertyIds: [GARAGE] });
     expect(p.splits.map((s) => s.propertyReferenceId)).toEqual(['p-1', 'p-1']);
     expect(p.flags).toEqual([]);
   });
 
   it.each([
-    ['NO_PROPERTY_FOR_TERM', []],
-    ['SEVERAL_PROPERTIES', [FLAT, GARAGE]],
-    ['PROPERTY_NOT_LINKED', [FLAT]],
-  ] as const)('#368: %s leaves every split without a property and raises NO_PROPERTY_REFERENCE last', (reason, mrePropertyIds) => {
-    const p = proposeRentSplit(eur('790.00'), totals(), true, { mrePropertyIds, reason });
-    expect(p.property).toEqual({ mrePropertyIds, propertyReferenceId: null });
+    ['NO_PROPERTY_FOR_TERM', [], []],
+    ['SEVERAL_PROPERTIES', [FLAT, GARAGE, PARKING], [PARKING]],
+    ['PROPERTY_NOT_LINKED', [FLAT, GARAGE], [FLAT, GARAGE]],
+  ] as const)('#368: %s leaves every split without a property and raises NO_PROPERTY_REFERENCE last', (reason, mrePropertyIds, unlinkedMrePropertyIds) => {
+    const p = proposeRentSplit(eur('790.00'), totals(), true, { mrePropertyIds, reason, unlinkedMrePropertyIds });
+    expect(p.property).toEqual({ mrePropertyIds, propertyReferenceId: null, unlinkedMrePropertyIds });
     expect(p.splits.map((s) => s.propertyReferenceId)).toEqual([null, null]);
     expect(p.flags.map((f) => f.code)).toEqual(['AMOUNT_DIFFERS_FROM_TERM', 'ALREADY_SPLIT', 'NO_PROPERTY_REFERENCE']);
-    expect(p.flags.at(-1)).toEqual({ code: 'NO_PROPERTY_REFERENCE', details: { reason, mrePropertyIds } });
+    expect(p.flags.at(-1)).toEqual({ code: 'NO_PROPERTY_REFERENCE', details: { reason, mrePropertyIds, unlinkedMrePropertyIds } });
   });
 
   it('#368: the property changes no amount', () => {
     const amounts = (property: ProposalProperty) => view(proposeRentSplit(eur('790.00'), totals(), false, property)).splits;
-    expect(amounts({ mrePropertyIds: [], reason: 'NO_PROPERTY_FOR_TERM' })).toEqual(amounts(linked));
+    expect(amounts({ mrePropertyIds: [], reason: 'NO_PROPERTY_FOR_TERM', unlinkedMrePropertyIds: [] })).toEqual(amounts(linked));
   });
 });
 
-describe('soleTermProperty (§37.6, #368)', () => {
-  it('exactly one MRE property is looked up; none or several are the reason, never the first', () => {
-    expect(soleTermProperty([FLAT])).toEqual({ mrePropertyId: FLAT });
-    expect(soleTermProperty([])).toEqual({ reason: 'NO_PROPERTY_FOR_TERM' });
-    expect(soleTermProperty([FLAT, GARAGE])).toEqual({ reason: 'SEVERAL_PROPERTIES' });
+describe('soleTermProperty (§37.6, #368, the link checked per id: Entscheidung des Projektinhabers, 2026-11-16)', () => {
+  const links = (entries: Record<string, string>) => new Map(Object.entries(entries));
+
+  it('exactly one linked MRE property is taken, whatever the number of MRE properties; the others are named as unlinked', () => {
+    expect(soleTermProperty([FLAT], links({ [FLAT]: 'p-1' }))).toEqual({ mrePropertyIds: [FLAT], propertyReferenceId: 'p-1', unlinkedMrePropertyIds: [] });
+    expect(soleTermProperty([FLAT, GARAGE], links({ [FLAT]: 'p-1' }))).toEqual({
+      mrePropertyIds: [FLAT, GARAGE],
+      propertyReferenceId: 'p-1',
+      unlinkedMrePropertyIds: [GARAGE],
+    });
+    // The linked one need not be the first: the garage alone linked is taken, the flat named.
+    expect(soleTermProperty([FLAT, GARAGE, PARKING], links({ [GARAGE]: 'p-2' }))).toEqual({
+      mrePropertyIds: [FLAT, GARAGE, PARKING],
+      propertyReferenceId: 'p-2',
+      unlinkedMrePropertyIds: [FLAT, PARKING],
+    });
+  });
+
+  it('two or more linked are SEVERAL_PROPERTIES, never the first; none linked or none at all are their own reasons', () => {
+    expect(soleTermProperty([FLAT, GARAGE], links({ [FLAT]: 'p-1', [GARAGE]: 'p-2' }))).toEqual({
+      mrePropertyIds: [FLAT, GARAGE],
+      reason: 'SEVERAL_PROPERTIES',
+      unlinkedMrePropertyIds: [],
+    });
+    expect(soleTermProperty([FLAT, GARAGE, PARKING], links({ [FLAT]: 'p-1', [PARKING]: 'p-3' }))).toEqual({
+      mrePropertyIds: [FLAT, GARAGE, PARKING],
+      reason: 'SEVERAL_PROPERTIES',
+      unlinkedMrePropertyIds: [GARAGE],
+    });
+    expect(soleTermProperty([FLAT, GARAGE], links({}))).toEqual({
+      mrePropertyIds: [FLAT, GARAGE],
+      reason: 'PROPERTY_NOT_LINKED',
+      unlinkedMrePropertyIds: [FLAT, GARAGE],
+    });
+    expect(soleTermProperty([FLAT], links({ [GARAGE]: 'p-2' }))).toEqual({
+      mrePropertyIds: [FLAT],
+      reason: 'PROPERTY_NOT_LINKED',
+      unlinkedMrePropertyIds: [FLAT],
+    });
+    expect(soleTermProperty([], links({ [FLAT]: 'p-1' }))).toEqual({ mrePropertyIds: [], reason: 'NO_PROPERTY_FOR_TERM', unlinkedMrePropertyIds: [] });
   });
 });
