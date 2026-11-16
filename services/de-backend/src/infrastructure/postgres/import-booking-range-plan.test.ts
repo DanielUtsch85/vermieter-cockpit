@@ -10,7 +10,8 @@ import { testSchemaName } from './test-schema.test-support.js';
  * VC-X-75 (api-design.md §32.6): the plan of the booking-range statement a list page sends, read with `EXPLAIN` from
  * the statement actually sent. It needs no index of its own: the Transactions are read by their primary key (the ids
  * the batch's `created` and `duplicate` rows name; the planner may take `UNIQUE (id, mre_realm_id)` instead), the
- * review items its `duplicate` rows name by their primary key, its own review items through `import_review_item_batch_idx`
+ * review items its `duplicate` rows name and its `needs_review` rows re-present (another batch's) by their primary key,
+ * its own review items through `import_review_item_batch_idx`
  * (0006): exactly the page's items are read, no table is scanned whole. Counter-check: without that index (dropped in a rolled-back transaction)
  * the same statement reads at least every review item of the Realm.
  */
@@ -87,20 +88,33 @@ describe.skipIf(databaseUrl === undefined)('the plan of the booking range (§32.
          resolution, resolved_by, resolved_at)
        SELECT gen_random_uuid(), b.id, b.mre_realm_id, b.financial_account_id, 'generic-csv', '1', 'sha256:' || b.content_hash, 'pos:' || (100 + g),
          md5(b.id::text || 'r' || g), jsonb_build_object('bookingDate', (date '2025-12-01' + g)::text), 'AMBIGUOUS_CROSS_FILE_MATCH', '{}', '{}',
-         'RESOLVED', 'SKIP', 'x', now()
+         CASE WHEN g = 1 THEN 'RESOLVED' ELSE 'PENDING' END, CASE WHEN g = 1 THEN 'SKIP' END, CASE WHEN g = 1 THEN 'x' END,
+         CASE WHEN g = 1 THEN now() END
        FROM import_batch b, generate_series(1, 2) g`,
     );
+    await pool.query(`ANALYZE`);
+    // The batch's own items as its needs_review rows name them (read through the batch index, not again by key).
+    await pool.query(
+      `UPDATE import_batch b SET rows = b.rows || (
+         SELECT jsonb_agg(jsonb_build_object('outcome', 'needs_review', 'position', substr(i.source_row_key, 5)::int, 'reviewItemId', i.id,
+           'importBatchId', b.id, 'reason', 'AMBIGUOUS_CROSS_FILE_MATCH', 'conflictingTransactionIds', '[]'::jsonb))
+         FROM import_review_item i WHERE i.import_batch_id = b.id)`,
+    );
     // Two duplicate rows per batch (VC-X-75 amended): one naming an earlier batch's Transaction, one an earlier batch's
-    // resolved review item, both of the same Realm; their dates lie inside the batch's own range.
+    // resolved review item; and a needs_review row re-presenting an earlier batch's pending item (2026-11-16); all of the
+    // same Realm, their dates inside the batch's own range.
     await pool.query(
       `UPDATE import_batch b SET rows = b.rows || jsonb_build_array(
          jsonb_build_object('outcome', 'duplicate', 'position', 21, 'duplicateOf', 'TRANSACTION', 'transactionId', o.transaction_id),
          jsonb_build_object('outcome', 'duplicate', 'position', 22, 'duplicateOf', 'RESOLVED_REVIEW_ITEM', 'reviewItemId', o.item_id,
-           'importBatchId', o.batch_id, 'resolution', 'SKIP'))
+           'importBatchId', o.batch_id, 'resolution', 'SKIP'),
+         jsonb_build_object('outcome', 'needs_review', 'position', 23, 'reviewItemId', o.pending_id, 'importBatchId', o.batch_id,
+           'reason', 'AMBIGUOUS_CROSS_FILE_MATCH', 'conflictingTransactionIds', '[]'::jsonb))
        FROM (
          SELECT p.id AS batch_id, p.mre_realm_id,
            (SELECT t.id FROM ledger_transaction t WHERE t.import_batch_id = p.id AND t.source_row_key = 'pos:5') AS transaction_id,
            (SELECT i.id FROM import_review_item i WHERE i.import_batch_id = p.id AND i.source_row_key = 'pos:101') AS item_id,
+           (SELECT i.id FROM import_review_item i WHERE i.import_batch_id = p.id AND i.source_row_key = 'pos:102') AS pending_id,
            lead(p.id) OVER (PARTITION BY p.mre_realm_id ORDER BY p.imported_at) AS next_id
          FROM import_batch p
        ) o
@@ -146,15 +160,16 @@ describe.skipIf(databaseUrl === undefined)('the plan of the booking range (§32.
       expect(scan['Actual Rows']).toBe(1);
     }
     expect(plan.map((n) => n['Index Name'])).toContain('import_review_item_batch_idx');
-    // Exactly the page's own items (two per batch) and the items its duplicate rows name (one per batch), by primary key.
+    // Exactly the page's own items (two per batch, not again by key for its own needs_review rows), the items its
+    // duplicate rows name and the items its needs_review rows re-present (one each per batch), by primary key.
     const named = plan.filter((n) => n['Relation Name'] === 'import_review_item' && n['Index Name'] === 'import_review_item_pkey');
     expect(named.length).toBeGreaterThan(0);
     for (const scan of named) {
       expect(scan['Node Type']).toBe('Index Scan');
       expect(scan['Actual Rows']).toBe(1);
     }
-    expect(itemRowsRead(plan, 'import_review_item_pkey')).toBe(PAGE_SIZE);
-    expect(itemRowsRead(plan)).toBe(3 * PAGE_SIZE);
+    expect(itemRowsRead(plan, 'import_review_item_pkey')).toBe(2 * PAGE_SIZE);
+    expect(itemRowsRead(plan)).toBe(4 * PAGE_SIZE);
   });
 
   it('counter-check: without the review-item index the same statement reads every item of the Realm (or the table)', async () => {
