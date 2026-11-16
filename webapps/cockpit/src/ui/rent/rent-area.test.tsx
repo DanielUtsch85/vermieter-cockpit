@@ -101,17 +101,30 @@ describe('suggest and the list (ui-guide.md §6.6 steps 5 and 6)', () => {
     );
   });
 
-  it('every run says that earlier rejected or released pairs are left out and points to Manuell zuordnen, without a number', async () => {
-    const HINT =
-      'Ausgelassen werden Paare aus Buchung, Mieter und Termin, deren Zuordnung früher abgelehnt oder aufgehoben wurde: sie werden nie wieder vorgeschlagen. Eine neue Zuordnung geht nur von Hand mit „Manuell zuordnen“ in der Buchung.';
-    for (const items of [[], [reconciliation()]]) {
-      area({ [LIST]: repeat(2, () => json(200, page([]))), [SUGGEST]: [() => json(200, suggestResult(items))] });
+  it('every run says how many fitting pairs it left out as rejected or released before (decidedBefore) and points to Manuell zuordnen', async () => {
+    const MANUAL = 'Eine neue Zuordnung geht nur von Hand mit „Manuell zuordnen“ in der Buchung.';
+    const hints: [number, string][] = [
+      [
+        0,
+        `Kein passendes Paar aus Buchung, Mieter und Termin wurde ausgelassen, weil seine Zuordnung früher abgelehnt oder aufgehoben wurde. Solche Paare werden nie wieder vorgeschlagen. ${MANUAL}`,
+      ],
+      [
+        1,
+        `1 passendes Paar aus Buchung, Mieter und Termin wurde ausgelassen, weil seine Zuordnung früher abgelehnt oder aufgehoben wurde: es wird nie wieder vorgeschlagen. ${MANUAL}`,
+      ],
+      [
+        3,
+        `3 passende Paare aus Buchung, Mieter und Termin wurden ausgelassen, weil ihre Zuordnung früher abgelehnt oder aufgehoben wurde: sie werden nie wieder vorgeschlagen. ${MANUAL}`,
+      ],
+    ];
+    for (const [[decidedBefore, hint], items] of hints.flatMap((h) => [[h, []] as const, [h, [reconciliation()]] as const])) {
+      area({ [LIST]: repeat(2, () => json(200, page([]))), [SUGGEST]: [() => json(200, suggestResult(items, { decidedBefore }))] });
       fireEvent.change(await screen.findByLabelText('Erster Monat'), { target: { value: '2026-03' } });
       fireEvent.change(screen.getByLabelText('Letzter Monat'), { target: { value: '2026-04' } });
       click('Vorschläge ermitteln');
       await screen.findByText(/Vorschl(ä|a)g(e)? für 2026-03 bis 2026-04\./);
-      // The answer counts no such pair (skipped has only unconfirmed and noRentCash): the hint names no number.
-      expect(screen.getByText(HINT)).toBeTruthy();
+      // VC-X-78: the server's count, in words, with and without new suggestions.
+      expect(screen.getByText(hint)).toBeTruthy();
       expect(screen.getByText('Im Zeitraum wurde kein Zahlungseingang übersprungen, weil er unbestätigt war oder keinen Mietanteil hat.')).toBeTruthy();
       cleanup();
     }

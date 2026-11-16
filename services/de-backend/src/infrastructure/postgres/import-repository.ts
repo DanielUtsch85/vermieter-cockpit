@@ -1,12 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { sql, type Insertable, type Kysely, type Selectable } from 'kysely';
 import {
+  continuityMissingOf,
   decideRow,
   keepsExternalId,
   planResolution,
   type AmbiguityReason,
   type BusinessDate,
   type ConflictingTransaction,
+  type ContinuityMissing,
   type ContinuityReport,
   type Direction,
   type ResolveOutcome,
@@ -35,6 +37,7 @@ import { writeAudit } from './audit.js';
 import { toFinancialAccount } from './financial-account-repository.js';
 import { fromNumericAmount, toNumericAmount } from './money-column.js';
 import type { Database, ImportBatchTable, ImportReviewItemTable, LedgerTransactionTable } from './schema.js';
+import { bookingRanges, NO_BOOKING_RANGE } from './import-booking-range.js';
 import { prefetch, lookupFor, positionOf, newTransaction, continuityReport } from './import-lookup.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -218,6 +221,7 @@ export class PostgresImportRepository implements ImportRepository {
             skipped_count: summary.skippedCount,
             rows: JSON.stringify(rows),
             continuity: continuity === null ? null : JSON.stringify(continuity),
+            continuity_missing: continuityMissingOf(statement, continuity),
           })
           .where('id', '=', batchId)
           .returningAll()
@@ -231,14 +235,18 @@ export class PostgresImportRepository implements ImportRepository {
             ...summary,
           },
         });
-        return { kind: 'IMPORTED', batch: toDomain(stored) };
+        // The range as every read answers it (§32.6, VC-X-75), from what this transaction just wrote.
+        const range = (await bookingRanges(trx, input.mreRealmId, [batchId])).get(batchId) ?? NO_BOOKING_RANGE;
+        return { kind: 'IMPORTED', batch: { ...toDomain(stored), ...range } };
       });
   }
 
   async findBatch(id: string, mreRealmId: string): Promise<ImportBatch | undefined> {
     if (!UUID.test(id)) return undefined;
     const row = await this.db.selectFrom('import_batch').selectAll().where('id', '=', id).where('mre_realm_id', '=', mreRealmId).executeTakeFirst();
-    return row === undefined ? undefined : toDomain(row);
+    if (row === undefined) return undefined;
+    const range = (await bookingRanges(this.db, mreRealmId, [row.id])).get(row.id) ?? NO_BOOKING_RANGE;
+    return { ...toDomain(row), ...range };
   }
 
   async listReviewItems(importBatchId: string, mreRealmId: string, status?: ReviewItem['status']) {
@@ -464,7 +472,8 @@ function* chunks<T>(items: readonly T[]): Generator<T[]> {
   for (let i = 0; i < items.length; i += INSERT_CHUNK) yield items.slice(i, i + INSERT_CHUNK);
 }
 
-function toDomain(row: Selectable<ImportBatchTable>): ImportBatch {
+/** The stored batch; its booking range (VC-X-75) is read beside it (`bookingRanges`). */
+function toDomain(row: Selectable<ImportBatchTable>): Omit<ImportBatch, 'firstBookingDate' | 'lastBookingDate'> {
   return {
     id: row.id as ImportBatchId,
     mreRealmId: row.mre_realm_id,
@@ -483,5 +492,6 @@ function toDomain(row: Selectable<ImportBatchTable>): ImportBatch {
     importedBy: row.imported_by,
     rows: row.rows as RowOutcome[],
     continuity: row.continuity as ContinuityReport | null,
+    continuityMissing: row.continuity_missing as ContinuityMissing | null,
   };
 }

@@ -25,6 +25,8 @@ const summary = {
   skippedCount: 5,
   importedAt: new Date('2026-11-16T08:00:00Z'),
   importedBy: 'anna@example.com',
+  firstBookingDate: '2026-10-01',
+  lastBookingDate: '2026-10-31',
 } as unknown as ImportBatchSummary;
 
 const admin: PrincipalVerifier = async (_auth, mreRealmId) => ({ email: 'anna@example.com', mreRealmId: mreRealmId ?? '', mreRole: 'administrator' });
@@ -60,7 +62,14 @@ async function listing(items: readonly ImportBatchSummary[] = [summary]) {
 
 describe('GET /imports (§32.6)', () => {
   it('answers the page with the items as the single read without rows and continuity, in the order the list gives', async () => {
-    const older = { ...summary, id: '00000000-0000-4000-8000-000000000001', status: 'COMPLETED', needsReviewCount: 0 } as unknown as ImportBatchSummary;
+    const older = {
+      ...summary,
+      id: '00000000-0000-4000-8000-000000000001',
+      status: 'COMPLETED',
+      needsReviewCount: 0,
+      firstBookingDate: null,
+      lastBookingDate: null,
+    } as unknown as ImportBatchSummary;
     const { calls, get } = await listing([summary, older]);
     const answer = await get();
     expect(answer.status).toBe(200);
@@ -83,8 +92,17 @@ describe('GET /imports (§32.6)', () => {
           skippedCount: 5,
           importedAt: '2026-11-16T08:00:00.000Z',
           importedBy: 'anna@example.com',
+          firstBookingDate: '2026-10-01',
+          lastBookingDate: '2026-10-31',
         },
-        expect.objectContaining({ importBatchId: '00000000-0000-4000-8000-000000000001', status: 'COMPLETED', needsReviewCount: 0 }),
+        // VC-X-75: no row with a booking date → both null, never left out.
+        expect.objectContaining({
+          importBatchId: '00000000-0000-4000-8000-000000000001',
+          status: 'COMPLETED',
+          needsReviewCount: 0,
+          firstBookingDate: null,
+          lastBookingDate: null,
+        }),
       ],
       page: 1,
       pageSize: 50,
@@ -140,7 +158,7 @@ describe('GET /imports (§32.6)', () => {
         listBatches: () => Promise.reject(new Error('the single read reached the list')),
         getBatch: async () => {
           single += 1;
-          return { ...summary, rows: [], continuity: null };
+          return { ...summary, rows: [], continuity: null, continuityMissing: 'NO_BALANCE_COLUMN' };
         },
       },
     });

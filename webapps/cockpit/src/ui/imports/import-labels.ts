@@ -1,5 +1,5 @@
 import { ApiError, type FieldError } from '../../api/errors';
-import type { ImportRowDto } from '../../api/imports';
+import type { ImportBatchDto, ImportRowDto } from '../../api/imports';
 import { describeFieldError } from '../error-text';
 
 /**
@@ -70,13 +70,19 @@ export function rowErrorText(entry: FieldError): { readonly name: string; readon
 const BOOKING_OUTCOMES: ReadonlySet<string> = new Set(['created', 'duplicate', 'needs_review']);
 
 /**
- * Why there is no continuity report (`continuity: null`). The server sends `null` both for a file without a balance
- * column and for one whose rows carry no balance it could read (api-design.md §32.1a); the result does not tell them
- * apart, so the text claims neither (Issue #363 des Projektinhabers, 2026-11-16, point 3). A file without a single
- * booking row says so: whatever balances it has, none was evaluable.
+ * Why there is no continuity report (`continuity: null`). The server says it in `continuityMissing` (api-design.md
+ * §32.1a, VC-X-77; Entscheidung des Projektinhabers, 2026-11-16): `NO_BALANCE_COLUMN` — the file was read without a
+ * balance column; `NO_ROW_WITH_BALANCE` — the column was read, but no valid row had a balance. A file without a single
+ * data row, or without a row that became a booking, says so first: those are the reasons no row could have one.
+ * `null` with no report is a batch stored before the server recorded the reason: then the text claims neither cause
+ * (Issue #363 des Projektinhabers, 2026-11-16, point 3).
  */
-export function noContinuityText(rows: readonly Pick<ImportRowDto, 'outcome'>[]): string {
+export function noContinuityText(rows: readonly Pick<ImportRowDto, 'outcome'>[], missing: ImportBatchDto['continuityMissing'] = null): string {
+  if (missing === 'NO_BALANCE_COLUMN') return 'Die Datei wurde ohne Saldo-Spalte (Saldo nach Buchung) gelesen; die Lückenlosigkeit wurde nicht geprüft.';
   if (rows.length === 0) return 'Die Datei enthielt keine Datenzeile; die Lückenlosigkeit wurde nicht geprüft.';
+  if (missing === 'NO_ROW_WITH_BALANCE' && rows.some((row) => BOOKING_OUTCOMES.has(row.outcome))) {
+    return 'Die Datei hat eine Saldo-Spalte, aber in keiner gültigen Zeile einen Saldo; die Lückenlosigkeit wurde nicht geprüft.';
+  }
   return rows.some((row) => BOOKING_OUTCOMES.has(row.outcome))
     ? 'Keine gültige Zeile der Datei hat einen Saldo nach Buchung (keine Saldo-Spalte, oder sie ist leer); die Lückenlosigkeit wurde nicht geprüft.'
     : 'Keine Zeile der Datei hat einen auswertbaren Saldo: keine Zeile wurde zu einer Buchung (nur Zeilen mit Fehler oder mit Betrag 0). Die Lückenlosigkeit wurde nicht geprüft.';

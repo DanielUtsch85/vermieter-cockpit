@@ -333,4 +333,21 @@ describe('no continuity report (Issue #363 des Projektinhabers, 2026-11-16, poin
     for (const outcome of ['duplicate', 'needs_review'] as const) expect(noContinuityText([{ outcome }, { outcome: 'error' }])).toMatch(/^Keine gültige Zeile/);
     expect(noContinuityText([])).toBe('Die Datei enthielt keine Datenzeile; die Lückenlosigkeit wurde nicht geprüft.');
   });
+
+  it('the server s reason (continuityMissing, VC-X-77) decides the text; without one, the inference above', () => {
+    const NO_COLUMN = 'Die Datei wurde ohne Saldo-Spalte (Saldo nach Buchung) gelesen; die Lückenlosigkeit wurde nicht geprüft.';
+    const EMPTY_COLUMN = 'Die Datei hat eine Saldo-Spalte, aber in keiner gültigen Zeile einen Saldo; die Lückenlosigkeit wurde nicht geprüft.';
+    show(batch({ continuityMissing: 'NO_BALANCE_COLUMN' }));
+    expect(saldo()).toContain(NO_COLUMN);
+    cleanup();
+    show(batch({ continuityMissing: 'NO_ROW_WITH_BALANCE' }));
+    expect(saldo()).toContain(EMPTY_COLUMN);
+    expect(saldo()).not.toContain('keine Saldo-Spalte, oder');
+    // No column: whatever the rows; a column but no booking row or no row at all: those causes first.
+    expect(noContinuityText([], 'NO_BALANCE_COLUMN')).toBe(NO_COLUMN);
+    expect(noContinuityText([{ outcome: 'error' }], 'NO_ROW_WITH_BALANCE')).toMatch(/^Keine Zeile der Datei hat einen auswertbaren Saldo/);
+    expect(noContinuityText([], 'NO_ROW_WITH_BALANCE')).toBe('Die Datei enthielt keine Datenzeile; die Lückenlosigkeit wurde nicht geprüft.');
+    expect(noContinuityText([{ outcome: 'duplicate' }], 'NO_ROW_WITH_BALANCE')).toBe(EMPTY_COLUMN);
+    expect(noContinuityText([{ outcome: 'created' }], null)).toMatch(/keine Saldo-Spalte, oder sie ist leer/);
+  });
 });

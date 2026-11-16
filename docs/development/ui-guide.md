@@ -289,6 +289,8 @@ Klärfall zeigt neue Zeile und konkurrierende Transaktionen nebeneinander. Aktio
 
 Keine „Zusammenführen“-Funktion erfinden. Nach resolve Ergebnis und Liste neu lesen. Verweise auf einen früheren owning batch respektieren; dessen Item aufrufen, nicht unter dem neuen Batch lösen.
 
+**Bisherige Importe (#369; Entscheidung des Projektinhabers, 2026-11-16):** Unter dem Formular listet die Seite „Import“ die Importe des Bestands über GET /imports (api-design §32.6), neueste zuerst, 20 je Seite, die Seite in der URL (`?page=`). Je Import: Datei (ohne Namen „Datei ohne Namen“), Zeitpunkt, Konto, Zähler (neue Buchungen, Duplikate, Zeilen mit Fehler, übersprungen) und Status. Ein Import mit Status NEEDS_REVIEW ist hervorgehoben: Badge „Klärfälle offen“, Rahmen und „n offene Klärfälle“ aus needsReviewCount; sein Verweis heißt „Klärfälle bearbeiten“, sonst „Ergebnis öffnen“. Die Liste sendet keinen Filter. Nach einem Import und nach resolve wird sie neu gelesen. Filter nach offenen Klärfällen und Konto sowie der Buchungszeitraum je Import folgen (Folge-PR).
+
 Bei Timeout nicht einfach behaupten, dass nichts importiert wurde. Bekannte Batch-ID wieder lesen; sonst dieselbe Datei mit identischem Konto/Adapter/Optionen bewusst erneut senden und die serverseitige Duplikaterkennung nutzen. Kein beliebig neuer Dateiinhalt zur Umgehung.
 
 ### 6.6 Mietabgleich – drei getrennte Bestätigungen

@@ -79,7 +79,7 @@ export function ImportResult(props: {
           ]}
         />
       </section>
-      <Continuity continuity={b.continuity} currency={account?.currency} rows={b.rows} />
+      <Continuity continuity={b.continuity} missing={b.continuityMissing} currency={account?.currency} rows={b.rows} />
       <section aria-labelledby="import-zeilen" className="rounded-card border border-border bg-surface p-6">
         <h2 id="import-zeilen" className="mb-2 text-section font-semibold">
           Zeilen der Datei
@@ -239,10 +239,12 @@ function UnknownOutcome({ code }: { readonly code: string }) {
 /** The continuity report (api-design.md §32.1a, data-model.md §70.6): reported as the server sent it, never a refusal. */
 function Continuity({
   continuity,
+  missing,
   currency,
   rows,
 }: {
   readonly continuity: ImportBatchDto['continuity'];
+  readonly missing: ImportBatchDto['continuityMissing'];
   readonly currency: string | undefined;
   readonly rows: readonly ImportRowDto[];
 }) {
@@ -252,7 +254,7 @@ function Continuity({
         Lückenlosigkeit (Saldo)
       </h2>
       {continuity === null ? (
-        <p className="text-muted">{noContinuityText(rows)}</p>
+        <p className="text-muted">{noContinuityText(rows, missing)}</p>
       ) : (
         <>
           <p>{`Reihenfolge der Datei: ${orderText(continuity.order)}.`}</p>

@@ -97,7 +97,7 @@ export function createRentFake(ctx: RentContext) {
     const before = month === 1 ? `${year - 1}-12` : `${year}-${String(month - 1).padStart(2, '0')}`;
     const inWindow = (t: Tx) => t.mreRealmId === realm && t.direction === 'INFLOW' && t.bookingDate >= `${before}-15` && t.bookingDate <= `${to}-31`;
     const created: Rec[] = [];
-    const skipped = { unconfirmed: 0, noRentCash: 0 };
+    const skipped = { unconfirmed: 0, noRentCash: 0, decidedBefore: 0 };
     for (const t of transactions.values()) {
       if (!inWindow(t) || t.correctionRole !== null) continue;
       if (['IMPORTED', 'UNREVIEWED', 'CLASSIFIED'].includes(t.status)) skipped.unconfirmed += 1;
@@ -108,7 +108,12 @@ export function createRentFake(ctx: RentContext) {
         continue;
       }
       if (state().suggestRule === 'EXACT') continue;
-      if ([...reconciliations.values()].some((r) => r.transactionId === t.id && r.mreRentTerm === TERM_OCT)) continue;
+      const pair = [...reconciliations.values()].filter((r) => r.transactionId === t.id && r.mreRentTerm === TERM_OCT);
+      if (pair.length > 0) {
+        // VC-X-78: a pair rejected or released before, and neither open nor matched, is counted as left out.
+        if (pair.every((r) => r.status === 'REJECTED' || r.status === 'RELEASED')) skipped.decidedBefore += 1;
+        continue;
+      }
       const r = newRec(realm, t, cash);
       created.push(r);
     }

@@ -257,3 +257,30 @@ function assignInOrder(input: SuggestionInput, fits: readonly Edge[], decided: r
   }
   return assigned;
 }
+
+/**
+ * §37.6's `skipped.decidedBefore` (VC-X-78; Entscheidung des Projektinhabers, 2026-11-16): the pairs of the run's window
+ * that fit — the term in the window with a positive open amount equal to the candidate's available rent cash, the
+ * booking inside the term's booking window — but are left out because their own reconciliation was `REJECTED` or
+ * `RELEASED` before (`decided`: no open or `CONFIRMED` one of the same pair). Counted before the uniqueness rules, so a
+ * pair, not a Transaction: one inflow fitting two decided terms counts twice.
+ */
+export function countDecidedBefore(input: {
+  readonly terms: readonly SuggestionTerm[];
+  readonly candidates: readonly SuggestionCandidate[];
+  readonly decided: readonly SuggestionPair[];
+}): number {
+  const decided = new Set(input.decided.map(pairKey));
+  let count = 0;
+  for (const term of input.terms) {
+    if (!term.inWindow || !term.openAmount.isPositive()) continue;
+    const window = bookingWindow(term.mreRentTerm);
+    for (const candidate of input.candidates) {
+      if (!decided.has(pairKey({ transactionId: candidate.transactionId, mreTenantId: term.mreTenantId, mreRentTerm: term.mreRentTerm }))) continue;
+      if (!candidate.available.equals(term.openAmount)) continue;
+      if (candidate.bookingDate < window.from || candidate.bookingDate > window.to) continue;
+      count += 1;
+    }
+  }
+  return count;
+}

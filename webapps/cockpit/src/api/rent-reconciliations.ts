@@ -72,6 +72,9 @@ export async function suggestReconciliations(client: DeClient, body: SuggestInpu
   if (data.from !== body.from || data.to !== body.to) throw unexpected('The answer names another window than the one sent.');
   checkRealm(client.realmId, data.items);
   if (data.items.some((item) => item.status !== 'SUGGESTED')) throw unexpected('A suggest run answered a reconciliation that is not SUGGESTED.');
+  // §37.6: three counts, each a non-negative integer (`decidedBefore`: VC-X-78).
+  const { unconfirmed, noRentCash, decidedBefore } = data.skipped;
+  if (![unconfirmed, noRentCash, decidedBefore].every((n) => Number.isInteger(n) && n >= 0)) throw unexpected('The skipped counts of the run are not counts.');
   return data;
 }
 

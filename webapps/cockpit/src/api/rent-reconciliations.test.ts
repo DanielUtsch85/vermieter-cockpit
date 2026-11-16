@@ -59,7 +59,7 @@ function expectCommon(call: Call | undefined) {
 
 describe('step 6: POST /rent-reconciliations/suggest (api-design.md §37.3)', () => {
   it('sends exactly { from, to }, no If-Match, no Idempotency-Key; answers the run with its skipped counts', async () => {
-    const answer = suggestResult([reconciliation()], { unconfirmed: 2, noRentCash: 1 });
+    const answer = suggestResult([reconciliation()], { unconfirmed: 2, noRentCash: 1, decidedBefore: 3 });
     const { client: de, calls } = client(json(200, answer));
     expect(await suggestReconciliations(de, { from: '2026-03', to: '2026-04' })).toEqual(answer);
     expect(calls).toHaveLength(1);
@@ -81,6 +81,16 @@ describe('step 6: POST /rent-reconciliations/suggest (api-design.md §37.3)', ()
     await expect(suggestReconciliations(de, body)).rejects.toMatchObject({ code: CLIENT_CODES.unexpected });
     await expect(suggestReconciliations(de, body)).rejects.toMatchObject({ code: CLIENT_CODES.realmMismatch });
     await expect(suggestReconciliations(de, body)).rejects.toMatchObject({ code: CLIENT_CODES.unexpected });
+  });
+
+  it('skipped counts that are not counts are refused: a negative, a fraction or a missing decidedBefore (VC-X-78)', async () => {
+    const body = { from: '2026-03', to: '2026-04' };
+    for (const skipped of [{ decidedBefore: -1 }, { decidedBefore: 1.5 }, { decidedBefore: undefined }, { noRentCash: -2 }]) {
+      const answer = { ...suggestResult([]), skipped: { ...suggestResult([]).skipped, ...skipped } };
+      await expect(suggestReconciliations(client(json(200, answer)).client, body), JSON.stringify(skipped)).rejects.toMatchObject({
+        code: CLIENT_CODES.unexpected,
+      });
+    }
   });
 
   it('503 keeps Retry-After; no answer is status 0 and is not sent again by the client', async () => {

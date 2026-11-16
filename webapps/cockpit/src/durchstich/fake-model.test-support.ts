@@ -128,8 +128,13 @@ export interface Batch {
   skippedCount: number;
   importedAt: Date;
   importedBy: string;
+  /** VC-X-75: the booking dates of the created rows and the batch's own review items. */
+  firstBookingDate: string | null;
+  lastBookingDate: string | null;
   rows: Record<string, unknown>[];
-  continuity: null;
+  /** The fake checks no chain: a file with a balance gets a report without breaks (VC-X-77 needs one or a reason). */
+  continuity: { order: 'OLDEST_FIRST'; breaks: []; previousExport: 'NO_EARLIER_BALANCE' } | null;
+  continuityMissing: 'NO_BALANCE_COLUMN' | 'NO_ROW_WITH_BALANCE' | null;
 }
 
 export interface Item {

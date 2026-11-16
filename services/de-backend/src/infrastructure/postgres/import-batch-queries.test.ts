@@ -112,6 +112,9 @@ describe.skipIf(databaseUrl === undefined)('the list of a Realm s imports (§32.
       skippedCount: 0,
       importedAt: new Date('2026-10-02T08:00:00Z'),
       importedBy: 'anna@example.com',
+      // VC-X-75: the seeded row names no Transaction, so no date (import-booking-range.test.ts has the dates).
+      firstBookingDate: null,
+      lastBookingDate: null,
     });
     for (const item of items) {
       expect(item).not.toHaveProperty('rows');

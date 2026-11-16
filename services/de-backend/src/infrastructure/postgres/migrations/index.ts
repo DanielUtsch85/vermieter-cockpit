@@ -77,6 +77,7 @@ import * as m0075 from './0075_land_building_allocation_plausibility.js';
 import * as m0076 from './0076_audit_record_pseudonymisation.js';
 import * as m0077 from './0077_loan_allocation_outside_letting.js';
 import * as m0078 from './0078_import_batch_list_index.js';
+import * as m0079 from './0079_import_batch_continuity_missing.js';
 
 /**
  * All DE migrations, in order. Listed statically (instead of scanning the
@@ -163,4 +164,5 @@ export const migrations: Record<string, Migration> = {
   '0076_audit_record_pseudonymisation': m0076,
   '0077_loan_allocation_outside_letting': m0077,
   '0078_import_batch_list_index': m0078,
+  '0079_import_batch_continuity_missing': m0079,
 };

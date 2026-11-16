@@ -437,7 +437,7 @@ describe('suggestions (§37.3)', () => {
       rentReconciliations: {
         suggest: async (input) => {
           seen.push(input);
-          return { from: input.from, to: input.to, items: [suggestion], skipped: { unconfirmed: 2, noRentCash: 1 } };
+          return { from: input.from, to: input.to, items: [suggestion], skipped: { unconfirmed: 2, noRentCash: 1, decidedBefore: 3 } };
         },
       },
     });
@@ -447,8 +447,8 @@ describe('suggestions (§37.3)', () => {
       from: '2027-01',
       to: '2027-12',
       items: [expect.objectContaining({ reconciliationId: ID, status: 'SUGGESTED', confidence: 'MEDIUM', suggestionReason: 'EXACT_AMOUNT' })],
-      // §37.6: why other inflows were not seen.
-      skipped: { unconfirmed: 2, noRentCash: 1 },
+      // §37.6: why other inflows were not seen, and the pairs left out as decided before (VC-X-78).
+      skipped: { unconfirmed: 2, noRentCash: 1, decidedBefore: 3 },
     });
     expect(seen[0]).toMatchObject({ authorizationHeader: 'Bearer a.b.c', from: '2027-01', to: '2027-12' });
   });

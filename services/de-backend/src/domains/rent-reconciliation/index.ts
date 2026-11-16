@@ -34,7 +34,7 @@ export {
   writeBody,
 } from './write-back.js';
 export type { MrePaymentSnapshot, StoredPayment, TermPayment, TermWrite, WriteBackError, WriteBackTerm } from './write-back.js';
-export { SUGGESTION_REASONS, bookingWindow, suggestPairs } from './suggestion.js';
+export { SUGGESTION_REASONS, bookingWindow, countDecidedBefore, suggestPairs } from './suggestion.js';
 export type { Confidence, Suggestion, SuggestionCandidate, SuggestionInput, SuggestionPair, SuggestionReason, SuggestionTerm } from './suggestion.js';
 export type {
   ClaimOutcome,
@@ -65,6 +65,7 @@ export type {
   RentPaymentReconciliationId,
   RentReconciliationRepository,
   SkippedInflows,
+  SuggestSkipped,
   SuggestionSnapshot,
   TransactionRentSide,
 } from './reconciliation.js';

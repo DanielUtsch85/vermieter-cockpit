@@ -14,6 +14,7 @@ import {
   split,
   waitForLocks,
   reasonOf,
+  TENANT,
   useRentReconciliationDatabase,
 } from './rent-reconciliation.test-support.js';
 
@@ -22,6 +23,9 @@ import {
  */
 describe.skipIf(databaseUrl === undefined)('RentPaymentReconciliation suggestions (§37.3)', () => {
   const { ctx, transaction, match, created, rawInsert } = useRentReconciliationDatabase('rent_suggestion_test');
+  /** An open suggestion of the suggestion tests' Tenant, written past the repository. */
+  const rawInsertFor = (transactionId: string, term: string, status: string) =>
+    rawInsert(transactionId, '800.00', term, status).replace(`'${TENANT}'`, `'6512f0c2a1b2c3d4e5f60b01'`);
   let pool: pg.Pool;
   let corrections: PostgresCorrectionRepository;
   let repository: PostgresRentReconciliationRepository;
@@ -95,6 +99,29 @@ describe.skipIf(databaseUrl === undefined)('RentPaymentReconciliation suggestion
         (await repository.suggestionSnapshot(OTHER_REALM, [], day('2027-04-15'), day('2027-06-30'), { from: day('2027-04-15'), to: day('2027-06-30') }))
           .candidates,
       ).toEqual([]);
+    });
+
+    it('suggestionSnapshot decided (VC-X-78): a candidate s pairs rejected or released before; not while suggested again or confirmed, not another Realm s', async () => {
+      const window = { from: day('2032-04-15'), to: day('2032-06-30') };
+      const pairOf = (transactionId: string, mreRentTerm: string) => ({ transactionId, mreTenantId: SUG_REALM_TENANT, mreRentTerm });
+      // Rejected: decided.
+      const rejected = await transaction([split('800.00')], { bookingDate: '2032-05-03' });
+      const r1 = await suggested(rejected, '800.00', '2032050100');
+      expect((await repository.reject(r1.id, REALM, 'anderer Mieter', new Date(), actor)).kind).toBe('REJECTED');
+      // Released after a manual match: decided; the cash is free again, so it is a candidate.
+      const released = await transaction([split('800.00')], { bookingDate: '2032-05-04' });
+      const m = await created(match(released, '800.00', '2032050100', SUG_REALM_TENANT));
+      expect((await repository.release(m.id, REALM, 'falscher Monat', new Date(), actor)).kind).toBe('RELEASED');
+      // Rejected for June, then suggested again for June: open, not decided.
+      const again = await transaction([split('800.00')], { bookingDate: '2032-05-05' });
+      const r2 = await suggested(again, '800.00', '2032060100');
+      expect((await repository.reject(r2.id, REALM, 'Irrtum', new Date(), actor)).kind).toBe('REJECTED');
+      await pool.query(rawInsertFor(again, '2032060100', 'SUGGESTED'));
+      const snapshot = await repository.suggestionSnapshot(REALM, [], window.from, window.to, window);
+      expect(snapshot.decided).toEqual(expect.arrayContaining([pairOf(rejected, '2032050100'), pairOf(released, '2032050100')]));
+      expect(snapshot.decided).not.toContainEqual(pairOf(again, '2032060100'));
+      expect(snapshot.decided.filter((p) => [rejected, released, again].includes(p.transactionId))).toHaveLength(2);
+      expect((await repository.suggestionSnapshot(OTHER_REALM, [], window.from, window.to, window)).decided).toEqual([]);
     });
 
     it('writeSuggestions: SUGGESTED with an AuditRecord; a pair changed in between or already handled is skipped', async () => {

@@ -92,10 +92,10 @@ export function released(state: RentReconciliationDto['mreWriteBackState'], over
 
 export function suggestResult(
   items: readonly RentReconciliationDto[],
-  skipped = { unconfirmed: 0, noRentCash: 0 },
+  skipped: Partial<SuggestResultDto['skipped']> = {},
   window = { from: '2026-03', to: '2026-04' },
 ): SuggestResultDto {
-  return { ...window, items, skipped };
+  return { ...window, items, skipped: { unconfirmed: 0, noRentCash: 0, decidedBefore: 0, ...skipped } };
 }
 
 export function termCoverage(overrides: Partial<TermCoverageDto> = {}): TermCoverageDto {
