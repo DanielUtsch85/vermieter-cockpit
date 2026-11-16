@@ -1,13 +1,14 @@
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { ImportBatch, ParsedStatement } from '../../domains/ledger/index.js';
-import { genericCsvAdapter, genericCsvAdapterV2 } from '../../integrations/bank-import/index.js';
-import { createDatabase } from './database.js';
-import { PostgresFinancialAccountRepository } from './financial-account-repository.js';
-import { PostgresImportRepository } from './import-repository.js';
-import { migrateToLatest } from './migrate.js';
-import { migrations } from './migrations/index.js';
-import { testSchemaName } from './test-schema.test-support.js';
+import type { ImportBatch, ParsedStatement } from './domains/ledger/index.js';
+import { genericCsvAdapter, genericCsvAdapterV2 } from './integrations/bank-import/index.js';
+import { createDatabase } from './infrastructure/postgres/database.js';
+import { PostgresFinancialAccountRepository } from './infrastructure/postgres/financial-account-repository.js';
+import { PostgresImportRepository } from './infrastructure/postgres/import-repository.js';
+import { migrateToLatest } from './infrastructure/postgres/migrate.js';
+import { migrations } from './infrastructure/postgres/migrations/index.js';
+import { testSchemaName } from './infrastructure/postgres/test-schema.test-support.js';
+import { withMigrationLock } from './infrastructure/postgres/tax-year.test-support.js';
 
 /**
  * VC-X-77 (api-design.md §32.1a, migration 0079; Entscheidung des Projektinhabers, 2026-11-16): why a batch has no
@@ -143,7 +144,9 @@ describe.skipIf(databaseUrl === undefined)('the reason for a missing continuity 
         { adapter_version: '2', report: true, continuity_missing: null },
       ]);
 
-      await (migrations['0079_import_batch_continuity_missing'] as { down: (db: never) => Promise<void> }).down(createDatabase(down) as never);
+      await withMigrationLock(() =>
+        (migrations['0079_import_batch_continuity_missing'] as { down: (db: never) => Promise<void> }).down(createDatabase(down) as never),
+      );
       expect(await rows()).toEqual(original);
       expect(
         (
