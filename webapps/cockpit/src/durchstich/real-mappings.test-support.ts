@@ -9,7 +9,7 @@ import type {
   TermCoverageDto,
   TransactionRentCoverageDto,
 } from '../api/rent-reconciliations';
-import type { TransactionDto, TransactionSplitDto, TransactionSplitsDto } from '../api/transactions';
+import type { FinancialAccountDto, PropertyReferenceDto, TransactionDto, TransactionSplitDto, TransactionSplitsDto } from '../api/transactions';
 
 /**
  * The backend's own DTO mappings and request schemas, loaded in the test only (ui-guide.md §12: API mocks derived only
@@ -38,7 +38,7 @@ interface MoneyClass {
 }
 
 export interface Schema {
-  safeParse(value: unknown): { success: boolean };
+  safeParse(value: unknown): { success: boolean; data?: unknown; error?: { issues: readonly { path: readonly PropertyKey[] }[] } };
 }
 
 export interface RealMappings {
@@ -55,6 +55,9 @@ export interface RealMappings {
   readonly transactionRent: (t: unknown) => TransactionRentCoverageDto;
   /** §37.6's answer (step 8). */
   readonly splitProposal: (p: unknown) => RentSplitProposalDto;
+  /** §29.2's account and §23.1's reference (the setup, Issue #365). */
+  readonly account: (a: unknown) => FinancialAccountDto;
+  readonly propertyReference: (r: unknown) => PropertyReferenceDto;
   readonly schemas: {
     /** One split of `PUT …/splits` and of a correction's replacement. */
     readonly split: Schema;
@@ -68,6 +71,9 @@ export interface RealMappings {
     readonly reason: Schema;
     /** `POST /rent-reconciliations` (§37.1, step 8). */
     readonly create: Schema;
+    /** `POST /financial-accounts` (§29.1) and `POST /property-references/link` (§23.1), Issue #365. */
+    readonly createAccount: Schema;
+    readonly link: Schema;
   };
 }
 
@@ -96,6 +102,8 @@ export async function loadRealMappings(): Promise<RealMappings> {
     releaseBody: Schema;
     createBody: Schema;
   }>('api/rent-reconciliations.ts');
+  const accounts = await load<{ toDto: RealMappings['account']; createBody: Schema }>('api/financial-accounts.ts');
+  const references = await load<{ toDto: RealMappings['propertyReference']; linkBody: Schema }>('api/property-references.ts');
   return {
     Money: shared.Money,
     transaction: dto.toDto,
@@ -109,6 +117,8 @@ export async function loadRealMappings(): Promise<RealMappings> {
     term: rent.toTermDto,
     transactionRent: rent.toTransactionDto,
     splitProposal: rent.splitProposalDto,
+    account: accounts.toDto,
+    propertyReference: references.toDto,
     schemas: {
       split: dto.split,
       correct: dto.correctBody,
@@ -119,6 +129,8 @@ export async function loadRealMappings(): Promise<RealMappings> {
       confirm: rent.confirmBody,
       reason: rent.releaseBody,
       create: rent.createBody,
+      createAccount: accounts.createBody,
+      link: references.linkBody,
     },
   };
 }

@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import type { HealthDto } from '../api/health';
-import { AREAS, areaPath } from '../routing';
+import { AREAS, areaPath, setupPath } from '../routing';
 import { useSession } from '../session/use-session';
 import { describeError } from './error-text';
 import { secondaryButtonClass } from './states';
@@ -25,7 +25,8 @@ function Row({ label, children }: { readonly label: string; readonly children: R
  * areas, no invented figures. It also shows the integration gate (§10) from the shell: the session through the MRE
  * authenticator with its last renewal and the Realm DE verified; the Realm's ids are technical details, collapsed at
  * the end; the pinned backend state is not shown, it is kept in the repository (gate/backend-pin.ts; Issue #352 des
- * Projektinhabers, 2026-11-12, point 2).
+ * Projektinhabers, 2026-11-12, point 2). „Einrichtung“ links the setup a fresh Realm needs before its first import and
+ * its first split with an object (Issue #365).
  */
 export function OverviewPage(props: {
   readonly realmId: string;
@@ -82,6 +83,21 @@ export function OverviewPage(props: {
               {area.available !== undefined && <span className="text-muted">{`· ${area.available}`}</span>}
             </li>
           ))}
+        </ul>
+      </section>
+      <section aria-labelledby="einrichtung" className="rounded-card border border-border bg-surface p-6">
+        <h2 id="einrichtung" className="mb-2 text-section font-semibold">
+          Einrichtung
+        </h2>
+        <ul className="flex flex-col gap-2">
+          <li>
+            <Link href={setupPath(props.realmId, 'konto')}>Konto anlegen</Link>{' '}
+            <span className="text-muted">· ein Finanzkonto für den Import; ein Bankkonto mit IBAN</span>
+          </li>
+          <li>
+            <Link href={setupPath(props.realmId, 'objekte')}>Objekte verknüpfen</Link>{' '}
+            <span className="text-muted">· Objekte aus MicroRealEstate für Aufteilung und Objektfilter</span>
+          </li>
         </ul>
       </section>
       <section aria-label="Technische Angaben der Verbindung" className="rounded-card border border-border bg-surface px-6 py-2">

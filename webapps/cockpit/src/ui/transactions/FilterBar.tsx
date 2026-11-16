@@ -4,6 +4,7 @@ import { formatBusinessDate } from '../../format/dates';
 import { filterValues, PAGE_SIZES, paramsFromForm, reviewableSet, type FilterName, type ListParams } from '../../transactions/list-params';
 import { describeFieldError } from '../error-text';
 import { Link } from '../Link';
+import { NoLinkedProperties } from '../setup/setup-links';
 import { buttonClass } from '../states';
 import { accountStatusLabel, PROVENANCE_CODES, provenanceLabel, STATUS_CODES, statusLabel } from './labels';
 import type { References } from './references';
@@ -299,6 +300,7 @@ export function FilterBar(props: {
           )}
         </Control>
       </div>
+      {references.properties.status === 'success' && properties.length === 0 && <NoLinkedProperties id="filter-objekte-leer" />}
       <div className="flex flex-wrap items-center gap-4">
         <button type="submit" className={buttonClass}>
           Filter anwenden

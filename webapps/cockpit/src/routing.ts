@@ -10,6 +10,8 @@
  *   /cockpit/r/<realmId>/import/<importBatchId>      one import's result and review items (step 5)
  *   /cockpit/r/<realmId>/mietabgleich/<reconciliationId>                   one rent reconciliation (step 6)
  *   /cockpit/r/<realmId>/mietabgleich/termin/<mreTenantId>/<mreRentTerm>   the coverage of one MRE rent term (step 6)
+ *   /cockpit/r/<realmId>/einrichtung/konto     „Konto anlegen“, a sub-page of the overview (Issue #365)
+ *   /cockpit/r/<realmId>/einrichtung/objekte   „Objekte verknüpfen“, a sub-page of the overview (Issue #365)
  *
  * The list's filters and page are the search part of the area's URL (transactions/list-params.ts).
  * „Alle Zeilen“ of an import's row table is `?zeilen=alle` of the import's URL (imports/row-view.ts).
@@ -62,6 +64,15 @@ export interface RentTermKey {
   readonly mreRentTerm: string;
 }
 
+/**
+ * The setup of a Realm (Issue #365; Entscheidung des Projektinhabers, 2026-11-16): what a fresh Realm needs before the
+ * first import and the first split with an object. Sub-pages of the overview, not an area of their own: the navigation
+ * keeps exactly the version-1 areas (ui-guide.md §3.1).
+ */
+export type SetupPage = 'konto' | 'objekte';
+const SETUP_SEGMENT = 'einrichtung';
+const SETUP_PAGES: readonly SetupPage[] = ['konto', 'objekte'];
+
 export type Route =
   | { readonly kind: 'realmChoice' }
   | {
@@ -72,6 +83,7 @@ export type Route =
       readonly importBatchId?: string;
       readonly reconciliationId?: string;
       readonly rentTerm?: RentTermKey;
+      readonly setup?: SetupPage;
     }
   | { readonly kind: 'notFound' };
 
@@ -82,6 +94,11 @@ export function parseRoute(pathname: string): Route {
   if (segments.at(-1) === '') segments.pop();
   const [r, realmId, segment = '', ...rest] = segments;
   if (r !== 'r' || realmId === undefined || !REALM_ID.test(realmId)) return { kind: 'notFound' };
+  if (segment === SETUP_SEGMENT) {
+    const overview = AREAS[0];
+    const setup = SETUP_PAGES.find((candidate) => rest.length === 1 && rest[0] === candidate);
+    return setup === undefined || overview === undefined ? { kind: 'notFound' } : { kind: 'area', realmId, area: overview, setup };
+  }
   const area = AREAS.find((candidate) => candidate.segment === segment);
   if (area === undefined) return { kind: 'notFound' };
   if (rest.length === 0) return { kind: 'area', realmId, area };
@@ -105,6 +122,11 @@ export function areaPath(realmId: string, area: Area, search = ''): string {
 
 export function transactionPath(realmId: string, transactionId: string): string {
   return `${BASE_PATH}r/${encodeURIComponent(realmId)}/buchungen/${encodeURIComponent(transactionId)}`;
+}
+
+/** A setup page of the Realm: „Konto anlegen“ or „Objekte verknüpfen“ (Issue #365). */
+export function setupPath(realmId: string, setup: SetupPage): string {
+  return `${BASE_PATH}r/${encodeURIComponent(realmId)}/${SETUP_SEGMENT}/${setup}`;
 }
 
 /** One import of the Realm: its result and the review items it owns (step 5). */

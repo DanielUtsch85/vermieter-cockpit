@@ -242,10 +242,12 @@ describe('integration gate: steps 2 to 4 call only routes of the pinned inventor
     await reverseTransaction(de, TX, { reason: 'Doppelt erfasst' }, '"5"', 'key-2');
     const reached = calls.map(routeOf);
     expect(reached).not.toContain(undefined);
-    // The import routes of step 5 and the rent routes of step 6 have their own gate tests (imports.test.ts,
-    // rent-reconciliations.test.ts).
+    // The import routes of step 5, the rent routes of step 6 and the two setup commands (Issue #365) have their own
+    // gate tests (imports.test.ts, rent-reconciliations.test.ts, setup.test.ts).
+    const setup = new Set(['POST /api/v1/financial-accounts', 'POST /api/v1/property-references/link']);
     const steps2to4 = USED_ROUTES.filter(
-      ([, path]) => path !== '/api/v1/health' && !path.startsWith('/api/v1/imports') && !path.includes('rent-reconciliations'),
+      ([method, path]) =>
+        path !== '/api/v1/health' && !path.startsWith('/api/v1/imports') && !path.includes('rent-reconciliations') && !setup.has(`${method} ${path}`),
     );
     expect(new Set(reached)).toEqual(new Set(steps2to4.map(([method, path]) => `${method} ${path}`)));
   });

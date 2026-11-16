@@ -9,6 +9,7 @@ import {
   realmSwitching,
   reconciliationPath,
   rentTermPath,
+  setupPath,
   transactionPath,
 } from './routing';
 
@@ -137,5 +138,30 @@ describe('the Realm lock reloads the page (review of #322, hint 1)', () => {
     }
     realmSwitchEffect(realmSwitching(undefined, lock), () => (reloads += 1))();
     expect(reloads).toBe(0);
+  });
+});
+
+describe('the setup pages of a Realm (Issue #365): sub-pages of the overview, no area of their own', () => {
+  it('both setup paths round-trip to the overview with their page, with or without a trailing slash', () => {
+    const overview = AREAS[0];
+    for (const setup of ['konto', 'objekte'] as const) {
+      const path = setupPath(REALM, setup);
+      expect(path).toBe(`/cockpit/r/${REALM}/einrichtung/${setup}`);
+      expect(parseRoute(path)).toEqual({ kind: 'area', realmId: REALM, area: overview, setup });
+      expect(parseRoute(`${path}/`)).toEqual({ kind: 'area', realmId: REALM, area: overview, setup });
+    }
+  });
+
+  it('any other setup path is not found', () => {
+    for (const path of [
+      `/cockpit/r/${REALM}/einrichtung`,
+      `/cockpit/r/${REALM}/einrichtung/`,
+      `/cockpit/r/${REALM}/einrichtung/iban`,
+      `/cockpit/r/${REALM}/einrichtung/konto/x`,
+      `/cockpit/r/${REALM}/einrichtung/Konto`,
+      `/cockpit/r/${REALM}/buchungen/einrichtung/konto`,
+    ]) {
+      expect(parseRoute(path)).toEqual({ kind: 'notFound' });
+    }
   });
 });

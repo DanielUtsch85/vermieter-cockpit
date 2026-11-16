@@ -15,6 +15,7 @@ import {
 } from '../../imports/import-config';
 import { describeFieldError } from '../error-text';
 import { buttonClass, ErrorState, isRetryable, Notice, secondaryButtonClass } from '../states';
+import { SetupLink } from '../setup/setup-links';
 import { importRefusalText } from './import-labels';
 import { ImportSteps } from './ImportSteps';
 
@@ -108,7 +109,9 @@ export function ImportForm(props: {
   if (accounts.length === 0) {
     return (
       <p className="rounded-card border border-border bg-surface p-6 text-muted">
-        In diesem Bestand gibt es noch kein Finanzkonto. Ohne Konto ist kein Import möglich.
+        {'In diesem Bestand gibt es noch kein Finanzkonto. Ohne Konto ist kein Import möglich. Ein Konto entsteht unter '}
+        <SetupLink to="konto" />
+        {'; für den Import mit der Vorlage „VR-Banking“ mit der IBAN des Kontos.'}
       </p>
     );
   }

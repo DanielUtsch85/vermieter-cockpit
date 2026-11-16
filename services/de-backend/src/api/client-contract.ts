@@ -6,10 +6,10 @@
  * Types only, never a value: `export type` is erased at compile time, so nothing of the backend reaches a browser
  * bundle and this file changes no behaviour. A type is added here when a client slice first uses it.
  */
-import type { toDto as toFinancialAccountDto } from './financial-accounts.js';
+import type { createBody as createAccountBody, toDto as toFinancialAccountDto } from './financial-accounts.js';
 import type { toDto as toFinancialCategoryDto } from './financial-categories.js';
 import type { metadataSchema, resolveBody, toConflictDto, toDto as toImportBatchDto, toItemDto } from './imports.js';
-import type { toDto as toPropertyReferenceDto } from './property-references.js';
+import type { linkBody, toDto as toPropertyReferenceDto } from './property-references.js';
 import type {
   confirmBody,
   createBody,
@@ -58,6 +58,10 @@ export type TransactionDetailDto = TransactionDto & { readonly splits: readonly 
 export type FinancialAccountDto = Wire<ReturnType<typeof toFinancialAccountDto>>;
 /** `GET /property-references` items (api-design.md §23.3). */
 export type PropertyReferenceDto = Wire<ReturnType<typeof toPropertyReferenceDto>>;
+/** The request of `POST /financial-accounts` (api-design.md §29.1, §29.2), as the backend's schema reads it. */
+export type CreateFinancialAccountInputDto = z.input<typeof createAccountBody>;
+/** The request of `POST /property-references/link` (api-design.md §23.1), as the backend's schema reads it. */
+export type LinkPropertyReferenceInputDto = z.input<typeof linkBody>;
 /** `GET /financial-categories` items (api-design.md §36). */
 export type FinancialCategoryDto = Wire<ReturnType<typeof toFinancialCategoryDto>>;
 /** One split of the `PUT /transactions/{id}/splits` request, as the backend's schema reads it (api-design.md §33.2). */

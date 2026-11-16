@@ -24,8 +24,8 @@ import {
   sendValidationError,
 } from './validation.js';
 
-/** Field mapping verbatim from data-model.md §16 (api-design.md §29.1). */
-const createBody = z
+/** Field mapping verbatim from data-model.md §16 (api-design.md §29.1). Exported for the client contract (types only). */
+export const createBody = z
   .object({
     accountType: z.enum(ACCOUNT_TYPES),
     displayName: z.string().trim().min(1).max(200),
