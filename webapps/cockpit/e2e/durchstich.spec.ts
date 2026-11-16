@@ -84,7 +84,8 @@ test('import, review items, split from the MRE proposal, confirm, rent suggestio
 
   // Step 5: import the synthetic statement; the new row is booked, the two rows of the earlier import are review items.
   await nav(page, 'Import');
-  await page.getByLabel('Konto').selectOption({ label: `${ACCOUNT_NAME} · ${ACCOUNT_IBAN}` });
+  // Exact: „Konto der Importe“ of the list's filter (VC-X-76) is on the same page.
+  await page.getByLabel('Konto', { exact: true }).selectOption({ label: `${ACCOUNT_NAME} · ${ACCOUNT_IBAN}` });
   await page.getByLabel('CSV-Datei').setInputFiles({ name: WALK_CSV_NAME, mimeType: 'text/csv', buffer: Buffer.from(WALK_CSV) });
   const upload = page.waitForResponse((r) => r.url().endsWith('/api/v1/imports/bank-transactions') && r.request().method() === 'POST');
   await page.getByRole('button', { name: 'Import ausführen' }).click();
@@ -111,7 +112,16 @@ test('import, review items, split from the MRE proposal, confirm, rent suggestio
   await expect(pending).toHaveAccessibleName(`${WALK_CSV_NAME}, Klärfälle offen`);
   await expect(pending).toContainText('2 offene Klärfälle');
   await expect(history.getByRole('listitem').nth(1)).toHaveAccessibleName('e2e-umsaetze-frueher.csv');
+  // VC-X-75: the booking range of each import's own rows (the rent created, the two review items; the seed's two rows).
+  await expect(pending).toContainText('Buchungen 01.10.2026 – 15.10.2026');
+  await expect(history.getByRole('listitem').nth(1)).toContainText('Buchungen 05.10.2026 – 15.10.2026');
   await expectNoSideScroll(page, 'import list');
+  // VC-X-76: „Nur mit offenen Klärfällen“ in the URL leaves this import only.
+  await page.getByLabel('Nur mit offenen Klärfällen').check();
+  await page.getByRole('button', { name: 'Filter anwenden' }).click();
+  await expect(page).toHaveURL(/[?&]status=NEEDS_REVIEW$/);
+  await expect(history.getByRole('listitem')).toHaveCount(1);
+  await expectNoSideScroll(page, 'filtered import list');
   await pending.getByRole('link', { name: 'Klärfälle bearbeiten' }).click();
   await expect(page).toHaveURL(new RegExp(`${resultPath}$`));
 

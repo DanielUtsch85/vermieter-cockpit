@@ -223,9 +223,15 @@ export function createBackend(real: RealMappings): Backend {
       skippedCount: 0,
       importedAt: NOW,
       importedBy: EMAIL,
+      firstBookingDate: null,
+      lastBookingDate: null,
       rows: [],
       continuity: null,
+      continuityMissing: null,
     };
+    /** VC-X-75: the dates of the rows the batch took on; VC-X-77: whether a valid row had a balance. */
+    const dates: string[] = [];
+    let balanced = false;
     lines.forEach((line, index) => {
       const cells = line.split(';');
       const position = index + 1;
@@ -240,6 +246,7 @@ export function createBackend(real: RealMappings): Backend {
         counterpartyIbanRaw: col(cells, 'IBAN Zahlungsbeteiligter'),
         description: col(cells, 'Verwendungszweck'),
       };
+      if (decimalOf(col(cells, 'Saldo nach Buchung')) !== '') balanced = true;
       const same = [...transactions.values()].find((t) => t.mreRealmId === realm && t.identity === identity);
       if (same !== undefined) {
         batch.duplicateCount += 1;
@@ -281,7 +288,10 @@ export function createBackend(real: RealMappings): Backend {
           createdAt: NOW,
         };
         items.set(item.id, item);
-        if (item.importBatchId === batch.id) batch.needsReviewCount += 1;
+        if (item.importBatchId === batch.id) {
+          batch.needsReviewCount += 1;
+          dates.push(row.bookingDate);
+        }
         batch.rows.push({
           outcome: 'needs_review',
           position,
@@ -295,7 +305,13 @@ export function createBackend(real: RealMappings): Backend {
       const created = tx({ mreRealmId: realm, ...row, amount, direction, importBatchId: batch.id, identity, financialAccountId: batch.financialAccountId });
       batch.transactionCount += 1;
       batch.rows.push({ outcome: 'created', position, transactionId: created.id });
+      dates.push(row.bookingDate);
     });
+    dates.sort();
+    batch.firstBookingDate = dates[0] ?? null;
+    batch.lastBookingDate = dates.at(-1) ?? null;
+    if (balanced) batch.continuity = { order: 'OLDEST_FIRST', breaks: [], previousExport: 'NO_EARLIER_BALANCE' };
+    else batch.continuityMissing = columns.includes('Saldo nach Buchung') ? 'NO_ROW_WITH_BALANCE' : 'NO_BALANCE_COLUMN';
     if (batch.needsReviewCount > 0) batch.status = 'NEEDS_REVIEW';
     batches.set(batch.id, batch);
     return json(201, real.batch(batch));

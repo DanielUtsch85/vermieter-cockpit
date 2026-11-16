@@ -39,15 +39,19 @@ export function batch(overrides: Partial<ImportBatchDto> = {}): ImportBatchDto {
     skippedCount: 0,
     importedAt: '2026-10-06T08:00:00.000Z',
     importedBy: 'vermieter@example.invalid',
+    firstBookingDate: '2026-10-01',
+    lastBookingDate: '2026-10-01',
     rows: [{ outcome: 'created', position: 1, transactionId: TX }],
     continuity: null,
+    // As a v2 batch stored before migration 0079 (VC-X-77): no reason recorded; tests set one where they need it.
+    continuityMissing: null,
     ...overrides,
   };
 }
 
-/** A batch as `GET /imports` lists it (§32.6, #369): the single read without `rows` and `continuity`. */
+/** A batch as `GET /imports` lists it (§32.6, #369): the single read without `rows`, `continuity` and its reason. */
 export function batchSummary(overrides: Partial<ImportBatchSummaryDto> = {}): ImportBatchSummaryDto {
-  const { rows: _rows, continuity: _continuity, ...summary } = batch();
+  const { rows: _rows, continuity: _continuity, continuityMissing: _missing, ...summary } = batch();
   return { ...summary, ...overrides };
 }
 
