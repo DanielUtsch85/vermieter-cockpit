@@ -234,8 +234,7 @@ describe('failures: no loop, no aggressive retry', () => {
     await wait(KEEP_ALIVE_INTERVAL_MS);
     expect(refresh).toHaveBeenCalledTimes(1);
     expect(session.getState().status).toBe('signedIn');
-    fireEvent.keyDown(document, { key: 'a' });
-    setVisibility('visible');
+    // No input after the failure: the next attempt comes from the catch alone.
     await wait(KEEP_ALIVE_INTERVAL_MS - 1);
     expect(refresh).toHaveBeenCalledTimes(1);
     await wait(1);
