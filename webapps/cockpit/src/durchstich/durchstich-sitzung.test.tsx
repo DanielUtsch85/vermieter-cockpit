@@ -10,6 +10,7 @@ import {
   button,
   click,
   commands,
+  CORRECT_NOW,
   control,
   go,
   MRE_COMMANDS,
@@ -101,6 +102,7 @@ describe('an expired token in the middle of a step: the sign-in, then the same U
     type(control('korrektur-reason'), 'Verwendungszweck falsch erfasst');
     type(control('korrektur-description'), 'Miete Oktober Testwohnung (korrigiert)');
     click('Korrektur ausführen');
+    click(CORRECT_NOW);
     expect(await screen.findByText(/Ob die Korrektur ausgeführt wurde, ist unklar/)).toBeTruthy();
     backend().expireSession();
     click('Erneut senden');

@@ -1,30 +1,38 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ApiError } from '../../api/errors';
 import type { ReconciliationChanged, RentReconciliationDto } from '../../api/rent-reconciliations';
 import { checkReason, MAX_REASON, releaseOffer, removalOffer, writeBackOffer } from '../../rent/reconciliation-rules';
 import { ConfirmStep, useConfirmStep } from '../ConfirmStep';
 import { TimestampText } from '../format';
 import { buttonClass, ErrorState, Notice, secondaryButtonClass } from '../states';
-import { rentRefusalText } from './rent-labels';
+import { PAIR_NOT_SUGGESTED_AGAIN, rentRefusalText } from './rent-labels';
+import { TransactionLink } from './RentParts';
 import { useCommand } from './use-command';
 
 type Action = 'writeBack' | 'release' | 'remove';
 
 const DONE: Readonly<Record<Action, string>> = {
   writeBack: 'An MRE übertragen: die Zahlung steht jetzt im Termin in MRE.',
-  release: 'Zuordnung aufgehoben. In MRE wurde dabei nichts geändert.',
+  release: `Zuordnung aufgehoben. In MRE wurde dabei nichts geändert. ${PAIR_NOT_SUGGESTED_AGAIN}`,
   remove: 'Die Zahlung von DE wurde aus MRE entfernt. Die übrigen Zahlungen des Termins blieben unverändert.',
 };
 
-/** The two actions that write into MRE get a confirmation step first (Entscheidung des Projektinhabers, 2026-11-11). */
-type MreWrite = Exclude<Action, 'release'>;
-
-const QUESTIONS: Readonly<Record<MreWrite, { readonly title: string; readonly text: string; readonly confirm: string; readonly sending: string }>> = {
+/**
+ * Every action gets a confirmation step first: the two that write into MRE (Entscheidung des Projektinhabers,
+ * 2026-11-11) and the release, which ends the match for good (Issue #362 des Projektinhabers, 2026-11-16).
+ */
+const QUESTIONS: Readonly<Record<Action, { readonly title: string; readonly text: string; readonly confirm: string; readonly sending: string }>> = {
   writeBack: {
     title: 'Zahlung jetzt an MRE übertragen?',
     text: 'DE schreibt jetzt in MRE: die Zahlung wird mit dem bestätigten Betrag in den Termin des Mieters eingetragen. Die übrigen Zahlungen des Termins bleiben unverändert.',
     confirm: 'Jetzt an MRE übertragen',
     sending: 'Wird übertragen …',
+  },
+  release: {
+    title: 'Zuordnung jetzt aufheben?',
+    text: `Die Zuordnung wird in DE endgültig aufgehoben; in MRE ändert sich dabei nichts. ${PAIR_NOT_SUGGESTED_AGAIN}`,
+    confirm: 'Jetzt aufheben',
+    sending: 'Wird aufgehoben …',
   },
   remove: {
     title: 'Zahlung jetzt aus MRE entfernen?',
@@ -41,8 +49,9 @@ const QUESTIONS: Readonly<Record<MreWrite, { readonly title: string; readonly te
  * - „Zuordnung aufheben“ for a `CONFIRMED` match, with a required reason. DE only: it removes nothing from MRE;
  * - „Aus MRE entfernen“ after the release, when DE's payment is or may be in MRE (`REMOVAL_REQUIRED`, `REMOVAL_FAILED`).
  * Every refusal but a `412` reads the detail again once (a failed write is recorded, a concurrent one is running); a
- * `Retry-After` or a running write locks the buttons for that time; nothing is ever sent again by itself. Both MRE
- * writes open a confirmation step first; only its confirm button sends.
+ * `Retry-After` or a running write locks the buttons for that time; nothing is ever sent again by itself. Every action
+ * opens a confirmation step first; only its confirm button sends. The release's step says that the pair is not suggested
+ * again and a new match is only the manual one (Issue #362 and #367 des Projektinhabers, 2026-11-16).
  */
 export function MreActions(props: {
   readonly realmId: string;
@@ -60,7 +69,7 @@ export function MreActions(props: {
   const now = (props.now ?? Date.now)();
   const [reason, setReason] = useState('');
   const answer = useRef<HTMLDivElement>(null);
-  const step = useConfirmStep<MreWrite>();
+  const step = useConfirmStep<Action>();
   const command = useCommand<Action, ReconciliationChanged>({
     onDone: () => {
       step.close();
@@ -81,7 +90,10 @@ export function MreActions(props: {
   const removal = removalOffer(r, now);
   const reasonProblem = checkReason(reason);
   // A step whose action is no longer offered (read again meanwhile) closes; it would not come back by itself.
-  const withdrawn = (step.asking === 'writeBack' && writeBack !== 'offer') || (step.asking === 'remove' && removal !== 'offer');
+  const withdrawn =
+    (step.asking === 'writeBack' && writeBack !== 'offer') ||
+    (step.asking === 'release' && release !== 'offer') ||
+    (step.asking === 'remove' && removal !== 'offer');
   useEffect(() => {
     if (withdrawn) step.close();
   });
@@ -90,7 +102,7 @@ export function MreActions(props: {
     const tag = props.etag;
     command.run(action, () => call(tag));
   };
-  const ask = (action: MreWrite, call: (tag: string) => Promise<ReconciliationChanged>) => {
+  const ask = (action: Action, call: (tag: string) => Promise<ReconciliationChanged>, blocked = false, more?: ReactNode) => {
     const question = QUESTIONS[action];
     return (
       <ConfirmStep
@@ -99,11 +111,12 @@ export function MreActions(props: {
         confirmLabel={question.confirm}
         sendingLabel={question.sending}
         sending={stage.kind === 'sending' && stage.action === action}
-        disabled={locked}
+        disabled={locked || blocked}
         onConfirm={() => run(action, call)}
         onCancel={step.cancel}
       >
         <p>{question.text}</p>
+        {more}
       </ConfirmStep>
     );
   };
@@ -122,7 +135,17 @@ export function MreActions(props: {
       <div ref={answer} tabIndex={-1} className="mt-3">
         {stage.kind === 'done' && (
           <div role="status">
-            <Notice tone="success">{DONE[stage.action]}</Notice>
+            <Notice tone="success">
+              {DONE[stage.action]}
+              {stage.action === 'release' && (
+                <>
+                  {' '}
+                  <TransactionLink realmId={props.realmId} id={r.transactionId}>
+                    Zur Buchung („Manuell zuordnen“)
+                  </TransactionLink>
+                </>
+              )}
+            </Notice>
           </div>
         )}
         {stage.kind === 'refused' && (
@@ -177,6 +200,7 @@ export function MreActions(props: {
               className="rounded-input border border-border px-3 py-2"
               value={reason}
               maxLength={MAX_REASON + 50}
+              readOnly={step.asking === 'release'}
               aria-describedby="aufheben-hinweis"
               onChange={(event) => setReason(event.target.value)}
             />
@@ -187,16 +211,31 @@ export function MreActions(props: {
                   ? 'Nicht an MRE übertragen: Aufheben ändert nur DE.'
                   : 'Aufheben ist kein Entfernen aus MRE: danach wird „Aus MRE entfernen“ angeboten.'}
             </p>
-            <div>
-              <button
-                type="button"
-                className={secondaryButtonClass}
-                disabled={locked || reasonProblem !== undefined}
-                onClick={() => run('release', (tag) => props.release(reason.trim(), tag))}
-              >
-                {stage.kind === 'sending' && stage.action === 'release' ? 'Wird aufgehoben …' : 'Zuordnung aufheben'}
-              </button>
-            </div>
+            {step.asking === 'release' ? (
+              ask(
+                'release',
+                (tag) => props.release(reason.trim(), tag),
+                reasonProblem !== undefined,
+                <>
+                  {r.mreWriteBackState !== 'NOT_WRITTEN' && (
+                    <p>Eine schon an MRE übertragene Zahlung bleibt dort, bis sie danach gesondert mit „Aus MRE entfernen“ entfernt wird.</p>
+                  )}
+                  <p>{`Grund: „${reason.trim()}“`}</p>
+                </>,
+              )
+            ) : (
+              <div>
+                <button
+                  ref={step.trigger('release')}
+                  type="button"
+                  className={secondaryButtonClass}
+                  disabled={locked || reasonProblem !== undefined}
+                  onClick={() => step.ask('release')}
+                >
+                  Zuordnung aufheben
+                </button>
+              </div>
+            )}
           </div>
         )}
         {release === 'running' && <p>Aufheben ist erst möglich, wenn die laufende Übertragung an MRE beendet ist.</p>}

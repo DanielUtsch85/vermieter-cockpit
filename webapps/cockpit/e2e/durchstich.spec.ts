@@ -136,6 +136,8 @@ test('import, review items, split from the MRE proposal, confirm, rent suggestio
   await page.getByRole('button', { name: 'Jetzt an MRE übertragen' }).click();
   expect((await writeBack).status()).toBe(200);
   await expect(page.getByText('MRE: übertragen')).toBeVisible();
+  // Issue #361 des Projektinhabers, 2026-11-16: the answer of the decision („nichts übertragen“) is gone after the transfer.
+  await expect(page.getByText(/nichts übertragen/)).toHaveCount(0);
   await expectNoSideScroll(page, 'rent reconciliation');
   const reconciliation = new URL(page.url()).pathname.split('/').at(-1) ?? '';
   expect(await mrePayments(s, TERM_OCT)).toEqual([{ amount: 850, reference: `DE-RPR-${reconciliation}` }]);

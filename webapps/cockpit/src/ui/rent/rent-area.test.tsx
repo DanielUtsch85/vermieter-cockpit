@@ -101,6 +101,22 @@ describe('suggest and the list (ui-guide.md §6.6 steps 5 and 6)', () => {
     );
   });
 
+  it('every run says that earlier rejected or released pairs are left out and points to Manuell zuordnen, without a number', async () => {
+    const HINT =
+      'Ausgelassen werden Paare aus Buchung, Mieter und Termin, deren Zuordnung früher abgelehnt oder aufgehoben wurde: sie werden nie wieder vorgeschlagen. Eine neue Zuordnung geht nur von Hand mit „Manuell zuordnen“ in der Buchung.';
+    for (const items of [[], [reconciliation()]]) {
+      area({ [LIST]: repeat(2, () => json(200, page([]))), [SUGGEST]: [() => json(200, suggestResult(items))] });
+      fireEvent.change(await screen.findByLabelText('Erster Monat'), { target: { value: '2026-03' } });
+      fireEvent.change(screen.getByLabelText('Letzter Monat'), { target: { value: '2026-04' } });
+      click('Vorschläge ermitteln');
+      await screen.findByText(/Vorschl(ä|a)g(e)? für 2026-03 bis 2026-04\./);
+      // The answer counts no such pair (skipped has only unconfirmed and noRentCash): the hint names no number.
+      expect(screen.getByText(HINT)).toBeTruthy();
+      expect(screen.getByText('Im Zeitraum wurde kein Zahlungseingang übersprungen, weil er unbestätigt war oder keinen Mietanteil hat.')).toBeTruthy();
+      cleanup();
+    }
+  });
+
   it('more than twelve months, an inverted or a missing month: said at the input, nothing sent; the server field error is bound too', async () => {
     const { calls } = area({
       [LIST]: [() => json(200, page([]))],
@@ -277,13 +293,17 @@ describe('the three separate confirmations in one flow (ui-guide.md §6.6, §4.4
     expect(await screen.findByRole('button', { name: 'An MRE übertragen' })).toBeTruthy();
     expect(screen.getAllByText('Zuordnung bestätigt').length).toBeGreaterThan(0);
     expect(posts(calls)).toEqual([COMMAND('confirm')]);
+    expect(document.body.textContent).toContain('An MRE wurde nichts übertragen');
     click('An MRE übertragen');
     click('Jetzt an MRE übertragen');
     await screen.findByText('MRE: übertragen');
+    // Issue #361 des Projektinhabers, 2026-11-16: the answer of the decision is outdated by the transfer and gone.
+    expect(document.body.textContent).not.toMatch(/nichts übertragen/);
     expect(screen.getByText(/Zahlung in MRE: 01\.03\.2026/)).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Aus MRE entfernen' })).toBeNull();
     fireEvent.change(screen.getByLabelText('Grund für das Aufheben (Pflicht)'), { target: { value: 'Falsche Buchung' } });
     click('Zuordnung aufheben');
+    click('Jetzt aufheben');
     expect(await screen.findByRole('button', { name: 'Aus MRE entfernen' })).toBeTruthy();
     expect(screen.getByText('MRE: Entfernen erforderlich')).toBeTruthy();
     expect(screen.getByText('Zuordnung aufgehoben')).toBeTruthy();
@@ -294,6 +314,33 @@ describe('the three separate confirmations in one flow (ui-guide.md §6.6, §4.4
     expect(posts(calls)).toEqual([COMMAND('confirm'), COMMAND('write-back-to-mre'), COMMAND('release'), COMMAND('remove-from-mre')]);
     expect(count(calls, DETAIL)).toBe(5);
     expect(calls.every((call) => call.headers.get('organizationid') === REALM_A && !call.headers.has('idempotency-key'))).toBe(true);
+  });
+
+  it('the answer of a transfer removes the decision answer at once, before the page has read the detail again', async () => {
+    const { calls } = area(
+      {
+        [DETAIL]: [
+          () => json(200, read(), { etag: '"1"' }),
+          () => json(200, read({ ...confirmed() }), { etag: '"2"' }),
+          () => new Promise<Response>(() => undefined) as unknown as Response,
+        ],
+        [TX_GET]: [() => json(200, detail({ status: 'CONFIRMED' }), { etag: '"3"' })],
+        [COMMAND('confirm')]: [() => json(200, confirmed())],
+        [COMMAND('write-back-to-mre')]: [() => json(200, written())],
+      },
+      `${BASE}/${REC}`,
+    );
+    await screen.findByRole('button', { name: 'Zuordnung bestätigen' });
+    click('Zuordnung bestätigen');
+    await screen.findByRole('button', { name: 'An MRE übertragen' });
+    expect(screen.getByText(/An MRE wurde nichts übertragen; das ist ein eigener Schritt\./)).toBeTruthy();
+    click('An MRE übertragen');
+    click('Jetzt an MRE übertragen');
+    await screen.findByText('An MRE übertragen: die Zahlung steht jetzt im Termin in MRE.');
+    // The third read of the detail never answers: only the page's own record of the transfer removes the old answer.
+    expect(count(calls, DETAIL)).toBe(3);
+    expect(document.body.textContent).not.toMatch(/nichts übertragen/);
+    expect(screen.queryByText(/Zuordnung bestätigt über/)).toBeNull();
   });
 
   it('a detail of another Realm is not shown and offers nothing; a command answer of another Realm is refused', async () => {

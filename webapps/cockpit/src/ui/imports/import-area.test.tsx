@@ -150,7 +150,9 @@ describe('import, result and the re-read (ui-guide.md §6.5)', () => {
         .getByRole('link')
         .getAttribute('href'),
     ).toBe(`/cockpit/r/${REALM_A}/import/${EARLIER_BATCH}`);
-    expect(rows[4]?.textContent).toMatch(/amount: zu viele Nachkommastellen/);
+    // Issue #363 des Projektinhabers, 2026-11-16, point 2: the field in the words of the page, not `amount`.
+    expect(rows[4]?.textContent).toMatch(/Betrag: zu viele Nachkommastellen/);
+    expect(rows[4]?.textContent).not.toMatch(/amount/);
     expect(rows[5]?.textContent).toMatch(/Betrag 0: kein Geldfluss/);
     expect(calls.map((call) => call.headers.get('organizationid'))).toEqual(calls.map(() => REALM_A));
   });
@@ -158,7 +160,8 @@ describe('import, result and the re-read (ui-guide.md §6.5)', () => {
   it('a known batch is read at its URL (after a reload or a lost answer); a file without balances says so', async () => {
     const { calls } = area({ [BATCH_GET(BATCH)]: [() => json(200, batch())], [ITEMS_GET(BATCH)]: [items(BATCH, [])] }, `/cockpit/r/${REALM_A}/import/${BATCH}`);
     await screen.findByText('Dieser Import hat keine eigenen Klärfälle.');
-    expect(screen.getByText(/keine Saldo-Spalte mit Werten/)).toBeTruthy();
+    // The server does not say whether the column is missing or empty: the text claims neither (Issue #363, point 3).
+    expect(screen.getByText(/Keine gültige Zeile der Datei hat einen Saldo nach Buchung \(keine Saldo-Spalte, oder sie ist leer\)/)).toBeTruthy();
     expect(count(calls, POST)).toBe(0);
     fireEvent.click(screen.getByRole('button', { name: 'Ergebnis neu laden' }));
     await waitFor(() => expect(count(calls, BATCH_GET(BATCH))).toBe(2));

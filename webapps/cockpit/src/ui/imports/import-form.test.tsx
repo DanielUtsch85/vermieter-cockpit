@@ -5,6 +5,7 @@ import { createDeClient } from '../../api/client';
 import { countingTokens, envelope, json, scriptedFetch, type Call } from '../../api/fetch.test-support';
 import { importBankTransactions, type ImportBatchDto } from '../../api/imports';
 import { batch, csvFile, VR_CSV } from '../../imports/fixtures.test-support';
+import { technicalBlocks, visibleText } from '../technical.test-support';
 import { MAX_IMPORT_FILE_BYTES } from '../../imports/import-config';
 import { account, ACCOUNT, page, REALM_A, REALM_B } from '../../transactions/fixtures.test-support';
 import { ImportForm } from './ImportForm';
@@ -62,7 +63,10 @@ describe('before the import: only name, size, account, adapter and preset (ui-gu
     expect(new Blob([VR_CSV]).size).toBe(472);
     expect(within(choice).getByText('472 Bytes')).toBeTruthy();
     expect(within(choice).getByText(`Girokonto Testbank · ${IBAN}`)).toBeTruthy();
+    // The adapter only in „Technische Angaben“ (Entscheidung des Projektinhabers, 2026-11-14, zu #356 F2).
     expect(within(choice).getByText('generic-csv, Version 2')).toBeTruthy();
+    expect(technicalBlocks(choice).map((details) => details.textContent)).toEqual(['Technische AngabenAdaptergeneric-csv, Version 2']);
+    expect(visibleText(choice)).not.toMatch(/Adapter|generic-csv/);
     expect(within(choice).getByText(/^VR-Banking .*\(vr-banking\); Spalten: Buchungstag, /)).toBeTruthy();
     // No local view of the content: nothing of the rows is on the page.
     expect(screen.queryByText(/Miete Oktober/)).toBeNull();

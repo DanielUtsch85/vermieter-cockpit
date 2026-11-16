@@ -9,7 +9,7 @@ import { TimestampText } from '../format';
 import { Link } from '../Link';
 import { secondaryButtonClass } from '../states';
 import { TechnicalDetails } from '../technical';
-import { ambiguityText, batchStatusText, orderText, previousExportText, resolutionText, rowErrorText } from './import-labels';
+import { ambiguityText, batchStatusText, noContinuityText, orderText, previousExportText, resolutionText, rowErrorText } from './import-labels';
 
 const short = (id: string) => id.slice(0, 8);
 
@@ -22,8 +22,9 @@ function Balance({ amount, currency }: { readonly amount: string; readonly curre
 
 /**
  * Step 3 of the import (ui-guide.md §6.5): the batch as the server answered it, never recomputed: its status, file,
- * account, adapter and counters, its id in „Technische Angaben“ (Entscheidung des Projektinhabers, 2026-11-13: the page
- * title with the time and the file name identify the import), the continuity report and every row's outcome in file order (api-design.md
+ * account and counters, its id in „Technische Angaben“ (Entscheidung des Projektinhabers, 2026-11-13: the page title
+ * with the time and the file name identify the import) and the adapter there too (Entscheidung des Projektinhabers,
+ * 2026-11-14, zu #356 F2), the continuity report and every row's outcome in file order (api-design.md
  * §32.1a). A row that refers to a review item of an earlier batch links that batch, where the item is decided. The row
  * table shows the rows with a hint (`rowHasHint`) unless „Alle Zeilen“ is on; the counters always count every row
  * (Entscheidung des Projektinhabers, 2026-11-11). The toggle is the URL's `zeilen=alle` (row-view.ts; Entscheidung des
@@ -57,8 +58,6 @@ export function ImportResult(props: {
           <dd>{b.sourceFilename ?? 'Nicht verfügbar'}</dd>
           <dt className="text-muted">Konto</dt>
           <dd>{account === undefined ? <code className="font-mono">{b.financialAccountId}</code> : account.displayName}</dd>
-          <dt className="text-muted">Adapter</dt>
-          <dd>{`${b.adapterId}, Version ${b.adapterVersion}`}</dd>
           <dt className="text-muted">Importiert</dt>
           <dd>
             <TimestampText value={b.importedAt} /> {`von ${b.importedBy}`}
@@ -73,9 +72,14 @@ export function ImportResult(props: {
             </div>
           ))}
         </dl>
-        <TechnicalDetails entries={[['Import-ID', b.importBatchId]]} />
+        <TechnicalDetails
+          entries={[
+            ['Import-ID', b.importBatchId],
+            ['Adapter', `${b.adapterId}, Version ${b.adapterVersion}`],
+          ]}
+        />
       </section>
-      <Continuity continuity={b.continuity} currency={account?.currency} />
+      <Continuity continuity={b.continuity} currency={account?.currency} rows={b.rows} />
       <section aria-labelledby="import-zeilen" className="rounded-card border border-border bg-surface p-6">
         <h2 id="import-zeilen" className="mb-2 text-section font-semibold">
           Zeilen der Datei
@@ -203,7 +207,7 @@ function RowOutcome({ realmId, batchId, row }: { readonly realmId: string; reado
                 const { name, text } = rowErrorText(entry);
                 return (
                   <li key={i}>
-                    <code className="font-mono">{name}</code>: {text}
+                    {name}: {text}
                   </li>
                 );
               })}
@@ -233,14 +237,22 @@ function UnknownOutcome({ code }: { readonly code: string }) {
 }
 
 /** The continuity report (api-design.md §32.1a, data-model.md §70.6): reported as the server sent it, never a refusal. */
-function Continuity({ continuity, currency }: { readonly continuity: ImportBatchDto['continuity']; readonly currency: string | undefined }) {
+function Continuity({
+  continuity,
+  currency,
+  rows,
+}: {
+  readonly continuity: ImportBatchDto['continuity'];
+  readonly currency: string | undefined;
+  readonly rows: readonly ImportRowDto[];
+}) {
   return (
     <section aria-labelledby="import-saldo" className="rounded-card border border-border bg-surface p-6">
       <h2 id="import-saldo" className="mb-2 text-section font-semibold">
         Lückenlosigkeit (Saldo)
       </h2>
       {continuity === null ? (
-        <p className="text-muted">Die Datei hat keine Saldo-Spalte mit Werten; die Lückenlosigkeit wurde nicht geprüft.</p>
+        <p className="text-muted">{noContinuityText(rows)}</p>
       ) : (
         <>
           <p>{`Reihenfolge der Datei: ${orderText(continuity.order)}.`}</p>

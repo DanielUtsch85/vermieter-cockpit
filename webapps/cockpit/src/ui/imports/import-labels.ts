@@ -1,4 +1,5 @@
 import { ApiError, type FieldError } from '../../api/errors';
+import type { ImportRowDto } from '../../api/imports';
 import { describeFieldError } from '../error-text';
 
 /**
@@ -43,9 +44,42 @@ const ROW_CODES: Readonly<Record<string, string>> = {
   ACCOUNT_CLOSED: 'nach dem Schließtag des Kontos',
   ZERO_AMOUNT: 'Betrag 0',
 };
+/**
+ * The fields a row error names (the adapter's `generic-csv`, §32.4), in the words of the page (Issue #363 des
+ * Projektinhabers, 2026-11-16, point 2: no English field names). An unknown name is shown with its code.
+ */
+const ROW_FIELDS: Readonly<Record<string, string>> = {
+  '(row)': 'Zeile',
+  bookingDate: 'Buchungstag',
+  valueDate: 'Wertstellung',
+  amount: 'Betrag',
+  currency: 'Währung',
+  balanceAfter: 'Saldo nach Buchung',
+  counterpartyNameRaw: 'Gegenseite',
+  description: 'Verwendungszweck',
+  externalTransactionId: 'Bankreferenz',
+};
+export const rowFieldText = (field: string) => known(ROW_FIELDS, field) ?? `Unbekanntes Feld (${field})`;
+
 export function rowErrorText(entry: FieldError): { readonly name: string; readonly text: string } {
   const own = known(ROW_CODES, entry.code);
-  return own === undefined ? describeFieldError(entry) : { name: entry.field, text: own };
+  return { name: rowFieldText(entry.field), text: own ?? describeFieldError(entry).text };
+}
+
+/** A row that became or matched a booking: only such a row can carry a balance the continuity report reads (§70.6). */
+const BOOKING_OUTCOMES: ReadonlySet<string> = new Set(['created', 'duplicate', 'needs_review']);
+
+/**
+ * Why there is no continuity report (`continuity: null`). The server sends `null` both for a file without a balance
+ * column and for one whose rows carry no balance it could read (api-design.md §32.1a); the result does not tell them
+ * apart, so the text claims neither (Issue #363 des Projektinhabers, 2026-11-16, point 3). A file without a single
+ * booking row says so: whatever balances it has, none was evaluable.
+ */
+export function noContinuityText(rows: readonly Pick<ImportRowDto, 'outcome'>[]): string {
+  if (rows.length === 0) return 'Die Datei enthielt keine Datenzeile; die Lückenlosigkeit wurde nicht geprüft.';
+  return rows.some((row) => BOOKING_OUTCOMES.has(row.outcome))
+    ? 'Keine gültige Zeile der Datei hat einen Saldo nach Buchung (keine Saldo-Spalte, oder sie ist leer); die Lückenlosigkeit wurde nicht geprüft.'
+    : 'Keine Zeile der Datei hat einen auswertbaren Saldo: keine Zeile wurde zu einer Buchung (nur Zeilen mit Fehler oder mit Betrag 0). Die Lückenlosigkeit wurde nicht geprüft.';
 }
 
 const IMPORT_ERROR: Readonly<Record<string, string>> = {

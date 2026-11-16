@@ -6,6 +6,7 @@ import { countingTokens, envelope, json, scriptedFetch, type Call } from '../../
 import { createReconciliation, type TransactionRentCoverageDto } from '../../api/rent-reconciliations';
 import { confirmed, TENANT, TERM, transactionCoverage } from '../../rent/fixtures.test-support';
 import { REALM_A, REALM_B, TX } from '../../transactions/fixtures.test-support';
+import { TermInSentence } from './RentParts';
 import { TransactionRentSection } from './TransactionRent';
 
 /**
@@ -213,5 +214,27 @@ describe('Manuell zuordnen: waits for a fresh read after the match', () => {
     expect(screen.getByText(/Noch frei:/).textContent).toContain('50,00');
     expect(screen.getByLabelText<HTMLInputElement>('Zuzuordnender Betrag (€)').value).toBe('50,00');
     expect(screen.getByLabelText<HTMLInputElement>('Mieter in MRE (ID)').value).toBe(TENANT);
+  });
+});
+
+describe('the question of Manuell zuordnen without doubled words (Issue #363 des Projektinhabers, 2026-11-16, point 1)', () => {
+  it('names the term once by its date with the key in brackets and the Tenant once by its id', () => {
+    setup();
+    fill();
+    click('Zuordnung anlegen');
+    const first = screen.getByRole('dialog').querySelector('p');
+    expect(first?.textContent).toBe(
+      `850,00\u00a0€ dieser Buchung werden in DE dem Termin 01.03.2026 (${TERM}) des Mieters ${TENANT} zugeordnet (Status „Zuordnung bestätigt“). DE prüft den Termin dabei in MRE.`,
+    );
+    expect(first?.textContent).not.toMatch(/Termin Termin|Mieters Mieter/);
+  });
+
+  it('a key that names no date keeps the key and says so', () => {
+    render(
+      <p>
+        <TermInSentence term="2026023000" />
+      </p>,
+    );
+    expect(document.querySelector('p')?.textContent).toBe('2026023000 (Datum nicht lesbar)');
   });
 });

@@ -48,7 +48,9 @@ type Stage =
  * repeated confirm is a no-op). Focus goes into the step, back to the button on „Abbrechen“ or Escape, and to the
  * result after the answer (§11). While the split editor holds a draft that differs from the stored split set, the
  * button is locked with „Zuerst Aufteilung speichern oder verwerfen“ (Entscheidung des Projektinhabers, 2026-11-11):
- * a confirm would freeze the stored set, not the one on the screen.
+ * a confirm would freeze the stored set, not the one on the screen. The answer „Buchung bestätigt (Status „Bestätigt“)“
+ * goes once a later step changed the booking (`superseded`, or a newer version read): it must not name a status the
+ * booking no longer has (Issue #361 des Projektinhabers, 2026-11-16).
  */
 export function ConfirmAction(props: {
   readonly transaction: TransactionDetailDto;
@@ -61,6 +63,8 @@ export function ConfirmAction(props: {
   readonly reload: () => void;
   /** The split editor holds a draft that differs from the stored split set: nothing can be confirmed until it is saved or discarded. */
   readonly draftUnsaved?: boolean;
+  /** A later step on the same page succeeded (a correction, a reversal): the answer „Buchung bestätigt“ is outdated. */
+  readonly superseded?: boolean;
 }) {
   const t = props.transaction;
   const [stage, setStage] = useState<Stage>({ kind: 'idle' });
@@ -113,6 +117,7 @@ export function ConfirmAction(props: {
   const draftUnsaved = props.draftUnsaved === true;
 
   if (done !== undefined) {
+    if (props.superseded === true || t.version > done.transaction.version) return null;
     return (
       <ConfirmCard>
         <div ref={result} tabIndex={-1} role="status">

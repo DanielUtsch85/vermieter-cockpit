@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import type { DeClient } from '../../api/client';
 import { ApiError } from '../../api/errors';
 import {
@@ -95,6 +95,9 @@ function ReconciliationPage(props: AreaProps & { readonly reconciliationId: stri
     enabled: transactionId !== undefined,
   });
   const stale = read.status !== 'success' || read.isFetching;
+  // A step of „Übertragung an MRE und Aufheben“ succeeded: the answer of the decision above is outdated and goes (Issue
+  // #361 des Projektinhabers, 2026-11-16: no „An MRE wurde nichts übertragen“ next to a transfer).
+  const [laterStep, setLaterStep] = useState(false);
   const invalidate = () => void queryClient.invalidateQueries({ queryKey: rentKeys.all(props.realmId, props.epoch) });
   const reload = () => void read.refetch();
   const id = props.reconciliationId;
@@ -120,6 +123,7 @@ function ReconciliationPage(props: AreaProps & { readonly reconciliationId: stri
             reject={(reason, ifMatch) => rejectReconciliation(props.client, id, reason, ifMatch)}
             onChanged={invalidate}
             reload={reload}
+            superseded={laterStep}
           />
           <MreActions
             realmId={props.realmId}
@@ -129,7 +133,10 @@ function ReconciliationPage(props: AreaProps & { readonly reconciliationId: stri
             writeBack={(ifMatch) => writeBackToMre(props.client, id, ifMatch)}
             release={(reason, ifMatch) => releaseReconciliation(props.client, id, reason, ifMatch)}
             remove={(ifMatch) => removeFromMre(props.client, id, ifMatch)}
-            onChanged={invalidate}
+            onChanged={() => {
+              setLaterStep(true);
+              invalidate();
+            }}
             reload={reload}
           />
         </>

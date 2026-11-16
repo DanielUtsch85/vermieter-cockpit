@@ -123,6 +123,9 @@ function TransactionDetailPage(props: {
   // The editor's draft differs from the stored split set: „Buchung bestätigen“ waits until it is saved or discarded
   // (Entscheidung des Projektinhabers, 2026-11-11).
   const [draftUnsaved, setDraftUnsaved] = useState(false);
+  // A correction or a reversal succeeded here: the answer of „Buchung bestätigen“ (status „Bestätigt“) is outdated and
+  // goes (Issue #361 des Projektinhabers, 2026-11-16).
+  const [laterStep, setLaterStep] = useState(false);
   const first = read.data;
   if (!editorShown && first !== undefined && read.status === 'success' && splitsEditable(first.transaction.status)) setEditorShown(true);
   if (!correctionShown && first !== undefined && read.status === 'success' && correctable(first.transaction)) setCorrectionShown(true);
@@ -168,6 +171,7 @@ function TransactionDetailPage(props: {
           }}
           reload={() => void read.refetch()}
           draftUnsaved={draftUnsaved}
+          superseded={laterStep}
         />
       )}
       {editorShown && !confirmedHere && first !== undefined && (
@@ -199,7 +203,10 @@ function TransactionDetailPage(props: {
           stale={stale}
           references={props.references}
           correct={(body, ifMatch, key) => correctTransaction(props.client, props.transactionId, body, ifMatch, key)}
-          onCorrected={invalidate}
+          onCorrected={() => {
+            setLaterStep(true);
+            invalidate();
+          }}
           reload={() => void read.refetch()}
         />
       )}
@@ -210,7 +217,10 @@ function TransactionDetailPage(props: {
           etag={first.etag}
           stale={stale}
           reverse={(body, ifMatch, key) => reverseTransaction(props.client, props.transactionId, body, ifMatch, key)}
-          onReversed={invalidate}
+          onReversed={() => {
+            setLaterStep(true);
+            invalidate();
+          }}
           reload={() => void read.refetch()}
         />
       )}
