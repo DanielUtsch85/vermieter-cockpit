@@ -398,6 +398,8 @@ Am Referenzstand hat nur administrator DE-Zugriff. renter und unbekannte Rollen 
 
 Kein Refresh-Token in URLs oder Logs. Persistenz und Cookies nur gemäß geprüfter MRE-Sitzungsintegration; keine spontane Langzeitablage von Tokens in localStorage.
 
+**Erneuerung im Hintergrund (#366; Entscheidung des Projektinhabers, 2026-11-16):** Das Refresh-Token von MRE lebt im Produktivmodus 600 s. Das Cockpit erneuert die Sitzung über denselben Refresh wie bei Bedarf (§47.2, ein Refresh zur Zeit), alle 240 s nach der letzten Erneuerung (zwei Fünftel der 600 s: ein Versuch ohne Antwort wird nach weiteren 240 s wiederholt, noch vor Ablauf), aber nur solange der Tab sichtbar ist **und** die letzte Eingabe höchstens 30 Minuten zurückliegt. Als Eingabe zählen Taste, Zeiger-Druck, Klick, geänderte Felder und Mausrad, nicht Mausbewegung und Scrollen. Ein verborgener Tab erneuert nicht; wird er innerhalb der 30 Minuten wieder sichtbar, wird eine fällige Erneuerung sofort nachgeholt. Ohne Eingabe läuft die Sitzung aus wie zuvor; ein `403` des Refresh führt wie bisher zur Anmeldeseite mit derselben URL, ohne erneuten Versuch. Ein ungespeicherter Entwurf (Aufteilung, Korrektur) lebt nur in der Seite und übersteht den Ablauf nicht: Nach der erneuten Anmeldung ist das Formular leer. Die Erneuerung verhindert genau das, solange gearbeitet wird (Tests in `webapps/cockpit/src/durchstich/durchstich-sitzung-erneuerung.test.tsx`).
+
 ### 7.3 Cache, Konflikte und Wiederholungen
 
 Cache-Key beginnt mit Realm und authentifizierter Sitzung, danach Ressource/Filter/Stichtag. Bei Realm-Wechsel laufende Requests abbrechen, Cache und Auswahllisten leeren; späte Antworten des alten Kontexts nicht anzeigen.
