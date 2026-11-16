@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { ApiError, partitionFieldErrors } from '../../api/errors';
 import type { ImportBatchDto } from '../../api/imports';
 import type { FinancialAccountDto, PageDto } from '../../api/transactions';
+import { SetupLink } from '../setup/setup-links';
 import {
   formatFileSize,
   IMPORT_ADAPTER,
@@ -109,7 +110,9 @@ export function ImportForm(props: {
   if (accounts.length === 0) {
     return (
       <p className="rounded-card border border-border bg-surface p-6 text-muted">
-        In diesem Bestand gibt es noch kein Finanzkonto. Ohne Konto ist kein Import möglich.
+        {'In diesem Bestand gibt es noch kein Finanzkonto. Ohne Konto ist kein Import möglich. Ein Konto entsteht unter '}
+        <SetupLink to="konto" />
+        {'; für den Import mit der Vorlage „VR-Banking“ mit der IBAN des Kontos.'}
       </p>
     );
   }

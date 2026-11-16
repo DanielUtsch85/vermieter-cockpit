@@ -66,6 +66,7 @@ export function App({ realmLock, reload = reloadPage }: { readonly realmLock: Re
           importBatchId={route.importBatchId}
           reconciliationId={route.reconciliationId}
           rentTerm={route.rentTerm}
+          setup={route.setup}
           search={search}
           path={path}
           epoch={state.epoch}

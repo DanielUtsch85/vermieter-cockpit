@@ -12,6 +12,11 @@ const DE = process.env['E2E_DE_URL'] ?? 'http://127.0.0.1:8090/api/v1';
 export const ACCOUNT_IBAN = 'DE89370400440532013000';
 export const ACCOUNT_NAME = 'E2E Girokonto';
 export const PROPERTY_NAME = 'E2E Testwohnung';
+/** A second MRE property of the walk's Realm, not linked by the seed: the browser links it (Issue #365). */
+export const SECOND_PROPERTY_NAME = 'E2E Zweitwohnung';
+/** The account the browser creates (Issue #365), with a second published example IBAN (no real account). */
+export const CREATED_ACCOUNT_NAME = 'E2E Kautionskonto';
+export const CREATED_ACCOUNT_IBAN = 'DE02120300000000202051';
 /** The October 2026 term of the synthetic Tenant (MRE's key `YYYYMMDDHH`). */
 export const TERM_OCT = '2026100100';
 
@@ -103,6 +108,7 @@ export async function seedStack(): Promise<Seed> {
   const inW = async (base: string, method: string, path: string, init: { json?: unknown; form?: FormData } = {}) =>
     call(base, method, path, { ...init, token: await token(admin), realm: realmW.id });
   const property = idOf(await inW(MRE, 'POST', '/properties', { json: { type: 'apartment', name: PROPERTY_NAME, surface: 60, price: 700 } }), '_id');
+  await inW(MRE, 'POST', '/properties', { json: { type: 'apartment', name: SECOND_PROPERTY_NAME, surface: 45, price: 500 } });
   // A lease from October 2026: MRE generates its monthly terms, each due 700,00 rent plus 150,00 charges.
   const tenant = await inW(MRE, 'POST', '/tenants', {
     json: {

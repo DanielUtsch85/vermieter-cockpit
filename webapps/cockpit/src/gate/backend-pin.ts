@@ -58,4 +58,9 @@ export const USED_ROUTES: readonly (readonly [method: string, path: string])[] =
   // created `CONFIRMED` with an `Idempotency-Key` of the intent (§37.1). Both routes are in the pinned inventory.
   ['GET', '/api/v1/rent-reconciliations/split-proposal'],
   ['POST', '/api/v1/rent-reconciliations'],
+  // Setup of a Realm (Issue #365; Entscheidung des Projektinhabers, 2026-11-16): „Konto anlegen“ with an
+  // `Idempotency-Key` of the intent (api-design.md §29.1, §29.2) and „Objekte verknüpfen“ without one (natural key,
+  // §23.1). Both routes are in the pinned inventory; the Realm's MRE property list is MRE's own `GET /api/v2/properties`.
+  ['POST', '/api/v1/financial-accounts'],
+  ['POST', '/api/v1/property-references/link'],
 ];

@@ -1,10 +1,23 @@
 import { devices, expect, test, type Page } from '@playwright/test';
 import { expectAccess, expectNoSideScroll, realmPath, signIn } from './session';
-import { ACCOUNT_IBAN, ACCOUNT_NAME, mrePayments, seed, TERM_OCT, WALK_CSV, WALK_CSV_NAME } from './stack';
+import {
+  ACCOUNT_IBAN,
+  ACCOUNT_NAME,
+  CREATED_ACCOUNT_IBAN,
+  CREATED_ACCOUNT_NAME,
+  mrePayments,
+  PROPERTY_NAME,
+  SECOND_PROPERTY_NAME,
+  seed,
+  TERM_OCT,
+  WALK_CSV,
+  WALK_CSV_NAME,
+} from './stack';
 
 /**
  * A reduced walk over steps 1–7 of ui-guide.md §10 plus step 8 against the real backend, the pinned MRE and PostgreSQL,
- * through Caddy (backlog VC-X-70): sign-in, CSV import with a synthetic file, both decisions on review items, the split
+ * through Caddy (backlog VC-X-70): sign-in, the setup of Issue #365 (an account created and an MRE property linked in
+ * the cockpit), CSV import with a synthetic file, both decisions on review items, the split
  * from MRE's proposal (step 8) saved and the booking confirmed, the rent suggestion confirmed and written back to MRE.
  * The jsdom Durchstich (src/durchstich) stays the place for error and conflict cases and exact request bodies; this file
  * shows that the same clicks work against the real services. One test: each step needs the one before.
@@ -27,6 +40,46 @@ test('import, review items, split from the MRE proposal, confirm, rent suggestio
   await signIn(page, s.admin);
   await expectAccess(page, W);
   await expectNoSideScroll(page, 'overview');
+
+  // Setup (Issue #365): an account created in the cockpit, with its IBAN required and checked, and the second MRE
+  // property linked from MRE's list of the Realm; the seed's account and link were made through the API.
+  const setup = page.getByRole('region', { name: 'Einrichtung' });
+  await setup.getByRole('link', { name: 'Konto anlegen' }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Konto anlegen' })).toBeFocused();
+  await expect(page.getByRole('list', { name: 'Konten' })).toContainText(ACCOUNT_NAME);
+  await page.getByLabel('Kontoart').selectOption({ label: 'Kautionskonto' });
+  await page.getByLabel('Name', { exact: true }).fill(CREATED_ACCOUNT_NAME);
+  await page.getByRole('button', { name: 'Konto anlegen' }).click();
+  await expect(page.getByText(/Für diese Kontoart ist die IBAN Pflicht/)).toBeVisible();
+  await page.getByLabel('IBAN', { exact: true }).fill('DE02 1203 0000 0000 2020 52');
+  await page.getByRole('button', { name: 'Konto anlegen' }).click();
+  await expect(page.getByText(/Keine gültige IBAN/)).toBeVisible();
+  await page.getByLabel('IBAN', { exact: true }).fill('de02 1203 0000 0000 2020 51');
+  const createAccount = page.waitForResponse((r) => r.url().endsWith('/api/v1/financial-accounts') && r.request().method() === 'POST');
+  await page.getByRole('button', { name: 'Konto anlegen' }).click();
+  const created = await createAccount;
+  expect(created.status()).toBe(201);
+  expect(created.request().postDataJSON()).toEqual({
+    accountType: 'SECURITY_DEPOSIT',
+    displayName: CREATED_ACCOUNT_NAME,
+    currency: 'EUR',
+    iban: CREATED_ACCOUNT_IBAN,
+  });
+  expect(created.request().headers()['idempotency-key']).toMatch(/^[0-9a-f-]{36}$/);
+  await expect(page.getByText(`Konto „${CREATED_ACCOUNT_NAME}“ angelegt (Kautionskonto, IBAN ${CREATED_ACCOUNT_IBAN}).`)).toBeVisible();
+  await expect(page.getByRole('list', { name: 'Konten' })).toContainText(CREATED_ACCOUNT_NAME);
+  await expectNoSideScroll(page, 'account setup');
+
+  await page.getByRole('navigation', { name: 'Brotkrumen' }).getByRole('link', { name: 'Übersicht' }).click();
+  await setup.getByRole('link', { name: 'Objekte verknüpfen' }).click();
+  const mreList = page.getByRole('list', { name: 'Objekte in MicroRealEstate' });
+  await expect(mreList.getByRole('listitem').filter({ hasText: PROPERTY_NAME })).toContainText('Verknüpft');
+  const link = page.waitForResponse((r) => r.url().endsWith('/api/v1/property-references/link'));
+  await page.getByRole('button', { name: `${SECOND_PROPERTY_NAME} verknüpfen` }).click();
+  expect((await link).status()).toBe(201);
+  await expect(page.getByText(`„${SECOND_PROPERTY_NAME}“ ist verknüpft.`)).toBeVisible();
+  await expect(mreList.getByRole('listitem').filter({ hasText: SECOND_PROPERTY_NAME })).toContainText('Verknüpft');
+  await expectNoSideScroll(page, 'property setup');
 
   // Step 5: import the synthetic statement; the new row is booked, the two rows of the earlier import are review items.
   await nav(page, 'Import');

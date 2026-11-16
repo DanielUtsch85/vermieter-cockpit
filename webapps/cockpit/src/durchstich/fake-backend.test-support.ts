@@ -1,10 +1,9 @@
 import { fakeJwt, json, envelope } from '../api/fetch.test-support';
 import type { FetchLike } from '../api/transport';
 import type { MreAuthenticator } from '../session/mre-authenticator';
-import { account, category, page, property, PROPERTY, REALM_A, REALM_B } from '../transactions/fixtures.test-support';
+import { account, category, page, PROPERTY, REALM_A, REALM_B } from '../transactions/fixtures.test-support';
 import { TENANT } from '../rent/fixtures.test-support';
 import {
-  ACCOUNT_IBAN,
   type Batch,
   conflict,
   CSV_NAME,
@@ -27,6 +26,7 @@ import {
   unreachable,
 } from './fake-model.test-support';
 import { createRentFake, type MreTermState } from './fake-rent.test-support';
+import { createSetupFake, type SetupFake } from './fake-setup.test-support';
 import type { Money, RealMappings } from './real-mappings.test-support';
 
 export { ACCOUNT_IBAN, CSV_NAME, DURCHSTICH_CSV, EMAIL, TERM_OCT, type Rec, type Sent, type Tx } from './fake-model.test-support';
@@ -76,6 +76,10 @@ export interface Backend {
   /** DE refuses every token, a renewed one too (e.g. the MRE account was locked); the refresh cookie still works. */
   refuseAllTokens: boolean;
   fault(route: string, ...faults: Fault[]): void;
+  /** The Realms' accounts, PropertyReferences and MRE properties (Issue #365, fake-setup.test-support.ts). */
+  readonly setup: SetupFake;
+  /** Realm A as a fresh Realm: no account, no linked object and no booking in DE; its properties stay in MRE. */
+  fresh(): void;
   /** The MRE session ends: the access token and the refresh cookie are no longer accepted. */
   expireSession(): void;
   /** Another tab started a write-back of this reconciliation: `PENDING` with a live lease. */
@@ -109,6 +113,7 @@ export function createBackend(real: RealMappings): Backend {
   const batches = new Map<string, Batch>();
   const items = new Map<string, Item>();
   const reconciliations = new Map<string, Rec>();
+  const setup = createSetupFake(real);
   const corrections = new Map<string, { fingerprint: string; body: unknown }>();
   // `reverse` has its own key scope (`transaction.reverse`, api-design.md §35.9): a correction's key never answers it.
   const reversals = new Map<string, { fingerprint: string; body: unknown }>();
@@ -185,6 +190,7 @@ export function createBackend(real: RealMappings): Backend {
     if (typeof metadataText !== 'string' || !(file instanceof File)) return invalid();
     const metadata = JSON.parse(metadataText) as { financialAccountId: string; adapterId: string; adapterVersion: string };
     if (!real.schemas.metadata.safeParse(metadata).success) return invalid('metadata');
+    if (!setup.accounts.some((a) => a.mreRealmId === realm && a.financialAccountId === metadata.financialAccountId)) return notFound();
     const text = await file.text();
     const [header = '', ...lines] = text.split('\n').filter((line) => line.trim() !== '');
     const columns = header.split(';');
@@ -274,7 +280,7 @@ export function createBackend(real: RealMappings): Backend {
         });
         return;
       }
-      const created = tx({ mreRealmId: realm, ...row, amount, direction, importBatchId: batch.id, identity });
+      const created = tx({ mreRealmId: realm, ...row, amount, direction, importBatchId: batch.id, identity, financialAccountId: batch.financialAccountId });
       batch.transactionCount += 1;
       batch.rows.push({ outcome: 'created', position, transactionId: created.id });
     });
@@ -315,6 +321,7 @@ export function createBackend(real: RealMappings): Backend {
         counterpartyIbanRaw: row['counterpartyIbanRaw'] ?? null,
         importBatchId: item.importBatchId,
         identity: item.sourceRowKey,
+        financialAccountId: item.financialAccountId,
       });
       item.createdTransactionId = created.id;
     }
@@ -463,9 +470,13 @@ export function createBackend(real: RealMappings): Backend {
       case 'GET health':
         return json(200, { status: 'ok', mreRealmId: realm });
       case 'GET financial-accounts':
-        return json(200, page(realm === REALM_A ? [account({ iban: ACCOUNT_IBAN })] : []));
+        return setup.listAccounts(realm);
+      case 'POST financial-accounts':
+        return setup.createAccount(realm, headers, body);
       case 'GET property-references':
-        return json(200, page(realm === REALM_A ? [property()] : [property({ mreRealmId: REALM_B, propertyReferenceId: newId(), displayName: 'Haus B' })]));
+        return setup.listReferences(realm);
+      case 'POST property-references/{id}':
+        return id === 'link' ? setup.link(realm, body, backend.mreUp) : notFound();
       case 'GET financial-categories':
         return json(200, { items: [category(), category({ code: 'RENT_OPERATING_COST_ADVANCE', name: 'Nebenkosten' })] });
       case 'GET transactions': {
@@ -539,6 +550,7 @@ export function createBackend(real: RealMappings): Backend {
         { _id: REALM_B, name: 'Bestand Süd' },
       ]);
     }
+    if (url.pathname === '/api/v2/properties') return setup.mreList(headers.get('organizationid'), backend.mreUp);
     if (!backend.guardUp) return envelope(503, 'EXTERNAL_SYSTEM_ERROR', undefined, { 'retry-after': '5' });
     const realm = headers.get('organizationid') ?? '';
     if (forbidden.has(realm)) return envelope(403, 'FORBIDDEN');
@@ -573,6 +585,11 @@ export function createBackend(real: RealMappings): Backend {
     mreTerm,
     counters,
     forbidden,
+    setup,
+    fresh: () => {
+      setup.fresh();
+      for (const [id, t] of transactions) if (t.mreRealmId === REALM_A) transactions.delete(id);
+    },
     mreUp: true,
     suggestRule: 'ANY_AMOUNT',
     addMreTerm: (tenant, term, lease) => {

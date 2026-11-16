@@ -15,8 +15,11 @@ import { principalOf } from './access-middleware.js';
 import { sendError } from './errors.js';
 import { EMPTY_BODY, jsonBody, NO_QUERY, PAGING, readBody, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
 
-/** A malformed MRE id would end in a 500 upstream, so it is rejected here (mre-integration.md §21.1). */
-const linkBody = z
+/**
+ * A malformed MRE id would end in a 500 upstream, so it is rejected here (mre-integration.md §21.1). Exported for the
+ * client contract (types only).
+ */
+export const linkBody = z
   .object({
     mreRealmId: z.string().min(1),
     mrePropertyId: z.string().regex(MRE_OBJECT_ID),

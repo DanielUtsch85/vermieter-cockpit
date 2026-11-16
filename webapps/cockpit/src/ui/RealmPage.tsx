@@ -4,7 +4,7 @@ import { createDeClient } from '../api/client';
 import { ApiError } from '../api/errors';
 import { fetchHealth, type HealthDto } from '../api/health';
 import { realmKey } from '../query';
-import { leaveRealm, type Area, type RentTermKey } from '../routing';
+import { leaveRealm, type Area, type RentTermKey, type SetupPage } from '../routing';
 import { useSession } from '../session/use-session';
 import { AppShell } from './AppShell';
 import { OverviewPage } from './OverviewPage';
@@ -12,6 +12,9 @@ import { useRealms } from './RealmChoice';
 import { ErrorState, LoadingState, secondaryButtonClass } from './states';
 import { ImportArea } from './imports/ImportArea';
 import { RentArea } from './rent/RentArea';
+import { AccountSetup } from './setup/AccountSetup';
+import { PropertySetup } from './setup/PropertySetup';
+import { SetupRealmContext } from './setup/setup-links';
 import { TransactionsArea } from './transactions/TransactionsArea';
 
 /**
@@ -30,6 +33,8 @@ export function RealmPage(props: {
   readonly reconciliationId?: string | undefined;
   /** An MRE rent term of the Mietabgleich area (`…/mietabgleich/termin/<mreTenantId>/<mreRentTerm>`). */
   readonly rentTerm?: RentTermKey | undefined;
+  /** A setup page of the overview (`…/einrichtung/konto`, `…/einrichtung/objekte`; Issue #365). */
+  readonly setup?: SetupPage | undefined;
   /** The URL's search part: the list's filters and page, the import's „Alle Zeilen“. */
   readonly search?: string;
   /** The URL's path: the focus moves to the page title when it changes (AppShell). */
@@ -52,7 +57,11 @@ export function RealmPage(props: {
 
   return (
     <AppShell realmId={props.realmId} realmName={realmName} area={props.area} email={props.email} access={access} focusKey={props.path}>
-      {health.isSuccess && <AreaContent {...props} client={client} realmName={realmName} health={health.data} />}
+      {health.isSuccess && (
+        <SetupRealmContext.Provider value={props.realmId}>
+          <AreaContent {...props} client={client} realmName={realmName} health={health.data} />
+        </SetupRealmContext.Provider>
+      )}
     </AppShell>
   );
 }
@@ -66,6 +75,7 @@ function AreaContent(props: {
   readonly importBatchId?: string | undefined;
   readonly reconciliationId?: string | undefined;
   readonly rentTerm?: RentTermKey | undefined;
+  readonly setup?: SetupPage | undefined;
   readonly search?: string;
   readonly epoch: number;
   readonly health: HealthDto;
@@ -73,6 +83,8 @@ function AreaContent(props: {
 }) {
   switch (props.area.id) {
     case 'uebersicht':
+      if (props.setup === 'konto') return <AccountSetup client={props.client} realmId={props.realmId} epoch={props.epoch} />;
+      if (props.setup === 'objekte') return <PropertySetup client={props.client} realmId={props.realmId} epoch={props.epoch} />;
       return <OverviewPage realmId={props.realmId} realmName={props.realmName} health={props.health} renewedAt={props.renewedAt} />;
     case 'buchungen':
       return (

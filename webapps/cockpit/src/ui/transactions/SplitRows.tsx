@@ -14,6 +14,7 @@ import { describeFieldError } from '../error-text';
 import { MoneyText } from '../format';
 import { secondaryButtonClass } from '../states';
 import { IdText } from '../IdText';
+import { NoLinkedProperties } from '../setup/setup-links';
 import { categoryName, propertyName, type References } from './references';
 
 /**
@@ -187,6 +188,11 @@ export function SplitRow(props: {
             )}
           </select>
         ))}
+      {reference.kind === 'property' && references.properties.status === 'success' && properties.length === 0 && (
+        <div className="md:col-span-2">
+          <NoLinkedProperties id={`${prefix}${controlId(index, 'property')}-leer`} />
+        </div>
+      )}
       {reference.kind !== 'none' && reference.kind !== 'property' && (
         <KeptReference idPrefix={prefix} index={index} reference={reference} references={references} bound={props.bound} />
       )}
