@@ -125,8 +125,10 @@ function TransactionDetailPage(props: {
   // (Entscheidung des Projektinhabers, 2026-11-11).
   const [draftUnsaved, setDraftUnsaved] = useState(false);
   // A correction or a reversal succeeded here: the answer of „Buchung bestätigen“ (status „Bestätigt“) is outdated and
-  // goes (Issue #361 des Projektinhabers, 2026-11-16).
-  const [laterStep, setLaterStep] = useState(false);
+  // goes (Issue #361 des Projektinhabers, 2026-11-16). The other of the two sections goes at once too, as it is absent
+  // after a reload (`correctionShown` is only set by a correctable read); it would only show a greyed-out button
+  // (Issue #381, „Nebenbei beobachtet“).
+  const [doneHere, setDoneHere] = useState<'corrected' | 'reversed' | undefined>(undefined);
   const first = read.data;
   if (!editorShown && first !== undefined && read.status === 'success' && splitsEditable(first.transaction.status)) setEditorShown(true);
   if (!correctionShown && first !== undefined && read.status === 'success' && correctable(first.transaction)) setCorrectionShown(true);
@@ -181,7 +183,7 @@ function TransactionDetailPage(props: {
           }}
           reload={() => void read.refetch()}
           draftUnsaved={draftUnsaved}
-          superseded={laterStep}
+          superseded={doneHere !== undefined}
         />
       )}
       {editorShown && !confirmedHere && first !== undefined && (
@@ -206,7 +208,7 @@ function TransactionDetailPage(props: {
           )}
         />
       )}
-      {correctionShown && first !== undefined && (
+      {correctionShown && doneHere !== 'reversed' && first !== undefined && (
         <CorrectionForm
           realmId={props.realmId}
           transaction={first.transaction}
@@ -215,13 +217,13 @@ function TransactionDetailPage(props: {
           references={props.references}
           correct={(body, ifMatch, key) => correctTransaction(props.client, props.transactionId, body, ifMatch, key)}
           onCorrected={() => {
-            setLaterStep(true);
+            setDoneHere('corrected');
             invalidate();
           }}
           reload={() => void read.refetch()}
         />
       )}
-      {correctionShown && first !== undefined && (
+      {correctionShown && doneHere !== 'corrected' && first !== undefined && (
         <ReverseForm
           realmId={props.realmId}
           transaction={first.transaction}
@@ -229,7 +231,7 @@ function TransactionDetailPage(props: {
           stale={stale}
           reverse={(body, ifMatch, key) => reverseTransaction(props.client, props.transactionId, body, ifMatch, key)}
           onReversed={() => {
-            setLaterStep(true);
+            setDoneHere('reversed');
             invalidate();
           }}
           reload={() => void read.refetch()}

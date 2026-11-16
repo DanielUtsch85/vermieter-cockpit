@@ -52,6 +52,13 @@ export const directionLabel = (code: string): CodeLabel => lookup(DIRECTION, cod
 export const correctionRoleLabel = (code: string): CodeLabel => lookup(CORRECTION_ROLE, code, 'Unbekannte Rolle');
 export const accountStatusLabel = (code: string): CodeLabel => lookup(ACCOUNT_STATUS, code, 'unbekannter Status');
 
+/**
+ * Statuses with a label but not offered by the filter: no step sets `RECONCILED` yet (api-design.md §37, P4-D3), so its
+ * box could only ever find nothing (Issue #381 part 1: „Abgeglichen“ aus dem Statusfilter der Buchungsliste nehmen; die
+ * Beschriftung in labels.ts bleibt für später; Entscheidung des Projektinhabers, 2026-11-16).
+ */
+const NOT_FILTERED: readonly string[] = ['RECONCILED'];
+
 /** The statuses and provenances the filter offers, in the order of the API (§30.1). */
-export const STATUS_CODES: readonly string[] = Object.keys(STATUS);
+export const STATUS_CODES: readonly string[] = Object.keys(STATUS).filter((code) => !NOT_FILTERED.includes(code));
 export const PROVENANCE_CODES: readonly string[] = Object.keys(PROVENANCE);

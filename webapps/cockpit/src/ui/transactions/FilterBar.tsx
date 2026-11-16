@@ -26,6 +26,7 @@ export const FILTER_CONTROLS: readonly string[] = [
 export const controlId = (name: string): string => `filter-${name}`;
 const errorId = (name: string): string => `filter-${name}-fehler`;
 const STATUS_LOCK_NOTE = 'filter-status-gesperrt';
+const STATUS_URL_NOTE = 'filter-status-adresse';
 
 /** The id of the first control with a field error (ui-guide.md §4.3: a form error focuses the first wrong field). */
 export function firstInvalidControl(errors: ReadonlyMap<string, readonly FieldError[]>): string | undefined {
@@ -105,6 +106,14 @@ export function FilterBar(props: {
   const [statuses, setStatuses] = useState<readonly string[]>(reviewableSet(params) ? [] : filterValues(params, 'status'));
   /** A status of a typed or bookmarked URL that also holds `reviewable=true`: it still narrows this list (AND). */
   const urlStatuses = reviewableSet(params) ? filterValues(params, 'status') : [];
+  /**
+   * A known status of the URL that the bar does not offer (an old bookmark with `RECONCILED`, #381): it still narrows the
+   * list of this URL, as the URL says, is named under the choice, and „Filter anwenden“ drops it with the rest of the
+   * filter kept, because the form only sends what its boxes hold. An unknown code is the backend's to refuse (§7.4).
+   */
+  const unofferedStatuses = reviewableSet(params)
+    ? []
+    : filterValues(params, 'status').filter((code) => statusLabel(code).known && !STATUS_CODES.includes(code));
   const toggleReviewable = (checked: boolean) => {
     setReviewable(checked);
     if (checked) setStatuses([]);
@@ -193,7 +202,11 @@ export function FilterBar(props: {
           id={controlId('status')}
           tabIndex={-1}
           className="flex min-w-0 flex-col gap-1"
-          aria-describedby={describedBy([errors.has('status') ? errorId('status') : undefined, reviewable ? STATUS_LOCK_NOTE : undefined])}
+          aria-describedby={describedBy([
+            errors.has('status') ? errorId('status') : undefined,
+            reviewable ? STATUS_LOCK_NOTE : undefined,
+            unofferedStatuses.length > 0 ? STATUS_URL_NOTE : undefined,
+          ])}
         >
           <legend className="text-label text-muted">Status</legend>
           <div className="flex flex-wrap gap-x-4">
@@ -216,6 +229,12 @@ export function FilterBar(props: {
               Gesperrt, solange „Nur zu prüfende“ gesetzt ist.
               {urlStatuses.length > 0 &&
                 ` Aus der Adresse gilt für diese Liste zusätzlich der Status: ${urlStatuses.map((code) => statusLabel(code).text).join(', ')}. Mit „Filter anwenden“ entfällt er.`}
+            </p>
+          )}
+          {unofferedStatuses.length > 0 && (
+            <p id={STATUS_URL_NOTE} className="text-label text-muted">
+              {`Aus der Adresse gilt für diese Liste auch der Status: ${unofferedStatuses.map((code) => statusLabel(code).text).join(', ')}. Der Filter bietet ihn nicht an; mit „Filter anwenden“ entfällt er.`}
+              {unofferedStatuses.includes('RECONCILED') && ' „Abgeglichen“ vergibt noch kein Schritt; keine Buchung hat diesen Status.'}
             </p>
           )}
           {errors.has('status') && (
@@ -250,7 +269,9 @@ export function FilterBar(props: {
         {(
           [
             ['reviewable', 'Nur zu prüfende (Importiert oder Ungeprüft)'],
-            ['current', 'Nur aktuelle (bestätigt oder abgeglichen, ohne Storno und Korrigierte)'],
+            // The label names what the user can find today; `current=true` itself is unchanged (api-design.md §30.1: CONFIRMED
+            // or RECONCILED, not a reversal), as no Transaction is RECONCILED (#381; Entscheidung des Projektinhabers, 2026-11-16).
+            ['current', 'Nur aktuelle (bestätigt, ohne Storno und Korrigierte)'],
           ] as const
         ).map(([name, label]) => (
           <div key={name} className="flex flex-col">

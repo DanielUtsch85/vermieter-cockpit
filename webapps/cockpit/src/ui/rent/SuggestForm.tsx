@@ -71,7 +71,8 @@ function SuggestOutcome({ realmId, result }: { readonly realmId: string; readonl
       {noRentCash > 0 && (
         <Notice tone="warning">
           {`${noRentCash} ${noRentCash === 1 ? 'bestätigter Zahlungseingang hat' : 'bestätigte Zahlungseingänge haben'} keinen Anteil in einer Mietkategorie. Bitte prüfen, ob darunter Miete ist (z. B. falsch kategorisiert). `}
-          <Link href={bookingsHref(realmId, window, 'CONFIRMED,RECONCILED')}>Bestätigte Buchungen des Zeitraums</Link>
+          {/* `CONFIRMED` only: the filter does not offer `RECONCILED`, which no step sets yet (#381); the same bookings. */}
+          <Link href={bookingsHref(realmId, window, 'CONFIRMED')}>Bestätigte Buchungen des Zeitraums</Link>
         </Notice>
       )}
       {unconfirmed === 0 && noRentCash === 0 && (

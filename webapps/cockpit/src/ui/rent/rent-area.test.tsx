@@ -97,7 +97,7 @@ describe('suggest and the list (ui-guide.md §6.6 steps 5 and 6)', () => {
       `/cockpit/r/${REALM_A}/buchungen?status=IMPORTED%2CUNREVIEWED%2CCLASSIFIED&${range}`,
     );
     expect(screen.getByRole('link', { name: 'Bestätigte Buchungen des Zeitraums' }).getAttribute('href')).toBe(
-      `/cockpit/r/${REALM_A}/buchungen?status=CONFIRMED%2CRECONCILED&${range}`,
+      `/cockpit/r/${REALM_A}/buchungen?status=CONFIRMED&${range}`,
     );
   });
 
