@@ -640,6 +640,8 @@ export interface ImportBatchTable {
   imported_by: string;
   /** The continuity report (§70.6); null for a file without a balance column. */
   continuity: Json<unknown> | null;
+  /** Why `continuity` is null (0079, VC-X-77); null while a report exists and for v2 batches stored before 0079. */
+  continuity_missing: Generated<string | null>;
 }
 
 export interface ImportReviewItemTable {

@@ -226,7 +226,7 @@ describe('coverage reads (§37.2)', () => {
 });
 
 describe('suggestions (§37.3)', () => {
-  const empty = { candidates: [], confirmedByTerm: new Map(), handled: [], open: [], history: [], skipped: { unconfirmed: 0, noRentCash: 0 } };
+  const empty = { candidates: [], confirmedByTerm: new Map(), handled: [], decided: [], open: [], history: [], skipped: { unconfirmed: 0, noRentCash: 0 } };
 
   it("suggest: MRE months from-1 .. to+1 with the caller's header, the candidate dates of all their windows, open = due − confirmed, the neighbours never suggested", async () => {
     const asked: string[] = [];
@@ -263,7 +263,7 @@ describe('suggestions (§37.3)', () => {
       from: '2027-01',
       to: '2027-02',
       items: [reconciliation],
-      skipped: { unconfirmed: 0, noRentCash: 0 },
+      skipped: { unconfirmed: 0, noRentCash: 0, decidedBefore: 0 },
     });
     expect(asked).toEqual([`Bearer t ${REALM} 2026-12`, `Bearer t ${REALM} 2027-1`, `Bearer t ${REALM} 2027-2`, `Bearer t ${REALM} 2027-3`]);
     expect(snapshots[0]?.slice(2)).toEqual(['2026-11-15', '2027-03-31', { from: '2026-12-15', to: '2027-02-28' }]);
@@ -279,6 +279,40 @@ describe('suggestions (§37.3)', () => {
       },
     ]);
     expect(written[0]?.[2]).toEqual({ actorType: 'USER', actorId: 'anna@example.com' });
+  });
+
+  it('suggest: decidedBefore counts the window s fitting pairs rejected or released before, never suggested; neighbours and misfits not', async () => {
+    const candidate = (transactionId: string, bookingDate: string, amount: string) =>
+      ({ transactionId, bookingDate: bookingDate as never, available: eur(amount), counterpartyIban: null, description: null }) as const;
+    const pair = (transactionId: string, mreTenantId: string, mreRentTerm: string) => ({ transactionId, mreTenantId, mreRentTerm });
+    const result = await suggestReconciliations({
+      readMreMonth: async (_h, _r, year, month) => {
+        const tenant = year === 2026 ? '6512f0c2a1b2c3d4e5f60a09' : TENANT;
+        return [{ mreTenantId: tenant, term: `${year}${String(month).padStart(2, '0')}0100`, amountDue: eur('800.00') }];
+      },
+      repository: repository({
+        suggestionSnapshot: async () => ({
+          ...empty,
+          candidates: [
+            candidate('t1', '2027-01-03', '800.00'),
+            candidate('t2', '2027-02-02', '800.00'),
+            candidate('t0', '2026-12-02', '800.00'),
+            candidate('t3', '2027-01-05', '700.00'),
+          ],
+          decided: [
+            // Both fit their term in the window: counted, and never suggested.
+            pair('t1', TENANT, '2027010100'),
+            pair('t2', TENANT, '2027020100'),
+            // December is a neighbour month (never suggested), t3's amount does not fit, t1 is outside March's window.
+            pair('t0', '6512f0c2a1b2c3d4e5f60a09', '2026120100'),
+            pair('t3', TENANT, '2027010100'),
+            pair('t1', TENANT, '2027030100'),
+          ],
+        }),
+        writeSuggestions: async () => [],
+      }),
+    })({ principal, authorizationHeader: 'Bearer t', from: '2027-01', to: '2027-02' });
+    expect(result.skipped).toEqual({ unconfirmed: 0, noRentCash: 0, decidedBefore: 2 });
   });
 
   it('suggest: a year boundary; MRE down or refusing passes through and nothing is read from DE or written', async () => {

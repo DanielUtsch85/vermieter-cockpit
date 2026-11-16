@@ -40,6 +40,8 @@ const batch = {
   skippedCount: 0,
   importedAt: new Date('2026-10-19T08:00:00Z'),
   importedBy: 'anna@example.com',
+  firstBookingDate: '2026-10-15',
+  lastBookingDate: '2026-10-15',
   rows: [{ outcome: 'created', position: 1, transactionId: '7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d' }],
   continuity: { order: 'NEWEST_FIRST', breaks: [{ position: 1, expectedBalanceAfter: '1.00', balanceAfter: '2.00' }], previousExport: 'GAP' },
 } as unknown as ImportBatch;
@@ -119,6 +121,8 @@ describe('POST /api/v1/imports/bank-transactions', () => {
       skippedCount: 0,
       importedAt: '2026-10-19T08:00:00.000Z',
       importedBy: 'anna@example.com',
+      firstBookingDate: '2026-10-15',
+      lastBookingDate: '2026-10-15',
       rows: [{ outcome: 'created', position: 1, transactionId: '7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d' }],
       continuity: { order: 'NEWEST_FIRST', breaks: [{ position: 1, expectedBalanceAfter: '1.00', balanceAfter: '2.00' }], previousExport: 'GAP' },
     });

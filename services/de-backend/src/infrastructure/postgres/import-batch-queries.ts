@@ -9,6 +9,7 @@ import type {
   ImportBatchSummary,
   PageRequest,
 } from '../../domains/ledger/index.js';
+import { bookingRanges, NO_BOOKING_RANGE, type BookingRange } from './import-booking-range.js';
 import type { Database, ImportBatchTable } from './schema.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -36,7 +37,8 @@ type SummaryRow = Pick<Selectable<ImportBatchTable>, (typeof SUMMARY_COLUMNS)[nu
 /**
  * `GET /imports` (api-design.md §32.6, #369, VC-X-74): the Realm's batches, newest first. Count and page in one
  * `REPEATABLE READ READ ONLY` snapshot; the page's ids are read in order from `import_batch_realm_imported_idx` (0078)
- * and stop at offset + limit, only then are the page's rows read. No lock, no write.
+ * and stop at offset + limit, only then are the page's rows read, then the booking range of those batches (VC-X-75,
+ * `import-booking-range.ts`) in the same snapshot. No lock, no write.
  */
 export class PostgresImportBatchQueries implements ImportBatchQueries {
   constructor(private readonly db: Kysely<Database>) {}
@@ -69,12 +71,22 @@ export class PostgresImportBatchQueries implements ImportBatchQueries {
           .orderBy('imported_at', 'desc')
           .orderBy('id', 'desc')
           .execute();
-        return { items: rows.map(toSummary), page: page.page, pageSize: page.pageSize, total: Number(n) };
+        const ranges = await bookingRanges(
+          trx,
+          mreRealmId,
+          rows.map((r) => r.id),
+        );
+        return {
+          items: rows.map((r) => toSummary(r, ranges.get(r.id) ?? NO_BOOKING_RANGE)),
+          page: page.page,
+          pageSize: page.pageSize,
+          total: Number(n),
+        };
       });
   }
 }
 
-function toSummary(row: SummaryRow): ImportBatchSummary {
+function toSummary(row: SummaryRow, range: BookingRange): ImportBatchSummary {
   return {
     id: row.id as ImportBatchId,
     mreRealmId: row.mre_realm_id,
@@ -91,5 +103,6 @@ function toSummary(row: SummaryRow): ImportBatchSummary {
     skippedCount: row.skipped_count,
     importedAt: row.imported_at,
     importedBy: row.imported_by,
+    ...range,
   };
 }

@@ -72,6 +72,8 @@ export async function suggestionSnapshot(
               .execute();
       const handled: SuggestionPair[] = [];
       const open: SuggestionPair[] = [];
+      /** VC-X-78: per pair of a candidate, whether it was rejected or released, and whether it is open or matched. */
+      const decidedPairs = new Map<string, { pair: SuggestionPair; decided: boolean; live: boolean }>();
       const idSet = new Set(ids);
       const termSet = new Set(termKeys);
       for (const p of pairs) {
@@ -82,7 +84,17 @@ export async function suggestionSnapshot(
         // Open suggestions are edges for every candidate and every term read (review on #80); handled pairs only matter for candidates.
         if (p.status === 'SUGGESTED') open.push(pair);
         else if (idSet.has(p.transaction_id)) handled.push(pair);
+        if (idSet.has(p.transaction_id)) {
+          const pairKey = `${p.transaction_id}|${key}`;
+          const seen = decidedPairs.get(pairKey) ?? { pair, decided: false, live: false };
+          decidedPairs.set(pairKey, {
+            pair,
+            decided: seen.decided || p.status === 'REJECTED' || p.status === 'RELEASED',
+            live: seen.live || p.status === 'SUGGESTED' || p.status === 'CONFIRMED',
+          });
+        }
       }
+      const decided = [...decidedPairs.values()].filter((d) => d.decided && !d.live).map((d) => d.pair);
       const history = await trx
         .selectFrom('rent_payment_reconciliation as r')
         .innerJoin('ledger_transaction as t', 't.id', 'r.transaction_id')
@@ -107,6 +119,7 @@ export async function suggestionSnapshot(
         candidates,
         confirmedByTerm,
         handled,
+        decided,
         open,
         history: history.map((h) => ({ mreTenantId: h.mre_tenant_id, counterpartyIban: h.counterparty_iban_raw as string })),
       };

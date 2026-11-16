@@ -162,7 +162,7 @@ describe('decideRow, balance branch (data-model.md §70.6)', () => {
 
 describe('sourceRowKey', () => {
   const statement = (sourceStatementId: string | null) =>
-    ({ adapterId: 'a', adapterVersion: '1', contentHash: 'abc', sourceStatementId, rows: [] }) as ParsedStatement;
+    ({ adapterId: 'a', adapterVersion: '1', contentHash: 'abc', sourceStatementId, rows: [], balanceColumn: false }) as ParsedStatement;
 
   it('uses the content hash and position without source ids, the ids otherwise', () => {
     expect(sourceRowKey(statement(null), { position: 3, sourceRowId: null })).toEqual({ statementKey: 'sha256:abc', rowKey: 'pos:3' });

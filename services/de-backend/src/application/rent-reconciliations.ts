@@ -1,6 +1,7 @@
 import {
   availableOf,
   bookingWindow,
+  countDecidedBefore,
   coverageOf,
   suggestPairs,
   type ConfirmPrecheck,
@@ -14,7 +15,7 @@ import {
   type ReconciliationPage,
   type ReconciliationStatus,
   type RentPaymentReconciliation,
-  type SkippedInflows,
+  type SuggestSkipped,
   type RentReconciliationRepository,
 } from '../domains/rent-reconciliation/index.js';
 import { Money, type BusinessDate } from '../shared/index.js';
@@ -364,7 +365,7 @@ export type SuggestReconciliations = (input: {
   /** `YYYY-MM`, validated at the API (from ≤ to, at most 12 months). */
   readonly from: string;
   readonly to: string;
-}) => Promise<{ readonly from: string; readonly to: string; readonly items: readonly RentPaymentReconciliation[]; readonly skipped: SkippedInflows }>;
+}) => Promise<{ readonly from: string; readonly to: string; readonly items: readonly RentPaymentReconciliation[]; readonly skipped: SuggestSkipped }>;
 
 /**
  * §37.3's suggest: MRE's months (the window and its two neighbours) outside any transaction, then DE's snapshot, the
@@ -400,7 +401,9 @@ export function suggestReconciliations(deps: {
     }));
     const suggestions = suggestPairs({ terms, candidates: snapshot.candidates, handled: snapshot.handled, open: snapshot.open, history: snapshot.history });
     const items = await deps.repository.writeSuggestions(principal.mreRealmId, suggestions, actorOf(principal));
-    return { from, to, items, skipped: snapshot.skipped };
+    // VC-X-78: the fitting pairs left out because they were rejected or released before (§37.6).
+    const decidedBefore = countDecidedBefore({ terms, candidates: snapshot.candidates, decided: snapshot.decided });
+    return { from, to, items, skipped: { ...snapshot.skipped, decidedBefore } };
   };
 }
 

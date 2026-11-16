@@ -222,6 +222,10 @@ describe.skipIf(databaseUrl === undefined)('the schema of 0073 past the reposito
         // 0075 (VC-X-44, land_building_allocation only) sorts after 0074: its own down first, not applied again.
         // 0076 (VC-X-24, audit_record only) sorts after 0075: its own down first, not applied again.
         // 0078 (VC-X-74, an index on import_batch only) sorts after 0077: its own down first, not applied again.
+        // 0079 (VC-X-77, a column on import_batch only) sorts after 0078: its own down first, not applied again.
+        await withMigrationLock(() =>
+          (migrations['0079_import_batch_continuity_missing'] as { down: (db: never) => Promise<void> }).down(createDatabase(down) as never),
+        );
         await withMigrationLock(() =>
           (migrations['0078_import_batch_list_index'] as { down: (db: never) => Promise<void> }).down(createDatabase(down) as never),
         );

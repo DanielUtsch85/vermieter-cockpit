@@ -8,8 +8,11 @@ import type { PageRequest } from './transaction-query.js';
 
 export const IMPORT_BATCH_STATUSES: readonly ImportBatchStatus[] = ['COMPLETED', 'NEEDS_REVIEW'];
 
-/** A batch as listed: the single read's batch without `rows` and `continuity`, which can hold 10,000 rows (§32.6). */
-export type ImportBatchSummary = Omit<ImportBatch, 'rows' | 'continuity'>;
+/**
+ * A batch as listed: the single read's batch without `rows` and `continuity`, which can hold 10,000 rows (§32.6), and
+ * without `continuityMissing`, which only explains `continuity` (VC-X-77).
+ */
+export type ImportBatchSummary = Omit<ImportBatch, 'rows' | 'continuity' | 'continuityMissing'>;
 
 /** All optional, combined with AND (§32.6). */
 export interface ImportBatchFilter {

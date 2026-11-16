@@ -322,6 +322,9 @@ export function toSummaryDto(batch: ImportBatchSummary) {
     skippedCount: batch.skippedCount,
     importedAt: batch.importedAt.toISOString(),
     importedBy: batch.importedBy,
+    // VC-X-75: `YYYY-MM-DD` as every booking date; both null when no row of the batch counts (§32.6).
+    firstBookingDate: batch.firstBookingDate,
+    lastBookingDate: batch.lastBookingDate,
   };
 }
 
@@ -330,8 +333,10 @@ export function toDto(batch: ImportBatch) {
   return {
     ...toSummaryDto(batch),
     rows: batch.rows,
-    // generic-csv v2 (§70.6): null when the file had no balance column.
+    // generic-csv v2 (§70.6): null when the file had no balance column or no valid row with a balance.
     continuity: batch.continuity,
+    // VC-X-77: which of the two, null while there is a report (and for v2 batches stored before migration 0079).
+    continuityMissing: batch.continuityMissing,
   };
 }
 

@@ -382,6 +382,8 @@ export interface SuggestionSnapshot {
   /** Σ `CONFIRMED` per term key `tenant/term` of the given terms. */
   readonly confirmedByTerm: ReadonlyMap<string, Money>;
   readonly handled: readonly SuggestionPair[];
+  /** Pairs of a candidate with a `REJECTED` or `RELEASED` reconciliation and no `SUGGESTED` or `CONFIRMED` one (VC-X-78). */
+  readonly decided: readonly SuggestionPair[];
   readonly open: readonly SuggestionPair[];
   readonly history: readonly { readonly mreTenantId: string; readonly counterpartyIban: string }[];
   /** §37.6: the window's `INFLOW` Transactions no rule could see. */
@@ -394,6 +396,11 @@ export interface SkippedInflows {
   readonly unconfirmed: number;
   /** Counted, with no split in a rent category: a deposit, interest, a refund, or rent under another category (review on #137). */
   readonly noRentCash: number;
+}
+
+/** The suggest answer's `skipped` (§37.6): the skipped inflows, and the fitting pairs left out as decided before (VC-X-78). */
+export interface SuggestSkipped extends SkippedInflows {
+  readonly decidedBefore: number;
 }
 
 export interface RentReconciliationRepository {

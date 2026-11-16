@@ -155,6 +155,7 @@ function genericCsv(version: string, schema: typeof genericCsvOptions | typeof g
         // A plain CSV export carries no statement id: the file content identifies it (§70.2).
         sourceStatementId: null,
         rows,
+        balanceColumn: indexes.columns.balanceAfter !== undefined,
         // Version 2: the file's own account, checked against the FinancialAccount (#107).
         ...(indexes.columns.accountIban === undefined ? {} : { accountIbans: accountIbansOf(dataRows, indexes.columns.accountIban) }),
       };

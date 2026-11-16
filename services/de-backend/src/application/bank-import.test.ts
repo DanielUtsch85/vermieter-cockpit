@@ -34,7 +34,14 @@ const REALM = '64b0c0ffee0000000000000a';
 const ACCOUNT = '0b6f1f9e-2f2c-4a8e-9d55-1f0d8c1e2a3b';
 const principal: RealmPrincipal = { email: 'anna@example.com', mreRealmId: REALM, mreRole: 'administrator' };
 const account = { id: ACCOUNT, mreRealmId: REALM, currency: 'EUR', status: 'OPEN' } as unknown as FinancialAccount;
-const statement: ParsedStatement = { adapterId: 'generic-csv', adapterVersion: '1', contentHash: 'abc', sourceStatementId: null, rows: [] };
+const statement: ParsedStatement = {
+  adapterId: 'generic-csv',
+  adapterVersion: '1',
+  contentHash: 'abc',
+  sourceStatementId: null,
+  rows: [],
+  balanceColumn: false,
+};
 const batch = { id: 'batch-1' } as unknown as ImportBatch;
 const item = { id: 'item-1', financialAccountId: ACCOUNT, resolution: 'CREATE' } as unknown as ReviewItem;
 let resolveOutcome: ResolveOutcome = { kind: 'RESOLVED', item, replayed: false };

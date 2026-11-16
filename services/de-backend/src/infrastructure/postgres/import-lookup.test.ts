@@ -59,7 +59,7 @@ function file(bookings: readonly Booking[], adapterVersion = '2'): ParsedStateme
   const contentHash = createHash('sha256')
     .update(JSON.stringify([adapterVersion, bookings]))
     .digest('hex');
-  return { adapterId: 'generic-csv', adapterVersion, contentHash, sourceStatementId: null, rows };
+  return { adapterId: 'generic-csv', adapterVersion, contentHash, sourceStatementId: null, rows, balanceColumn: adapterVersion !== '1' };
 }
 
 const outcomes = (batch: ImportBatch) => batch.rows.map((r) => r.outcome);
