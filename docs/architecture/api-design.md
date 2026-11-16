@@ -2002,8 +2002,8 @@ GET /api/v1/rent-reconciliations                                    (VC-4-01, §
 GET /api/v1/rent-reconciliations/{id}                               (VC-4-01, §37.1; ?checkMre=true VC-4-04, §37.4)
 GET /api/v1/rent-reconciliations/suggestions                        (VC-4-03, §37.3: ?status=SUGGESTED)
 GET /api/v1/rent-reconciliations/terms/{mreTenantId}/{mreRentTerm}  (VC-4-02, §37.2)
-GET /api/v1/rent-reconciliations/tenants                            (VC-X-72, §37.7: specified)
-GET /api/v1/rent-reconciliations/terms/{mreTenantId}?from=&to=      (VC-X-72, §37.7: specified)
+GET /api/v1/rent-reconciliations/tenants                            (VC-X-72, §37.7)
+GET /api/v1/rent-reconciliations/terms/{mreTenantId}?from=&to=      (VC-X-72, §37.7)
 GET /api/v1/transactions/{transactionId}/rent-reconciliations       (VC-4-02, §37.2)
 ```
 
@@ -2684,9 +2684,9 @@ Both are counts (non-negative integers), read in §37.3's snapshot; a Transactio
 
 The cockpit takes it over (#368, same PR): „Vorschlag in Aufteilung übernehmen“ sets the proposed object as „Bezug: Objekt“ of every row of that term, or leaves „Kein Bezug“ with the flag's reason shown at the term and a note after the takeover; the proposal table shows the object per line. Before saving, a rent category (`RENT_BASE`, `RENT_OPERATING_COST_ADVANCE`, `RENT_OPERATING_COST_SETTLEMENT`) without an object gets a hint at the save button, no blocker (Entscheidung des Projektinhabers, 2026-11-16). The client refuses a proposal whose splits name different objects, or whose object and flag disagree.
 
-## 37.7 Choosing the Tenant and the term: the Realm's Tenants and a Tenant's terms (#364, VC-X-72, specified, not implemented)
+## 37.7 Choosing the Tenant and the term: the Realm's Tenants and a Tenant's terms (#364, VC-X-72, implemented)
 
-**Status:** specified, not implemented (backlog VC-X-72). Two reads, no write, no migration. They add two routes to §37's route list; nothing of §37.1–37.6 changes. The routes that take `mreTenantId` and `mreRentTerm` (§37.1, §37.2, §37.6) keep them as they are, so a typed id stays possible.
+**Status:** implemented in #PRNUM (backlog VC-X-72), backend and cockpit in one PR; open questions 2–4 read as proposed until the owner answers them; see "As implemented (VC-X-72)" below. Two reads, no write, no migration. They add two routes to §37's route list; nothing of §37.1–37.6 changes. The routes that take `mreTenantId` and `mreRentTerm` (§37.1, §37.2, §37.6) keep them as they are, so a typed id stays possible.
 
 **Decided by the owner on 2026-11-16 (chat)** (verbatim; Entscheidung des Projektinhabers, 2026-11-16):
 
@@ -2753,6 +2753,19 @@ Both routes change `docs/development/api-inventory.md` (`yarn api:inventory`, 17
 - **(a):** Tenants of several reconciliations and statuses counted once each; the order with equal `latestCreatedAt`; paging over more than one page; another Realm's reconciliations never listed; an unknown parameter `400`; the route not swallowed by `/{reconciliationId}`; no MRE call (the fake's call count unchanged).
 - **(b):** the query `400`s; `AVAILABLE` with a term on both sides, on the MRE side only and on the DE side only (`inMre: false`); `matchedTotal` over `CONFIRMED` only; coverage at its boundaries (as §37.2); `NOT_RETURNED` for an unknown Tenant and for one of another Realm, both with the DE side; `UNAVAILABLE` when one month of the window fails, with the DE side; `401` / `403` passed through; nothing of a Tenant but the ids in the result or a log; the window edges (a term of the month before `from` and after `to` not listed).
 - **Mutations** (each alone, restored byte for byte): the Realm filter dropped from either DE read; `RELEASED` summed into `matchedTotal`; a failed month skipped instead of `UNAVAILABLE`; the DE-only terms left out; the Tenant check skipped (an unknown Tenant answered `AVAILABLE` with an empty list); the window's upper bound exclusive.
+
+### As implemented (VC-X-72, #PRNUM)
+
+As specified above, with open questions 2–4 read as their proposals until the owner answers them: (a) counts reconciliations of any status; (b) takes `from` and `to` as required, at most 12 months; an unknown Tenant answers `200` with `NOT_RETURNED`. Where the text leaves room, the narrowest reading, each listed in the PR for the owner:
+
+- **Code:** the port `RentTenantTermQueries` (`domains/rent-reconciliation/tenant-terms.ts`), its PostgreSQL store `PostgresRentTenantTermQueries` (`rent-tenant-terms-store.ts`, each read in its own `REPEATABLE READ READ ONLY` transaction, filtered by the Realm), and the use cases `listRentTenants` and `getTenantTerms` (`application/rent-tenant-terms.ts`). `RentReconciliationRepository` and the MRE client are unchanged; the Tenant check is the existing `mreTenantLookup` (`GET /tenants`, §20.1), the months the existing `mreMonthReader` (§37.3).
+- **Order of the reads in (b):** MRE first (the Tenant, then the months from `from` to `to` one after the other), then DE's snapshot. `NOT_RETURNED` asks no month. Any call MRE cannot answer (`MreUnavailableError`, an unexpected shape included) is `UNAVAILABLE` for the whole list; a refused token or caller stays `401` / `403`.
+- **MRE's months:** of each month only the rents of `mreTenantId` whose key starts with that month's `YYYYMM` are kept; a key of another month in a month's answer is left out, so the list never holds a term outside the window. A term listed twice keeps the last amount read.
+- **DE's window:** term keys from `{from}0000` up to, not including, the first key of the month after `to` (`{to+1}0000`), text comparison on the 10-digit key, as `rent_payment_reconciliation_term_idx` orders it.
+- **Query check:** (b) shares `suggest`'s refinement (§37.3), so the codes are the same, including its reading of a malformed month: a `from` that fails `YYYY-MM` can still add `INVALID_RANGE` or `RANGE_TOO_LONG` on `to` when both strings compare (as `suggest` answers today).
+- **Goldens:** the records of VC-X-65 and VC-X-66 (`error-answers-golden`, `express-behaviour-golden`) predate the two routes; their walks leave them out by an explicit list, with a counter-check that the list is exactly the routes the records do not hold. `api/rent-tenant-terms.test.ts` tests their answers. The §58W walk (`api/query-parameters.test.ts`) and the Phase-4 Realm-isolation table cover both.
+- **Inventory and pin:** 174 → 176 routes. The cockpit's `BACKEND_PIN` names this PR's backend commit (it reaches `main` with the merge), `USED_ROUTES` gains both routes.
+- **Cockpit:** in „Aufteilungsvorschlag aus MRE“ and „Manuell zuordnen“, „Mieter aus bisherigen Zuordnungen“ lists the first page of (a) (200, the largest page) and „Miettermin aus MRE“ the terms of (b) from the month before to the month after the booking date. A choice fills the MRE id and the term key beside it; both fields stay editable, for a Tenant without an earlier match and for a key outside the window or while MRE is not reachable. No name anywhere. The UI text for ui-guide is proposed in the PR (not in ui-guide yet).
 
 ### Open questions for review (numbered across §32.6, §37.6 and §37.7, as in the spec PR)
 
