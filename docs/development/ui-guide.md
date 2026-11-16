@@ -295,6 +295,9 @@ Bei Timeout nicht einfach behaupten, dass nichts importiert wurde. Bekannte Batc
 
 1. Unbestätigte Buchung öffnen.
 2. GET /rent-reconciliations/split-proposal?transactionId=…&mreTenantId=…&mreRentTerm=… lesen.
+
+   „Vorschlag in Aufteilung übernehmen“ setzt als Bezug jedes Teilbetrags das Objekt des Mietvertrags, wenn genau ein in DE verknüpftes Objekt den Termin umfasst; weitere, nicht verknüpfte Objekte desselben Vertrags werden genannt (api-design §37.6). Sonst bleibt „Kein Bezug“, und der Termin nennt den Grund (kein Objekt, mehrere verknüpfte Objekte, nicht verknüpft). Vor dem Speichern weist der Split-Editor auf Teilbeträge in einer Mietkategorie ohne Objekt hin; gespeichert wird trotzdem (kein Blocker).
+
 3. Aufteilung prüfen; vollständig zuordnen; PUT /transactions/{id}/splits.
 4. POST /transactions/{id}/confirm.
 5. POST /rent-reconciliations/suggest mit from/to als YYYY-MM, maximal zwölf Monate.

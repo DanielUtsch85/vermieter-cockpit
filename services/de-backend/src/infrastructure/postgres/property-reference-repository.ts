@@ -34,22 +34,25 @@ export class PostgresPropertyReferenceRepository implements PropertyReferenceRep
   }
 
   /**
-   * The id of the Realm's PropertyReference of one MRE property, any `externalReferenceState`, in a short
-   * `REPEATABLE READ READ ONLY` read of its own (api-design.md §37.6, #368: after the split proposal's MRE read).
+   * The Realm's PropertyReferences of these MRE properties (MRE property id → PropertyReference id), any
+   * `externalReferenceState`, in one short `REPEATABLE READ READ ONLY` read of its own (api-design.md §37.6, #368: after
+   * the split proposal's MRE read; the link checked per id, Entscheidung des Projektinhabers, 2026-11-16). An id
+   * without a link in the Realm is absent; an empty list reads nothing.
    */
-  async findLinkedId(mreRealmId: string, mrePropertyId: string): Promise<string | undefined> {
+  async findLinkedIds(mreRealmId: string, mrePropertyIds: readonly string[]): Promise<ReadonlyMap<string, string>> {
+    if (mrePropertyIds.length === 0) return new Map();
     return this.db
       .transaction()
       .setIsolationLevel('repeatable read')
       .setAccessMode('read only')
       .execute(async (trx) => {
-        const row = await trx
+        const rows = await trx
           .selectFrom('property_reference')
-          .select('id')
+          .select(['id', 'mre_property_id'])
           .where('mre_realm_id', '=', mreRealmId)
-          .where('mre_property_id', '=', mrePropertyId)
-          .executeTakeFirst();
-        return row?.id;
+          .where('mre_property_id', 'in', [...mrePropertyIds])
+          .execute();
+        return new Map(rows.map((r) => [r.mre_property_id, r.id]));
       });
   }
 

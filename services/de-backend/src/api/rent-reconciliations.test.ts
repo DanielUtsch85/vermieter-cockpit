@@ -728,7 +728,7 @@ describe('GET /api/v1/rent-reconciliations/split-proposal (§37.6, #126)', () =>
     mreRentTerm: '2027020100',
     amount: Money.of('790.00', 'EUR'),
     term: { rent: Money.of('650.00', 'EUR'), charges: Money.of('150.00', 'EUR'), adjustments: Money.of('0.00', 'EUR'), due: Money.of('800.00', 'EUR') },
-    property: { mrePropertyIds: [FLAT, GARAGE], propertyReferenceId: null },
+    property: { mrePropertyIds: [FLAT, GARAGE], propertyReferenceId: null, unlinkedMrePropertyIds: [FLAT, GARAGE] },
     splits: [
       { financialCategoryCode: 'RENT_BASE', amount: Money.of('650.00', 'EUR'), propertyReferenceId: null },
       { financialCategoryCode: 'RENT_OPERATING_COST_ADVANCE', amount: Money.of('140.00', 'EUR'), propertyReferenceId: null },
@@ -737,7 +737,7 @@ describe('GET /api/v1/rent-reconciliations/split-proposal (§37.6, #126)', () =>
     flags: [
       { code: 'AMOUNT_DIFFERS_FROM_TERM', details: { difference: Money.of('-10.00', 'EUR') } },
       { code: 'ALREADY_SPLIT' },
-      { code: 'NO_PROPERTY_REFERENCE', details: { reason: 'SEVERAL_PROPERTIES', mrePropertyIds: [FLAT, GARAGE] } },
+      { code: 'NO_PROPERTY_REFERENCE', details: { reason: 'PROPERTY_NOT_LINKED', mrePropertyIds: [FLAT, GARAGE], unlinkedMrePropertyIds: [FLAT, GARAGE] } },
     ],
   } as unknown as RentSplitProposalView;
 
@@ -757,7 +757,7 @@ describe('GET /api/v1/rent-reconciliations/split-proposal (§37.6, #126)', () =>
         adjustments: { amount: '0.00', currency: 'EUR' },
         due: { amount: '800.00', currency: 'EUR' },
       },
-      property: { mrePropertyIds: [FLAT, GARAGE], propertyReferenceId: null },
+      property: { mrePropertyIds: [FLAT, GARAGE], propertyReferenceId: null, unlinkedMrePropertyIds: [FLAT, GARAGE] },
       splits: [
         { financialCategoryCode: 'RENT_BASE', amount: { amount: '650.00', currency: 'EUR' }, propertyReferenceId: null },
         { financialCategoryCode: 'RENT_OPERATING_COST_ADVANCE', amount: { amount: '140.00', currency: 'EUR' }, propertyReferenceId: null },
@@ -766,17 +766,17 @@ describe('GET /api/v1/rent-reconciliations/split-proposal (§37.6, #126)', () =>
       flags: [
         { code: 'AMOUNT_DIFFERS_FROM_TERM', details: { difference: { amount: '-10.00', currency: 'EUR' } } },
         { code: 'ALREADY_SPLIT' },
-        { code: 'NO_PROPERTY_REFERENCE', details: { reason: 'SEVERAL_PROPERTIES', mrePropertyIds: [FLAT, GARAGE] } },
+        { code: 'NO_PROPERTY_REFERENCE', details: { reason: 'PROPERTY_NOT_LINKED', mrePropertyIds: [FLAT, GARAGE], unlinkedMrePropertyIds: [FLAT, GARAGE] } },
       ],
     });
     expect(seen[0]).toMatchObject({ authorizationHeader: 'Bearer a.b.c', transactionId: TX_ID, mreTenantId: TENANT_ID, mreRentTerm: '2027020100' });
   });
 
-  it('#368: a linked property is on the proposal and every split, in the order of the amended answer', async () => {
+  it('#368: a linked property is on the proposal and every split, the unlinked garage named, in the order of the amended answer', async () => {
     const P = '2b6f1f9e-2f2c-4a8e-9d55-1f0d8c1e2a3c';
     const linked = {
       ...proposal,
-      property: { mrePropertyIds: [FLAT], propertyReferenceId: P },
+      property: { mrePropertyIds: [FLAT, GARAGE], propertyReferenceId: P, unlinkedMrePropertyIds: [GARAGE] },
       splits: proposal.splits.map((s) => ({ ...s, propertyReferenceId: P })),
       flags: [],
     } as unknown as RentSplitProposalView;
@@ -786,8 +786,9 @@ describe('GET /api/v1/rent-reconciliations/split-proposal (§37.6, #126)', () =>
       unknown
     >;
     expect(Object.keys(body)).toEqual(['transactionId', 'mreTenantId', 'mreRentTerm', 'amount', 'term', 'property', 'splits', 'unallocated', 'flags']);
+    expect(Object.keys(body.property as object)).toEqual(['mrePropertyIds', 'propertyReferenceId', 'unlinkedMrePropertyIds']);
     expect(body).toMatchObject({
-      property: { mrePropertyIds: [FLAT], propertyReferenceId: P },
+      property: { mrePropertyIds: [FLAT, GARAGE], propertyReferenceId: P, unlinkedMrePropertyIds: [GARAGE] },
       splits: [{ propertyReferenceId: P }, { propertyReferenceId: P }],
       flags: [],
     });

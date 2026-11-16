@@ -34,6 +34,36 @@ const click = (name: string | RegExp) => fireEvent.click(screen.getByRole('butto
 const optionTexts = (label: string) => Array.from(select(label).options).map((o) => o.textContent);
 const WINDOW = { from: '2026-02', to: '2026-04' };
 
+/** „Manuell zuordnen“ of a counted inflow of 2 March 2026 with the lists, 550,00 € free. */
+function manual() {
+  const { fetch, calls } = routedFetch({
+    [TENANTS]: [() => json(200, page([rentTenant()]))],
+    [TERMS]: [() => json(200, tenantTerms())],
+    'POST /api/v1/rent-reconciliations': [
+      () => json(201, confirmed('550.00', { mreRentTerm: TERM, confidence: null, suggestionReason: null }), { etag: '"1"' }),
+    ],
+  });
+  const de = createDeClient({ tokens: countingTokens(), realmId: REALM_A, fetch });
+  const source = {
+    tenantsKey: rentKeys.tenants(REALM_A, 1),
+    loadTenants: (signal: AbortSignal) => listRentTenants(de, signal),
+    termsKey: (tenant: string, w: { from: string; to: string }) => rentKeys.tenantTerms(REALM_A, 1, tenant, w.from, w.to),
+    loadTerms: (tenant: string, w: { from: string; to: string }, signal: AbortSignal) => getTenantTerms(de, tenant, w, signal),
+  };
+  render(
+    <QueryClientProvider client={createQueryClient()}>
+      <TransactionRentSection
+        realmId={REALM_A}
+        coverage={{ status: 'success', data: transactionCoverage({ matchedTotal: EUR('0.00'), available: EUR('550.00'), reconciliations: [] }) }}
+        onRetry={() => undefined}
+        create={(body, key) => createReconciliation(de, body, key)}
+        choices={{ source, bookingDate: '2026-03-02' }}
+      />
+    </QueryClientProvider>,
+  );
+  return calls;
+}
+
 /** The Buchungen area on an unconfirmed inflow of 1 March 2026 (`detail()`), with the proposal's routes. */
 function area(routes: Record<string, (() => Response)[]>) {
   const { fetch, calls } = routedFetch({
@@ -110,6 +140,36 @@ describe('Aufteilungsvorschlag aus MRE: Tenant and term from the lists (#364)', 
     expect([input('Mieter in MRE (ID)').value, input('Miettermin (MRE-Schlüssel JJJJMMTTHH)').value]).toEqual([TENANT_2, '']);
   });
 
+  it('another Tenant id typed in the field also clears the term chosen for the first; the same id kept keeps it (#375 review)', async () => {
+    area({
+      [TENANTS]: [() => json(200, page([rentTenant()]))],
+      [TERMS]: [() => json(200, tenantTerms())],
+    });
+    await openProposal();
+    await waitFor(() => expect(optionTexts('Mieter aus bisherigen Zuordnungen')).toHaveLength(2));
+    pick('Mieter aus bisherigen Zuordnungen', TENANT);
+    await waitFor(() => expect(select('Miettermin aus MRE').disabled).toBe(false));
+    pick('Miettermin aus MRE', TERM);
+    // Only spaces around the same id: still this Tenant, the term stays.
+    fireEvent.change(input('Mieter in MRE (ID)'), { target: { value: ` ${TENANT} ` } });
+    expect(input('Miettermin (MRE-Schlüssel JJJJMMTTHH)').value).toBe(TERM);
+    fireEvent.change(input('Mieter in MRE (ID)'), { target: { value: TENANT_2 } });
+    expect([input('Mieter in MRE (ID)').value, input('Miettermin (MRE-Schlüssel JJJJMMTTHH)').value]).toEqual([TENANT_2, '']);
+  });
+
+  it('more Tenants than the list holds: the note says how many of how many and to type the others; a full list says nothing of it', async () => {
+    const many = Array.from({ length: 200 }, (_, i) => rentTenant({ mreTenantId: `6512f0c2a1b2c3d4e5f6${i.toString(16).padStart(4, '0')}` }));
+    area({ [TENANTS]: [() => json(200, page(many, { pageSize: 200, total: 201 }))] });
+    await openProposal();
+    await screen.findByText('Die 200 zuletzt zugeordneten von 201 Mietern, nur mit MRE-ID. Andere bitte unten eintippen.');
+    expect(optionTexts('Mieter aus bisherigen Zuordnungen')).toHaveLength(201);
+    cleanup();
+    area({ [TENANTS]: [() => json(200, page(many, { pageSize: 200, total: 200 }))] });
+    await openProposal();
+    await screen.findByText('Nur mit MRE-ID, ohne Namen. Ein Mieter ohne bisherige Zuordnung: die ID unten eintippen.');
+    expect(screen.queryByText(/zuletzt zugeordneten von/)).toBeNull();
+  });
+
   it('a Tenant without an earlier match: the list is empty and says so, the typed id gets its terms', async () => {
     const calls = area({
       [TENANTS]: [() => json(200, page([]))],
@@ -160,31 +220,7 @@ describe('Aufteilungsvorschlag aus MRE: Tenant and term from the lists (#364)', 
 
 describe('Manuell zuordnen: Tenant and term from the lists (#364)', () => {
   it('chosen, not typed; the confirmation names them and locks the lists; one POST with exactly them', async () => {
-    const { fetch, calls } = routedFetch({
-      [TENANTS]: [() => json(200, page([rentTenant()]))],
-      [TERMS]: [() => json(200, tenantTerms())],
-      'POST /api/v1/rent-reconciliations': [
-        () => json(201, confirmed('550.00', { mreRentTerm: TERM, confidence: null, suggestionReason: null }), { etag: '"1"' }),
-      ],
-    });
-    const de = createDeClient({ tokens: countingTokens(), realmId: REALM_A, fetch });
-    const source = {
-      tenantsKey: rentKeys.tenants(REALM_A, 1),
-      loadTenants: (signal: AbortSignal) => listRentTenants(de, signal),
-      termsKey: (tenant: string, w: { from: string; to: string }) => rentKeys.tenantTerms(REALM_A, 1, tenant, w.from, w.to),
-      loadTerms: (tenant: string, w: { from: string; to: string }, signal: AbortSignal) => getTenantTerms(de, tenant, w, signal),
-    };
-    render(
-      <QueryClientProvider client={createQueryClient()}>
-        <TransactionRentSection
-          realmId={REALM_A}
-          coverage={{ status: 'success', data: transactionCoverage({ matchedTotal: EUR('0.00'), available: EUR('550.00'), reconciliations: [] }) }}
-          onRetry={() => undefined}
-          create={(body, key) => createReconciliation(de, body, key)}
-          choices={{ source, bookingDate: '2026-03-02' }}
-        />
-      </QueryClientProvider>,
-    );
+    const calls = manual();
     click('Manuell zuordnen');
     await waitFor(() => expect(optionTexts('Mieter aus bisherigen Zuordnungen')).toHaveLength(2));
     pick('Mieter aus bisherigen Zuordnungen', TENANT);
@@ -201,5 +237,17 @@ describe('Manuell zuordnen: Tenant and term from the lists (#364)', () => {
     expect(posts.map((call) => JSON.parse(call.body ?? '{}') as unknown)).toEqual([
       { transactionId: TX, mreTenantId: TENANT, mreRentTerm: TERM, matchedAmount: EUR('550.00') },
     ]);
+  });
+
+  it('another Tenant id typed in the field clears the term chosen from the list (#375 review)', async () => {
+    manual();
+    click('Manuell zuordnen');
+    await waitFor(() => expect(optionTexts('Mieter aus bisherigen Zuordnungen')).toHaveLength(2));
+    pick('Mieter aus bisherigen Zuordnungen', TENANT);
+    await waitFor(() => expect(select('Miettermin aus MRE').disabled).toBe(false));
+    pick('Miettermin aus MRE', TERM);
+    expect(input('Miettermin (MRE-Schlüssel JJJJMMTTHH)').value).toBe(TERM);
+    fireEvent.change(input('Mieter in MRE (ID)'), { target: { value: TENANT_2 } });
+    expect([input('Mieter in MRE (ID)').value, input('Miettermin (MRE-Schlüssel JJJJMMTTHH)').value]).toEqual([TENANT_2, '']);
   });
 });

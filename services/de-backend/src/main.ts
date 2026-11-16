@@ -460,7 +460,7 @@ const app = createApp({
     splitProposal: getRentSplitProposal({
       queries: new PostgresTransactionQueries(db),
       readBreakdown: mreRentBreakdownReader(mreClient),
-      findLinkedPropertyReference: (mreRealmId, mrePropertyId) => propertyReferences.repository.findLinkedId(mreRealmId, mrePropertyId),
+      findLinkedPropertyReference: (mreRealmId, mrePropertyIds) => propertyReferences.repository.findLinkedIds(mreRealmId, mrePropertyIds),
     }),
     // §37.7 (#364): the Tenants from DE alone; a Tenant's terms from MRE's month reads beside DE's matches.
     tenants: listRentTenants({ queries: rentTenantTerms }),

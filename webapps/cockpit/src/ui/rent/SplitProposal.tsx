@@ -33,12 +33,25 @@ const INPUT_TEXTS: Readonly<Record<TenantIdProblem | TermProblem | 'DUPLICATE', 
   DUPLICATE: 'Dieser Termin dieses Mieters ist schon gewählt.',
 };
 
-/** Why the proposal names no object (api-design.md §37.6, #368). */
+/**
+ * Why the proposal names no object (api-design.md §37.6, #368): what counts is the number of linked objects, not of
+ * MRE objects (Entscheidung des Projektinhabers, 2026-11-16).
+ */
 const NO_PROPERTY_TEXTS: Readonly<Record<string, string>> = {
   NO_PROPERTY_FOR_TERM: 'Der Mietvertrag in MRE nennt für diesen Termin kein Objekt.',
-  SEVERAL_PROPERTIES: 'Der Mietvertrag in MRE umfasst für diesen Termin mehrere Objekte.',
+  SEVERAL_PROPERTIES: 'Der Mietvertrag in MRE umfasst für diesen Termin mehrere verknüpfte Objekte.',
   PROPERTY_NOT_LINKED: 'Das Objekt des Mietvertrags ist in DE nicht verknüpft.',
 };
+const NONE_LINKED_OF_SEVERAL = 'Keines der Objekte des Mietvertrags ist in DE verknüpft.';
+
+/**
+ * The term's objects without a link beside the one linked object (§37.6, Entscheidung des Projektinhabers, 2026-11-16):
+ * the whole amount goes to the linked one, as a flat and its garage belong to the same letting.
+ */
+function unlinkedObjectsText(count: number): string {
+  const objects = count === 1 ? '1 nicht verknüpftes Objekt' : `${count} nicht verknüpfte Objekte`;
+  return `Der Mietvertrag umfasst außerdem ${objects}; der ganze Betrag wird dem verknüpften Objekt zugeordnet.`;
+}
 
 const money = (amount: string, currency: string) => <MoneyText money={{ amount, currency }} />;
 
@@ -65,7 +78,13 @@ function FlagText({ flag, currency }: { readonly flag: RentSplitProposalDto['fla
   }
   if (flag.code === 'ALREADY_SPLIT') return <>Die Buchung ist schon aufgeteilt; der Vorschlag beachtet die gespeicherte Aufteilung nicht.</>;
   if (flag.code === 'NO_PROPERTY_REFERENCE' && 'details' in flag && 'reason' in flag.details) {
-    const why = Object.hasOwn(NO_PROPERTY_TEXTS, flag.details.reason) ? NO_PROPERTY_TEXTS[flag.details.reason] : `Grund ${flag.details.reason}.`;
+    const { reason, mrePropertyIds } = flag.details;
+    const why =
+      reason === 'PROPERTY_NOT_LINKED' && mrePropertyIds.length > 1
+        ? NONE_LINKED_OF_SEVERAL
+        : Object.hasOwn(NO_PROPERTY_TEXTS, reason)
+          ? NO_PROPERTY_TEXTS[reason]
+          : `Grund ${reason}.`;
     return <>{`${why} Der Bezug bleibt leer; bitte das Objekt in der Aufteilung selbst wählen.`}</>;
   }
   return (
@@ -86,6 +105,7 @@ function TermCard(props: {
 }) {
   const { term, read } = props;
   const p = read.data;
+  const unlinked = p !== undefined && p.property.propertyReferenceId !== null ? p.property.unlinkedMrePropertyIds.length : 0;
   return (
     <li className="flex flex-col gap-2 rounded-card border border-border p-4">
       <p>
@@ -110,13 +130,14 @@ function TermCard(props: {
             <dt className="text-muted">Sollbetrag des Termins (MRE)</dt>
             <dd>{money(p.term.due.amount, p.term.due.currency)}</dd>
           </dl>
-          {p.flags.length > 0 && (
+          {(p.flags.length > 0 || unlinked > 0) && (
             <ul aria-label="Hinweise zum Termin" className="list-disc pl-6">
               {p.flags.map((flag, i) => (
                 <li key={i}>
                   <FlagText flag={flag} currency={props.currency} />
                 </li>
               ))}
+              {unlinked > 0 && <li>{unlinkedObjectsText(unlinked)}</li>}
             </ul>
           )}
         </>
@@ -245,7 +266,11 @@ export function SplitProposal(props: {
                 spellCheck={false}
                 aria-invalid={tried && tenantText !== undefined}
                 aria-describedby={tried && tenantText !== undefined ? 'vorschlag-mieter-hinweis' : undefined}
-                onChange={(event) => setTenant(event.target.value)}
+                onChange={(event) => {
+                  // Another Tenant: a term key chosen or typed for the previous one goes, as a choice from the list does (#375 review).
+                  if (event.target.value.trim() !== tenant.trim()) setTermKey('');
+                  setTenant(event.target.value);
+                }}
               />
               {hint('vorschlag-mieter-hinweis', tenantText)}
             </div>

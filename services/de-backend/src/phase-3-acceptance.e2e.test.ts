@@ -446,7 +446,7 @@ describe.skipIf(databaseUrl === undefined)('Phase 3 acceptance (roadmap exit)', 
         splitProposal: getRentSplitProposal({
           queries: new PostgresTransactionQueries(db),
           readBreakdown: mreRentBreakdownReader(client),
-          findLinkedPropertyReference: (realm, id) => propertyReferences.repository.findLinkedId(realm, id),
+          findLinkedPropertyReference: (realm, ids) => propertyReferences.repository.findLinkedIds(realm, ids),
         }),
         removeFromMre: removeFromMre({
           repository: new PostgresRentReconciliationRepository(db),
