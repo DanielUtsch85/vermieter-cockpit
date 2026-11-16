@@ -366,6 +366,25 @@ describe('step 3, 412 keeps the draft (ui-guide.md §7.3, §11)', () => {
     expect(calls).toHaveLength(1);
   });
 
+  it('#368: the hint on rent without an object goes once the booking is confirmed; there nothing is saved any more', async () => {
+    const confirmed = detail({ status: 'CONFIRMED', version: 5, splits: server.splits });
+    setup({
+      answers: [envelope(412, 'VERSION_CONFLICT', { currentVersion: 5 })],
+      reload: () => Promise.resolve({ transaction: confirmed, etag: '"5"' }),
+    });
+    fillTwoRows();
+    // Counter-check: while the booking can be changed, row 2 (Nebenkosten, no object) is named.
+    expect(screen.getByText(/Teilbetrag 2 in einer Mietkategorie ohne Objekt\./)).toBeTruthy();
+    expect(saveButton().getAttribute('aria-describedby')).toBe('split-rest split-ohne-objekt');
+    fireEvent.click(saveButton());
+    fireEvent.click(await screen.findByRole('button', { name: 'Entwurf behalten und Serverstand ansehen' }));
+    expect(await screen.findByText(/kann nicht mehr geändert werden/)).toBeTruthy();
+    expect(control('split-1-category').value).toBe('RENT_OPERATING_COST_ADVANCE');
+    expect(screen.queryByText(/in einer Mietkategorie ohne Objekt/)).toBeNull();
+    expect(document.getElementById('split-ohne-objekt')).toBeNull();
+    expect(saveButton().getAttribute('aria-describedby')).toBe('split-rest');
+  });
+
   it('a failed read keeps the draft and offers to read again', async () => {
     setup({
       answers: [envelope(412, 'VERSION_CONFLICT', { currentVersion: 5 })],
