@@ -29,6 +29,10 @@ import { createRentFake, type MreTermState } from './fake-rent.test-support';
 import { createSetupFake, type SetupFake } from './fake-setup.test-support';
 import type { Money, RealMappings } from './real-mappings.test-support';
 
+/** MRE's token lifetimes in production (`services/authenticator/src/routes/landlord.js`), modelled by this fake. */
+export const MRE_ACCESS_LIFETIME_MS = 30_000;
+export const MRE_REFRESH_LIFETIME_MS = 600_000;
+
 export { ACCOUNT_IBAN, CSV_NAME, DURCHSTICH_CSV, EMAIL, TERM_OCT, type Rec, type Sent, type Tx } from './fake-model.test-support';
 
 /**
@@ -50,7 +54,8 @@ export interface Backend {
   readonly items: Map<string, Item>;
   /** MRE's payments of the October term; PATCHes to MRE are counted (`mreWrites`). */
   readonly mreTerm: { amountDue: Money; payments: MrePayment[] };
-  readonly counters: { mreWrites: number; signIns: number };
+  /** `refreshes`: calls of the MRE refresh (answered with a token or refused), on demand and in the background. */
+  readonly counters: { mreWrites: number; signIns: number; refreshes: number };
   /** Realms for which DE refuses access (`403`), e.g. no DE role. */
   readonly forbidden: Set<string>;
   /** Whether MRE answers (term reads, write-back, removal); its authenticator stays reachable. */
@@ -99,13 +104,18 @@ export interface Backend {
 export function createBackend(real: RealMappings): Backend {
   const { Money } = real;
   const eur = (amount: string) => Money.of(amount, 'EUR');
-  const tokens = new Set<string>();
-  let cookie = true;
+  // MRE's lifetimes (Issue #366): an access token is accepted 30 s from its issue, the refresh cookie 600 s from its last
+  // issue; every refresh spends the cookie and sets a new one. Measured with `Date.now`, so a test with a fake clock can
+  // let them run out; a test in real time never comes near them.
+  const tokens = new Map<string, number>();
+  let cookieUntil = Date.now() + MRE_REFRESH_LIFETIME_MS;
   let tokenNumber = 0;
   const issue = () => {
     tokenNumber += 1;
-    const token = fakeJwt({ account: { email: EMAIL }, exp: 4_000_000_000, n: tokenNumber });
-    tokens.add(token);
+    const issuedAt = Date.now();
+    const token = fakeJwt({ account: { email: EMAIL }, exp: Math.floor((issuedAt + MRE_ACCESS_LIFETIME_MS) / 1000), n: tokenNumber });
+    tokens.set(token, issuedAt);
+    cookieUntil = issuedAt + MRE_REFRESH_LIFETIME_MS;
     return token;
   };
 
@@ -173,7 +183,7 @@ export function createBackend(real: RealMappings): Backend {
     adjustments: eur('0.00'),
   };
   const mreTerms = new Map<string, MreTermState>([[`${TENANT}/${TERM_OCT}`, mreTerm]]);
-  const counters = { mreWrites: 0, signIns: 0 };
+  const counters = { mreWrites: 0, signIns: 0, refreshes: 0 };
   const forbidden = new Set<string>();
 
   const of = (realm: string, id: string) => {
@@ -543,7 +553,8 @@ export function createBackend(real: RealMappings): Backend {
     const form = init.body instanceof FormData ? init.body : undefined;
     sent.push({ method, path: url.pathname, search: url.search, headers, body: text, form });
     const token = headers.get('authorization')?.replace(/^Bearer /, '') ?? '';
-    if (!tokens.has(token) || backend.refuseAllTokens) return envelope(401, 'UNAUTHENTICATED');
+    const issuedAt = tokens.get(token);
+    if (issuedAt === undefined || Date.now() - issuedAt > MRE_ACCESS_LIFETIME_MS || backend.refuseAllTokens) return envelope(401, 'UNAUTHENTICATED');
     if (url.pathname === '/api/v2/realms') {
       return json(200, [
         { _id: REALM_A, name: 'Bestand Nord' },
@@ -563,14 +574,17 @@ export function createBackend(real: RealMappings): Backend {
   };
 
   const mre: MreAuthenticator = {
-    refresh: () => (backend.authenticatorUp ? Promise.resolve(cookie ? issue() : undefined) : unreachable()),
+    refresh: () => {
+      if (!backend.authenticatorUp) return unreachable();
+      counters.refreshes += 1;
+      return Promise.resolve(Date.now() < cookieUntil ? issue() : undefined);
+    },
     signIn: () => {
       counters.signIns += 1;
-      cookie = true;
       return Promise.resolve(issue());
     },
     signOut: () => {
-      cookie = false;
+      cookieUntil = 0;
       return Promise.resolve();
     },
   };
@@ -618,7 +632,7 @@ export function createBackend(real: RealMappings): Backend {
     fault: (route, ...more) => faults.set(route, [...(faults.get(route) ?? []), ...more]),
     expireSession: () => {
       tokens.clear();
-      cookie = false;
+      cookieUntil = 0;
     },
     startForeignWriteBack: (recId) => {
       const r = reconciliations.get(recId);

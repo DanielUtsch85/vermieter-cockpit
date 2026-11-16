@@ -70,7 +70,8 @@ export function useDurchstich(): () => Backend {
 export const IMPORT = `/cockpit/r/${REALM_A}/import`;
 export const MIETABGLEICH = `/cockpit/r/${REALM_A}/mietabgleich`;
 
-export async function openApp(backend: Backend, path: string) {
+/** `keepAlive: false`: the App without the background renewal of Issue #366, as the cockpit was before it. */
+export async function openApp(backend: Backend, path: string, options: { readonly keepAlive?: false } = {}) {
   window.history.replaceState(null, '', path);
   vi.stubGlobal('fetch', backend.fetch);
   const session = new Session(backend.mre);
@@ -78,7 +79,11 @@ export async function openApp(backend: Backend, path: string) {
   clearCacheWhenSessionEnds(session, queryClient);
   const reloads: string[] = [];
   await session.start();
-  const app = createElement(App, { realmLock: createRealmLock(), reload: () => reloads.push(window.location.pathname) });
+  const app = createElement(App, {
+    realmLock: createRealmLock(),
+    reload: () => reloads.push(window.location.pathname),
+    ...(options.keepAlive === false ? { keepAlive: () => () => undefined } : {}),
+  });
   render(createElement(SessionContext.Provider, { value: session }, createElement(QueryClientProvider, { client: queryClient }, app)));
   return { session, queryClient, reloads };
 }

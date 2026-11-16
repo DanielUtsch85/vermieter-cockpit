@@ -1,6 +1,8 @@
 import { useEffect } from 'react';
 import { useLocationPath, useLocationSearch } from '../navigation';
 import { BASE_PATH, parseRoute, realmSwitchEffect, realmSwitching, reloadPage, type RealmLock } from '../routing';
+import { keepSessionAlive } from '../session/keep-alive';
+import type { Session } from '../session/session';
 import { useSession, useSessionState } from '../session/use-session';
 import { Link } from './Link';
 import { LoginPage } from './LoginPage';
@@ -11,9 +13,20 @@ import { buttonClass, CenteredPage, LoadingState } from './states';
 /**
  * The top of the cockpit: the session decides what is shown (mre-integration.md §47.2), then the URL. A URL of another
  * Realm than the one this document shows is never rendered from this memory: the page is loaded afresh (RealmLock).
+ * While it is shown, the session is renewed in the background within the owner's limits (`keepAlive`, Issue #366); its
+ * timers and listeners end with the sign-out and with the App.
  */
-export function App({ realmLock, reload = reloadPage }: { readonly realmLock: RealmLock; readonly reload?: () => void }) {
+export function App({
+  realmLock,
+  reload = reloadPage,
+  keepAlive = keepSessionAlive,
+}: {
+  readonly realmLock: RealmLock;
+  readonly reload?: () => void;
+  readonly keepAlive?: (session: Session) => () => void;
+}) {
   const session = useSession();
+  useEffect(() => keepAlive(session), [keepAlive, session]);
   const state = useSessionState();
   const path = useLocationPath();
   const search = useLocationSearch();
