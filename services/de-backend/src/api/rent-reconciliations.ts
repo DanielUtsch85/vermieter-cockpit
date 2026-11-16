@@ -428,14 +428,22 @@ export function splitProposalDto(p: RentSplitProposalView) {
     mreRentTerm: p.mreRentTerm,
     amount: p.amount.toJSON(),
     term: { rent: p.term.rent.toJSON(), charges: p.term.charges.toJSON(), adjustments: p.term.adjustments.toJSON(), due: p.term.due.toJSON() },
-    splits: p.splits.map((s) => ({ financialCategoryCode: s.financialCategoryCode, amount: s.amount.toJSON() })),
+    property: { mrePropertyIds: [...p.property.mrePropertyIds], propertyReferenceId: p.property.propertyReferenceId },
+    splits: p.splits.map((s) => ({ financialCategoryCode: s.financialCategoryCode, amount: s.amount.toJSON(), propertyReferenceId: s.propertyReferenceId })),
     unallocated: p.unallocated.toJSON(),
-    flags: p.flags.map((f) =>
-      f.code === 'AMOUNT_DIFFERS_FROM_TERM'
-        ? { code: f.code, details: { difference: f.details.difference.toJSON() } }
-        : f.code === 'TERM_HAS_ADJUSTMENTS'
-          ? { code: f.code, details: { adjustments: f.details.adjustments.toJSON() } }
-          : { code: f.code },
-    ),
+    flags: p.flags.map(toSplitProposalFlagDto),
   };
+}
+
+function toSplitProposalFlagDto(f: RentSplitProposalView['flags'][number]) {
+  switch (f.code) {
+    case 'AMOUNT_DIFFERS_FROM_TERM':
+      return { code: f.code, details: { difference: f.details.difference.toJSON() } };
+    case 'TERM_HAS_ADJUSTMENTS':
+      return { code: f.code, details: { adjustments: f.details.adjustments.toJSON() } };
+    case 'NO_PROPERTY_REFERENCE':
+      return { code: f.code, details: { reason: f.details.reason, mrePropertyIds: [...f.details.mrePropertyIds] } };
+    default:
+      return { code: f.code };
+  }
 }

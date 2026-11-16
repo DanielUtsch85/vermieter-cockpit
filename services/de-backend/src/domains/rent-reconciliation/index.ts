@@ -68,5 +68,5 @@ export type {
   SuggestionSnapshot,
   TransactionRentSide,
 } from './reconciliation.js';
-export { proposeRentSplit } from './split-proposal.js';
-export type { RentSplitProposal, RentTermTotals, SplitProposalFlag } from './split-proposal.js';
+export { proposeRentSplit, soleTermProperty } from './split-proposal.js';
+export type { NoPropertyReason, ProposalProperty, RentSplitProposal, RentTermBreakdown, RentTermTotals, SplitProposalFlag } from './split-proposal.js';

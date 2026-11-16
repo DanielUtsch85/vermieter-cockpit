@@ -41,6 +41,11 @@ export interface ProposalLine {
   readonly source: RentTermRef;
   /** The term's own split was larger; what was left of the payment covered only this much. */
   readonly cut: boolean;
+  /**
+   * The lease's object as the server proposes it (§37.6, #368): the PropertyReference when exactly one linked object of
+   * the lease encloses the term, else `null` and the term carries the flag `NO_PROPERTY_REFERENCE`.
+   */
+  readonly propertyReferenceId: string | null;
 }
 
 export interface CombinedProposal {
@@ -76,6 +81,7 @@ export function combineProposals(amount: MoneyValue, proposals: readonly RentSpl
         amount: asDecimal(taken),
         source: { mreTenantId: proposal.mreTenantId, mreRentTerm: proposal.mreRentTerm },
         cut: taken !== wanted,
+        propertyReferenceId: split.propertyReferenceId,
       });
       left = decimalToCents(differenceAsDecimal(left, taken)) ?? '0';
     }
@@ -83,10 +89,14 @@ export function combineProposals(amount: MoneyValue, proposals: readonly RentSpl
   return { lines, remainder: asDecimal(left) };
 }
 
+/** Whether a line of the combined proposal is taken over without an object (§37.6, #368: the hint after „übernehmen“). */
+export const linesWithoutProperty = (combined: CombinedProposal): boolean => combined.lines.some((line) => line.propertyReferenceId === null);
+
 /**
  * The split editor's draft for a combined proposal (§6.4: "Vorschlag ist editierbarer Formularentwurf"): one row per line
- * with its category and amount and no reference, and, when the lines leave a remainder, one more row over exactly that
- * remainder without a category, so the draft's sum is the Transaction's amount and the user decides what the rest is.
+ * with its category, amount and the object the server proposed for it (none when it proposed none, #368), and, when the
+ * lines leave a remainder, one more row over exactly that remainder without a category or reference, so the draft's sum
+ * is the Transaction's amount and the user decides what the rest is.
  * Undefined when there is nothing to take over or the rows would exceed the editor's 100 splits. Nothing is sent: the
  * draft is saved only by „Aufteilung speichern“ (`PUT …/splits`).
  */
@@ -94,16 +104,16 @@ export function draftFromProposal(combined: CombinedProposal, newKey: () => stri
   const rest = decimalToCents(combined.remainder);
   const restRow = rest !== undefined && /[1-9]/.test(rest);
   if (combined.lines.length === 0 || combined.lines.length + (restRow ? 1 : 0) > MAX_SPLITS) return undefined;
-  const row = (amount: string, financialCategoryCode: string): DraftRow => ({
+  const row = (amount: string, financialCategoryCode: string, propertyReferenceId: string | null): DraftRow => ({
     key: newKey(),
     amount: decimalToInput(amount) ?? amount,
     financialCategoryCode,
-    reference: { kind: 'none' },
+    reference: propertyReferenceId === null ? { kind: 'none' } : { kind: 'property', propertyReferenceId },
     kept: undefined,
     description: '',
   });
-  const rows = combined.lines.map((line) => row(line.amount, line.financialCategoryCode));
-  return restRow ? [...rows, row(combined.remainder, '')] : rows;
+  const rows = combined.lines.map((line) => row(line.amount, line.financialCategoryCode, line.propertyReferenceId));
+  return restRow ? [...rows, row(combined.remainder, '', null)] : rows;
 }
 
 export type MatchAmountProblem = AmountProblem | 'NOT_POSITIVE' | 'ABOVE_AVAILABLE';

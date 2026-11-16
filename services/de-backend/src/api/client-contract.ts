@@ -23,6 +23,7 @@ import type {
   toTransactionDto as toTransactionCoverageDto,
 } from './rent-reconciliations.js';
 import type { z } from 'zod';
+import type { RentCategoryCode } from '../application/index.js';
 import type { correctBody, reverseBody, split, toDto as toTransactionDto, toSplitDto } from './transaction-dto.js';
 import type { toSplitsDto } from './transaction-splits.js';
 
@@ -112,6 +113,8 @@ export type ReconciliationReasonInputDto = z.input<typeof releaseBody>;
 export type CreateReconciliationInputDto = z.input<typeof createBody>;
 /** `GET /rent-reconciliations/split-proposal` (api-design.md §37.6): a read; the client applies it through `PUT …/splits`. */
 export type RentSplitProposalDto = Wire<ReturnType<typeof splitProposalDto>>;
+/** The rent categories (P4-D3, api-design.md §37.1): a split in one of them is rent cash. */
+export type { RentCategoryCode };
 /** `GET /rent-reconciliations/terms/{mreTenantId}/{mreRentTerm}` (api-design.md §37.2): DE and MRE side by side. */
 export type TermCoverageDto = Wire<ReturnType<typeof toTermDto>>;
 /** `GET /transactions/{transactionId}/rent-reconciliations` (api-design.md §37.2). */

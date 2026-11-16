@@ -7,7 +7,7 @@ import { countingTokens, envelope, json, routedFetch, type Call } from '../../ap
 import type { TransactionDetailDto } from '../../api/transactions';
 import { createQueryClient } from '../../query';
 import { splitProposal, TENANT, TENANT_2, TERM, TERM_2 } from '../../rent/fixtures.test-support';
-import { category, detail, page, property, REALM_A, split, TX } from '../../transactions/fixtures.test-support';
+import { category, detail, page, property, PROPERTY, REALM_A, split, TX } from '../../transactions/fixtures.test-support';
 import { TransactionsArea } from '../transactions/TransactionsArea';
 import { findSaved } from '../technical.test-support';
 
@@ -147,10 +147,10 @@ describe('step 8: a collective payment for two months (§6.6 steps 2 and 3)', ()
     expect(put?.headers.get('if-match')).toBe('"3"');
     expect(JSON.parse(put?.body ?? 'null')).toEqual({
       splits: [
-        { amount: { amount: '700.00', currency: 'EUR' }, financialCategoryCode: 'RENT_BASE' },
-        { amount: { amount: '150.00', currency: 'EUR' }, financialCategoryCode: 'RENT_OPERATING_COST_ADVANCE' },
-        { amount: { amount: '700.00', currency: 'EUR' }, financialCategoryCode: 'RENT_BASE' },
-        { amount: { amount: '150.00', currency: 'EUR' }, financialCategoryCode: 'RENT_OPERATING_COST_ADVANCE' },
+        { amount: { amount: '700.00', currency: 'EUR' }, financialCategoryCode: 'RENT_BASE', propertyReferenceId: PROPERTY },
+        { amount: { amount: '150.00', currency: 'EUR' }, financialCategoryCode: 'RENT_OPERATING_COST_ADVANCE', propertyReferenceId: PROPERTY },
+        { amount: { amount: '700.00', currency: 'EUR' }, financialCategoryCode: 'RENT_BASE', propertyReferenceId: PROPERTY },
+        { amount: { amount: '150.00', currency: 'EUR' }, financialCategoryCode: 'RENT_OPERATING_COST_ADVANCE', propertyReferenceId: PROPERTY },
       ],
     });
     // After the save the note goes: something is saved now; nothing was confirmed, matched or written to MRE.
@@ -319,5 +319,90 @@ describe('step 8: the proposal goes when a re-read shows the booking confirmed (
     expect(calls.filter((call) => routeOf(call) === DETAIL)).toHaveLength(2);
     expect(proposals(calls)).toEqual([]);
     expect(commands(calls)).toEqual([PUT]);
+  });
+});
+
+describe('#368: the lease object in the proposal (Entscheidung des Projektinhabers, 2026-11-16)', () => {
+  const references = () =>
+    Array.from({ length: 20 }, (_, i) => control(`split-${i}-reference`))
+      .filter((select) => select !== null)
+      .map((select, i) => [select.value, control(`split-${i}-property`)?.value ?? null]);
+
+  it('one linked object: named in the proposal and set on every split taken over; no hint', async () => {
+    const calls = area({ [DETAIL]: [() => imported('850.00')], [PROPOSAL]: [() => json(200, splitProposal())] });
+    await choose(TENANT, TERM);
+    const table = await screen.findByRole('table', { name: 'Vorgeschlagene Aufteilung' });
+    expect(within(table).getAllByText('Testhaus Wohnung 1')).toHaveLength(2);
+    click('Vorschlag in Aufteilung übernehmen');
+    expect(references()).toEqual([
+      ['property', PROPERTY],
+      ['property', PROPERTY],
+    ]);
+    expect(screen.queryByText(/ohne Objekt/)).toBeNull();
+    expect(commands(calls)).toEqual([]);
+  });
+
+  it.each([
+    ['NO_PROPERTY_FOR_TERM', 'Der Mietvertrag in MRE nennt für diesen Termin kein Objekt.'],
+    ['SEVERAL_PROPERTIES', 'Der Mietvertrag in MRE umfasst für diesen Termin mehrere Objekte.'],
+    ['PROPERTY_NOT_LINKED', 'Das Objekt des Mietvertrags ist in DE nicht verknüpft.'],
+  ] as const)('%s: the reference stays empty with the reason; before saving a hint, no blocker', async (object, reason) => {
+    const saved = [
+      split({ amount: { amount: '700.00', currency: 'EUR' }, propertyReferenceId: null }),
+      split({ position: 2, financialCategoryCode: 'RENT_OPERATING_COST_ADVANCE', propertyReferenceId: null, amount: { amount: '150.00', currency: 'EUR' } }),
+    ];
+    const calls = area({
+      [DETAIL]: [() => imported('850.00'), () => imported('850.00', { status: 'CLASSIFIED', version: 4, splits: saved })],
+      [PROPOSAL]: [() => json(200, splitProposal({ object })), () => json(200, splitProposal({ object }, { flags: [] }))],
+      [PUT]: [
+        () =>
+          json(
+            200,
+            { transactionId: TX, amount: { amount: '850.00', currency: 'EUR' }, direction: 'INFLOW', status: 'CLASSIFIED', version: 4, splits: saved },
+            { etag: '"4"' },
+          ),
+      ],
+    });
+    await choose(TENANT, TERM);
+    const cards = await screen.findByRole('list', { name: 'Hinweise zum Termin' });
+    expect(cards.textContent).toBe(`${reason} Der Bezug bleibt leer; bitte das Objekt in der Aufteilung selbst wählen.`);
+    const table = screen.getByRole('table', { name: 'Vorgeschlagene Aufteilung' });
+    expect(within(table).getAllByText('Kein Bezug')).toHaveLength(2);
+    // Before the takeover the draft has no rent row: no hint yet.
+    expect(screen.queryByText(/in einer Mietkategorie ohne Objekt/)).toBeNull();
+    click('Vorschlag in Aufteilung übernehmen');
+    expect(references()).toEqual([
+      ['none', null],
+      ['none', null],
+    ]);
+    expect(screen.getByText(/Vorschlag in den Entwurf übernommen/).textContent).toContain(
+      'Mindestens ein Teilbetrag ist ohne Objekt übernommen; bitte den Bezug prüfen.',
+    );
+    const hint = screen.getByText(/Teilbeträge 1, 2 in einer Mietkategorie ohne Objekt\./);
+    expect(hint.textContent).toContain('Gespeichert wird trotzdem; nach dem Bestätigen ist der Bezug nur noch über eine Korrektur zu ändern.');
+    expect(button('Aufteilung speichern').getAttribute('aria-describedby')).toBe('split-rest split-ohne-objekt');
+    // Not a blocker: one click saves, without an object.
+    expect(button('Aufteilung speichern').disabled).toBe(false);
+    click('Aufteilung speichern');
+    await findSaved(/Aufteilung gespeichert \(Status/, 4);
+    const put = calls.find((call) => routeOf(call) === PUT);
+    expect(JSON.parse(put?.body ?? 'null')).toEqual({
+      splits: [
+        { amount: { amount: '700.00', currency: 'EUR' }, financialCategoryCode: 'RENT_BASE' },
+        { amount: { amount: '150.00', currency: 'EUR' }, financialCategoryCode: 'RENT_OPERATING_COST_ADVANCE' },
+      ],
+    });
+    // The saved splits are still rent without an object: the hint stays while they can be changed.
+    expect(screen.getByText(/Teilbeträge 1, 2 in einer Mietkategorie ohne Objekt\./)).toBeTruthy();
+  });
+
+  it('the hint follows the draft: an object chosen for a row drops it from the hint, a non-rent category is never named', async () => {
+    area({ [DETAIL]: [() => imported('850.00')] });
+    type(await screen.findByLabelText(/Kategorie/, { selector: '#split-0-category' }), 'RENT_BASE');
+    expect(screen.getByText(/Teilbetrag 1 in einer Mietkategorie ohne Objekt\./)).toBeTruthy();
+    type(control('split-0-reference'), 'property');
+    type(control('split-0-property'), PROPERTY);
+    expect(screen.queryByText(/in einer Mietkategorie ohne Objekt/)).toBeNull();
+    expect(button('Aufteilung speichern').getAttribute('aria-describedby')).toBe('split-rest');
   });
 });

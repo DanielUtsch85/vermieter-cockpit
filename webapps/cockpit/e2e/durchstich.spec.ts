@@ -148,6 +148,9 @@ test('import, review items, split from the MRE proposal, confirm, rent suggestio
   const split = page.waitForResponse((r) => /\/api\/v1\/transactions\/[^/]+\/splits$/.test(r.url()) && r.request().method() === 'PUT');
   await editor.getByRole('button', { name: 'Aufteilung speichern' }).click();
   expect((await split).status()).toBe(200);
+  // #368: the Tenant's lease has one object, linked by the seed, so the proposal set it on both splits.
+  const sent = (await split).request().postDataJSON() as { splits: { propertyReferenceId?: unknown }[] };
+  expect(sent.splits.map((s) => typeof s.propertyReferenceId)).toEqual(['string', 'string']);
   // The version is in „Technische Angaben“, not in the message (Entscheidung des Projektinhabers, 2026-11-13).
   await expect(editor.getByText('Aufteilung gespeichert (Status „Aufgeteilt“).', { exact: true })).toBeVisible();
   // The saved split at a phone's width: no side scroll, and both amounts of the read-only table whole on the screen.

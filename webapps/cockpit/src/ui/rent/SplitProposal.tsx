@@ -3,7 +3,16 @@ import { useState, type FormEvent } from 'react';
 import { ApiError } from '../../api/errors';
 import type { RentSplitProposalDto, RentTermRef } from '../../api/rent-reconciliations';
 import { formatMoney } from '../../format/money';
-import { checkTenantId, checkTermKey, combineProposals, draftFromProposal, sameTerm, type TenantIdProblem, type TermProblem } from '../../rent/split-proposal';
+import {
+  checkTenantId,
+  checkTermKey,
+  combineProposals,
+  draftFromProposal,
+  linesWithoutProperty,
+  sameTerm,
+  type TenantIdProblem,
+  type TermProblem,
+} from '../../rent/split-proposal';
 import { addCents, decimalToCents, differenceAsDecimal } from '../../transactions/split-amount';
 import { splitsEditable } from '../../transactions/split-draft';
 import { MoneyText } from '../format';
@@ -11,7 +20,7 @@ import { ErrorState, LoadingState, Notice, secondaryButtonClass } from '../state
 import { IdText } from '../IdText';
 import type { DraftSlot } from '../transactions/SplitEditor';
 import { inputClass } from '../transactions/SplitRows';
-import { categoryName, type References } from '../transactions/references';
+import { categoryName, propertyName, type References } from '../transactions/references';
 import { rentRefusalText } from './rent-labels';
 import { TenantText, TermText } from './RentParts';
 
@@ -21,6 +30,13 @@ const INPUT_TEXTS: Readonly<Record<TenantIdProblem | TermProblem | 'DUPLICATE', 
   TERM_MISSING: 'Bitte den Miettermin angeben.',
   TERM_INVALID: 'Ein Miettermin ist der MRE-Schlüssel JJJJMMTTHH mit gültigem Datum, z. B. 2026100100.',
   DUPLICATE: 'Dieser Termin dieses Mieters ist schon gewählt.',
+};
+
+/** Why the proposal names no object (api-design.md §37.6, #368). */
+const NO_PROPERTY_TEXTS: Readonly<Record<string, string>> = {
+  NO_PROPERTY_FOR_TERM: 'Der Mietvertrag in MRE nennt für diesen Termin kein Objekt.',
+  SEVERAL_PROPERTIES: 'Der Mietvertrag in MRE umfasst für diesen Termin mehrere Objekte.',
+  PROPERTY_NOT_LINKED: 'Das Objekt des Mietvertrags ist in DE nicht verknüpft.',
 };
 
 const money = (amount: string, currency: string) => <MoneyText money={{ amount, currency }} />;
@@ -47,6 +63,10 @@ function FlagText({ flag, currency }: { readonly flag: RentSplitProposalDto['fla
     );
   }
   if (flag.code === 'ALREADY_SPLIT') return <>Die Buchung ist schon aufgeteilt; der Vorschlag beachtet die gespeicherte Aufteilung nicht.</>;
+  if (flag.code === 'NO_PROPERTY_REFERENCE' && 'details' in flag && 'reason' in flag.details) {
+    const why = Object.hasOwn(NO_PROPERTY_TEXTS, flag.details.reason) ? NO_PROPERTY_TEXTS[flag.details.reason] : `Grund ${flag.details.reason}.`;
+    return <>{`${why} Der Bezug bleibt leer; bitte das Objekt in der Aufteilung selbst wählen.`}</>;
+  }
   return (
     <>
       {'Hinweis des Servers '}
@@ -270,6 +290,9 @@ export function SplitProposal(props: {
                     <th scope="col" className="p-2">
                       Termin
                     </th>
+                    <th scope="col" className="p-2">
+                      Bezug
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
@@ -289,12 +312,19 @@ export function SplitProposal(props: {
                       <td className="p-2">
                         <TenantText id={line.source.mreTenantId} /> · <TermText term={line.source.mreRentTerm} />
                       </td>
+                      <td className="p-2">
+                        {line.propertyReferenceId === null ? (
+                          'Kein Bezug'
+                        ) : (
+                          <IdText name={propertyName(props.references, line.propertyReferenceId)} id={line.propertyReferenceId} />
+                        )}
+                      </td>
                     </tr>
                   ))}
                   <tr>
                     <td className="p-2 font-semibold">Nicht zugeordneter Rest</td>
                     <td className="p-2 text-right font-semibold">{money(combined.remainder, currency)}</td>
-                    <td className="p-2 text-muted">
+                    <td colSpan={2} className="p-2 text-muted">
                       {combined.remainder === '0.00'
                         ? 'Die Teilbeträge decken die Zahlung genau.'
                         : 'Wird als eigene Zeile ohne Kategorie übernommen; bitte selbst zuordnen.'}
@@ -329,7 +359,10 @@ export function SplitProposal(props: {
           )}
           {applied === t.version && (
             <div role="status">
-              <Notice tone="info">Vorschlag in den Entwurf übernommen. Noch ist nichts gespeichert: „Aufteilung speichern“ sendet die Aufteilung.</Notice>
+              <Notice tone="info">
+                Vorschlag in den Entwurf übernommen. Noch ist nichts gespeichert: „Aufteilung speichern“ sendet die Aufteilung.
+                {combined !== undefined && linesWithoutProperty(combined) && ' Mindestens ein Teilbetrag ist ohne Objekt übernommen; bitte den Bezug prüfen.'}
+              </Notice>
             </div>
           )}
           {reads.some((read) => read.error instanceof ApiError && read.error.status === 503) && (

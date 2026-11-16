@@ -421,7 +421,11 @@ describe.skipIf(databaseUrl === undefined)('Slice 1 acceptance (definition of do
           leaseMs: 4000,
         }),
         getWithPresence: getReconciliationWithPresence({ repository: new PostgresRentReconciliationRepository(db), readTerm: mreWriteBackTermReader(client) }),
-        splitProposal: getRentSplitProposal({ queries: new PostgresTransactionQueries(db), readBreakdown: mreRentBreakdownReader(client) }),
+        splitProposal: getRentSplitProposal({
+          queries: new PostgresTransactionQueries(db),
+          readBreakdown: mreRentBreakdownReader(client),
+          findLinkedPropertyReference: (realm, id) => propertyReferences.repository.findLinkedId(realm, id),
+        }),
         removeFromMre: removeFromMre({
           repository: new PostgresRentReconciliationRepository(db),
           readTerm: mreWriteBackTermReader(client),

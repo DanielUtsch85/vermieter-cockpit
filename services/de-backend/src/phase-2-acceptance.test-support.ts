@@ -472,7 +472,11 @@ export function usePhase2App(name: `${string}_e2e`, options: { readonly taxState
           leaseMs: 4000,
         }),
         getWithPresence: getReconciliationWithPresence({ repository: new PostgresRentReconciliationRepository(db), readTerm: mreWriteBackTermReader(client) }),
-        splitProposal: getRentSplitProposal({ queries: new PostgresTransactionQueries(db), readBreakdown: mreRentBreakdownReader(client) }),
+        splitProposal: getRentSplitProposal({
+          queries: new PostgresTransactionQueries(db),
+          readBreakdown: mreRentBreakdownReader(client),
+          findLinkedPropertyReference: (realm, id) => propertyReferences.repository.findLinkedId(realm, id),
+        }),
         removeFromMre: removeFromMre({
           repository: new PostgresRentReconciliationRepository(db),
           readTerm: mreWriteBackTermReader(client),

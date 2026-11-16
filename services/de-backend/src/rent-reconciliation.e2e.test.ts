@@ -28,6 +28,7 @@ import {
   PostgresCorrectionRepository,
   PostgresFinancialAccountRepository,
   PostgresRentReconciliationRepository,
+  PostgresPropertyReferenceRepository,
   PostgresTransactionQueries,
   PostgresTransactionRepository,
   PostgresTransactionSplitRepository,
@@ -75,19 +76,30 @@ const TENANT_E = '6512f0c2a1b2c3d4e5f60e01';
 // Realm G for the split proposal (#126, §37.6): rent 650 and charges 150 stored on the Tenant, as MRE's list carries them.
 const REALM_G = '64b0c0ffee0000000000001e';
 const TENANT_G = '6512f0c2a1b2c3d4e5f60e71';
+// #368: Tenant G's one flat, and Tenant G2 with a flat and a garage under one lease (in April, so suggest stays unambiguous).
+const TENANT_G2 = '6512f0c2a1b2c3d4e5f60e72';
+const FLAT_G = '6a0000000000000000000001';
+const GARAGE_G = '6a0000000000000000000002';
 const realmG: FakeRealm = {
   _id: REALM_G,
   name: 'G',
   members: [{ name: 'Anna', email: 'anna@example.com', role: 'administrator', registered: true }],
   applications: [],
-  rents: { [TENANT_G]: [2028030100] },
+  rents: { [TENANT_G]: [2028030100], [TENANT_G2]: [2028040100] },
   tenants: [
+    {
+      _id: TENANT_G2,
+      properties: [
+        { property: { _id: FLAT_G }, rent: 650, entryDate: '01/01/2028', exitDate: '31/12/2028', expenses: [{ title: 'Nebenkosten', amount: 100 }] },
+        { property: { _id: GARAGE_G }, rent: 50, entryDate: '01/04/2028', exitDate: '31/12/2028', expenses: [] },
+      ],
+    },
     {
       _id: TENANT_G,
       name: 'Mieterin G',
       properties: [
         {
-          property: { name: 'Wohnung G' },
+          property: { _id: FLAT_G, name: 'Wohnung G' },
           rent: 650,
           entryDate: '01/01/2028',
           exitDate: '31/12/2028',
@@ -200,7 +212,11 @@ describe.skipIf(databaseUrl === undefined)('rent reconciliation end to end', () 
             leaseMs: 300,
           }),
           getWithPresence: getReconciliationWithPresence({ repository: reconciliations, readTerm: mreWriteBackTermReader(lookupClient) }),
-          splitProposal: getRentSplitProposal({ queries: new PostgresTransactionQueries(db), readBreakdown: mreRentBreakdownReader(lookupClient) }),
+          splitProposal: getRentSplitProposal({
+            queries: new PostgresTransactionQueries(db),
+            readBreakdown: mreRentBreakdownReader(lookupClient),
+            findLinkedPropertyReference: (realm, id) => new PostgresPropertyReferenceRepository(db).findLinkedId(realm, id),
+          }),
           removeFromMre: removeFromMre({
             repository: reconciliations,
             readTerm: mreWriteBackTermReader(lookupClient),
@@ -704,7 +720,7 @@ describe.skipIf(databaseUrl === undefined)('rent reconciliation end to end', () 
     ]);
   });
 
-  it('#126 (§37.6): suggest says why it found nothing; the split proposal from the stored term, applied and confirmed, is then suggested', async () => {
+  it('#126 and #368 (§37.6): suggest says why it found nothing; the split proposal with the linked property, applied and confirmed, is then suggested', async () => {
     const G = (method: string, path: string, body?: unknown) => call(REALM_G, method, path, body);
     const account = (await (await G('POST', '/financial-accounts', { accountType: 'BANK', displayName: 'Giro G', currency: 'EUR' })).json()) as {
       financialAccountId: string;
@@ -723,14 +739,37 @@ describe.skipIf(databaseUrl === undefined)('rent reconciliation end to end', () 
     };
     expect(before).toMatchObject({ items: [], skipped: { unconfirmed: 1, noRentCash: 0 } });
 
-    const res = await G('GET', `/rent-reconciliations/split-proposal?transactionId=${tx.transactionId}&mreTenantId=${TENANT_G}&mreRentTerm=2028030100`);
-    expect(res.status, await res.clone().text()).toBe(200);
-    const proposal = (await res.json()) as { splits: { financialCategoryCode: string; amount: { amount: string; currency: string } }[]; flags: unknown[] };
+    const propose = async (tenant: string, term = '2028030100') => {
+      const res = await G('GET', `/rent-reconciliations/split-proposal?transactionId=${tx.transactionId}&mreTenantId=${tenant}&mreRentTerm=${term}`);
+      expect(res.status, await res.clone().text()).toBe(200);
+      return (await res.json()) as { splits: { financialCategoryCode: string; amount: { amount: string; currency: string } }[]; flags: unknown[] };
+    };
+    const splitsOf = (propertyReferenceId: string | null) => [
+      { financialCategoryCode: 'RENT_BASE', amount: eur('650.00'), propertyReferenceId },
+      { financialCategoryCode: 'RENT_OPERATING_COST_ADVANCE', amount: eur('150.00'), propertyReferenceId },
+    ];
+    const audits = async () => Number((await pool.query<{ n: string }>('SELECT count(*) AS n FROM audit_record')).rows[0]?.n);
+    // #368: the flat linked in another Realm only is not this Realm's link; the proposal writes no AuditRecord.
+    const links = new PostgresPropertyReferenceRepository(createDatabase(pool));
+    const draft = { mrePropertyId: FLAT_G, displayName: 'Wohnung G', cachedAddress: null, cachedSurface: null, refreshedAt: new Date() };
+    await links.linkOnce({ ...draft, mreRealmId: REALM_B }, { actorType: 'USER', actorId: 'anna@example.com' });
+    const auditsBefore = await audits();
+    expect(await propose(TENANT_G)).toMatchObject({
+      property: { mrePropertyIds: [FLAT_G], propertyReferenceId: null },
+      splits: splitsOf(null),
+      flags: [{ code: 'NO_PROPERTY_REFERENCE', details: { reason: 'PROPERTY_NOT_LINKED', mrePropertyIds: [FLAT_G] } }],
+    });
+    expect(await audits()).toBe(auditsBefore);
+    const { reference } = await links.linkOnce({ ...draft, mreRealmId: REALM_G }, { actorType: 'USER', actorId: 'anna@example.com' });
+    // A flat and a garage under one lease: no property, even with the flat linked.
+    expect(await propose(TENANT_G2, '2028040100')).toMatchObject({
+      property: { mrePropertyIds: [FLAT_G, GARAGE_G], propertyReferenceId: null },
+      flags: [{ code: 'NO_PROPERTY_REFERENCE', details: { reason: 'SEVERAL_PROPERTIES', mrePropertyIds: [FLAT_G, GARAGE_G] } }],
+    });
+    const proposal = await propose(TENANT_G);
     expect(proposal).toMatchObject({
-      splits: [
-        { financialCategoryCode: 'RENT_BASE', amount: eur('650.00') },
-        { financialCategoryCode: 'RENT_OPERATING_COST_ADVANCE', amount: eur('150.00') },
-      ],
+      property: { mrePropertyIds: [FLAT_G], propertyReferenceId: reference.id },
+      splits: splitsOf(reference.id),
       unallocated: eur('0.00'),
       flags: [],
     });
@@ -738,7 +777,13 @@ describe.skipIf(databaseUrl === undefined)('rent reconciliation end to end', () 
     expect(
       (await G('GET', `/rent-reconciliations/split-proposal?transactionId=${tx.transactionId}&mreTenantId=${TENANT_G}&mreRentTerm=2028040100`)).status,
     ).toBe(422);
-    expect((await G('PUT', `/transactions/${tx.transactionId}/splits`, { splits: proposal.splits })).status).toBe(200);
+    const applied = await G('PUT', `/transactions/${tx.transactionId}/splits`, { splits: proposal.splits });
+    expect(applied.status).toBe(200);
+    // Applied unchanged, the property stays on every split.
+    expect(((await applied.json()) as { splits: { propertyReferenceId: string | null }[] }).splits.map((x) => x.propertyReferenceId)).toEqual([
+      reference.id,
+      reference.id,
+    ]);
     expect((await G('POST', `/transactions/${tx.transactionId}/confirm`)).status).toBe(200);
     // Confirmed now: no more proposal; and suggest finds the payment.
     expect(

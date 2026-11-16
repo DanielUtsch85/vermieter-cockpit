@@ -2590,7 +2590,7 @@ Decision P4-D7 of `docs/development/phase-4-plan.md`: the protocol of §37.4 in 
 
 ## 37.6 Rent split proposal and the suggest hint (#126, real-data run F11, implemented)
 
-**Amended by VC-X-73 (#368): specified, not implemented.** The proposal names the lease's property and sets it on every split when exactly one property of the lease encloses the term and it is linked (open question 1 there; "The lease's property in the proposal" below).
+**Amended by VC-X-73 (#368): implemented (#374), open question 1 read as proposed until the owner answers it.** The proposal names the lease's property and sets it on every split when exactly one property of the lease encloses the term and it is linked (open question 1 there; "The lease's property in the proposal" below).
 
 Finding F11 of `real-data-run.md`: every rent payment needs `PUT …/splits` (`RENT_BASE` + `RENT_OPERATING_COST_ADVANCE`) and `confirm` before `suggest` sees it (P4-D3), and the split always repeats MRE's own breakdown of the term. A suggest run over unsplit or unconfirmed inflows answered an empty list without saying why.
 
@@ -2638,9 +2638,9 @@ Both are counts (non-negative integers), read in §37.3's snapshot; a Transactio
 - **Suggest:** `skipped` with an unconfirmed, a counted non-rent (a deposit receipt) and a counted rent inflow in the window, one outside it, an ignored one, and one of another Realm.
 - **End to end:** the real-data shape (rent plus advance) through the proposal, `PUT …/splits` with it, `confirm`, then `suggest` finds it.
 
-### The lease's property in the proposal (#368, VC-X-73, specified, not implemented)
+### The lease's property in the proposal (#368, VC-X-73, implemented)
 
-**Status:** specified, not implemented (backlog VC-X-73). It amends this section's MRE read, response and tests; the refusals, the arithmetic of the proposal and the other flags are unchanged. No migration.
+**Status:** implemented in #374 (backlog VC-X-73); see "As implemented (VC-X-73)" below. It amends this section's MRE read, response and tests; the refusals, the arithmetic of the proposal and the other flags are unchanged. No migration.
 
 **Decided by the owner on 2026-11-16 (chat)** (verbatim; Entscheidung des Projektinhabers, 2026-11-16):
 
@@ -2675,6 +2675,14 @@ Both are counts (non-negative integers), read in §37.3's snapshot; a Transactio
 **Open questions for review** (numbered across §32.6, §37.6 and §37.7, as in the spec PR):
 
 1. **"Genau ein verknüpftes Objekt am Mietvertrag":** **Proposal:** the reading of #368, "Hat der Mietvertrag des Termins genau ein Objekt, und ist es verknüpft": exactly one MRE property encloses the term, and it is linked; a lease with a flat and a garage gets no property (`SEVERAL_PROPERTIES`), even when only the flat is linked. **Alternative:** exactly one of the enclosing properties is linked, and it is taken even when others are not, so the garage's share of the rent would be booked on the flat.
+
+**As implemented (VC-X-73, #374):** as specified above, with open question 1 read as its proposal (exactly one enclosing MRE property, and it linked) until the owner answers it. Narrowest readings where the text leaves room, each listed in the PR for the owner:
+
+- the PropertyReference is read only when exactly one MRE property encloses the term (`soleTermProperty`): with none or several the reason does not depend on a link, so no second DE read is made (`PostgresPropertyReferenceRepository.findLinkedId`, its own `REPEATABLE READ READ ONLY` transaction, filtered by the Realm);
+- the `_id` check (`^[0-9a-f]{24}$`, else `UNAVAILABLE`) applies to the entries that enclose the term, the ones whose ids are kept; an entry outside the term or without its record is skipped before it, as before;
+- `NO_PROPERTY_REFERENCE` is the last flag, after `ALREADY_SPLIT`.
+
+The cockpit takes it over (#368, same PR): „Vorschlag in Aufteilung übernehmen“ sets the proposed object as „Bezug: Objekt“ of every row of that term, or leaves „Kein Bezug“ with the flag's reason shown at the term and a note after the takeover; the proposal table shows the object per line. Before saving, a rent category (`RENT_BASE`, `RENT_OPERATING_COST_ADVANCE`, `RENT_OPERATING_COST_SETTLEMENT`) without an object gets a hint at the save button, no blocker (Entscheidung des Projektinhabers, 2026-11-16). The client refuses a proposal whose splits name different objects, or whose object and flag disagree.
 
 ## 37.7 Choosing the Tenant and the term: the Realm's Tenants and a Tenant's terms (#364, VC-X-72, specified, not implemented)
 
