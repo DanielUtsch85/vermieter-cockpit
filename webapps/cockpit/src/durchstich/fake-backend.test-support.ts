@@ -229,7 +229,10 @@ export function createBackend(real: RealMappings): Backend {
       continuity: null,
       continuityMissing: null,
     };
-    /** VC-X-75: the dates of the rows the batch took on; VC-X-77: whether a valid row had a balance. */
+    /**
+     * VC-X-75: the dates of the rows the batch took on and of the Transactions its duplicates name (Entscheidung des
+     * Projektinhabers, 2026-11-16); VC-X-77: whether a valid row had a balance.
+     */
     const dates: string[] = [];
     let balanced = false;
     lines.forEach((line, index) => {
@@ -251,6 +254,7 @@ export function createBackend(real: RealMappings): Backend {
       if (same !== undefined) {
         batch.duplicateCount += 1;
         batch.rows.push({ outcome: 'duplicate', position, duplicateOf: 'TRANSACTION', transactionId: same.id });
+        dates.push(same.bookingDate);
         return;
       }
       const pending = [...items.values()].find((i) => i.mreRealmId === realm && i.sourceRowKey === identity);

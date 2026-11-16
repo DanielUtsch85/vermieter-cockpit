@@ -73,4 +73,17 @@ describe('Bisherige Importe in the Durchstich (#369)', () => {
     expect(searches).toContain(`?page=1&pageSize=20&status=NEEDS_REVIEW&financialAccountId=${ACCOUNT}`);
     expect(searches.at(-1)).toBe('?page=1&pageSize=20&status=NEEDS_REVIEW');
   });
+
+  it('the same file again: its duplicates make its booking range, the re-presented review item does not (VC-X-75, 2026-11-16)', async () => {
+    await openApp(backend(), IMPORT);
+    await importCsv();
+    await go(IMPORT);
+    await importCsv();
+    await go(IMPORT);
+    const [again, first] = await within(await list()).findAllByRole('listitem');
+    // 01.10. and 05.10. are duplicates of the first import's Transactions; 15.10. re-presents the first import's item.
+    expect(again?.textContent).toContain('2 Duplikate');
+    expect(within(again as HTMLElement).getByText('Buchungen 01.10.2026 – 05.10.2026')).toBeTruthy();
+    expect(within(first as HTMLElement).getByText('Buchungen 01.10.2026 – 15.10.2026')).toBeTruthy();
+  });
 });

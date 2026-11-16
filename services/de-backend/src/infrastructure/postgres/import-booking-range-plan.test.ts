@@ -9,8 +9,9 @@ import { testSchemaName } from './test-schema.test-support.js';
 /**
  * VC-X-75 (api-design.md §32.6): the plan of the booking-range statement a list page sends, read with `EXPLAIN` from
  * the statement actually sent. It needs no index of its own: the Transactions are read by their primary key (the ids
- * the batch's `created` rows name; the planner may take `UNIQUE (id, mre_realm_id)` instead), the review items through `import_review_item_batch_idx` (0006): exactly the page's
- * items are read, no table is scanned whole. Counter-check: without that index (dropped in a rolled-back transaction)
+ * the batch's `created` and `duplicate` rows name; the planner may take `UNIQUE (id, mre_realm_id)` instead), the
+ * review items its `duplicate` rows name by their primary key, its own review items through `import_review_item_batch_idx`
+ * (0006): exactly the page's items are read, no table is scanned whole. Counter-check: without that index (dropped in a rolled-back transaction)
  * the same statement reads at least every review item of the Realm.
  */
 const databaseUrl = process.env['DE_TEST_DATABASE_URL'];
@@ -89,6 +90,22 @@ describe.skipIf(databaseUrl === undefined)('the plan of the booking range (§32.
          'RESOLVED', 'SKIP', 'x', now()
        FROM import_batch b, generate_series(1, 2) g`,
     );
+    // Two duplicate rows per batch (VC-X-75 amended): one naming an earlier batch's Transaction, one an earlier batch's
+    // resolved review item, both of the same Realm; their dates lie inside the batch's own range.
+    await pool.query(
+      `UPDATE import_batch b SET rows = b.rows || jsonb_build_array(
+         jsonb_build_object('outcome', 'duplicate', 'position', 21, 'duplicateOf', 'TRANSACTION', 'transactionId', o.transaction_id),
+         jsonb_build_object('outcome', 'duplicate', 'position', 22, 'duplicateOf', 'RESOLVED_REVIEW_ITEM', 'reviewItemId', o.item_id,
+           'importBatchId', o.batch_id, 'resolution', 'SKIP'))
+       FROM (
+         SELECT p.id AS batch_id, p.mre_realm_id,
+           (SELECT t.id FROM ledger_transaction t WHERE t.import_batch_id = p.id AND t.source_row_key = 'pos:5') AS transaction_id,
+           (SELECT i.id FROM import_review_item i WHERE i.import_batch_id = p.id AND i.source_row_key = 'pos:101') AS item_id,
+           lead(p.id) OVER (PARTITION BY p.mre_realm_id ORDER BY p.imported_at) AS next_id
+         FROM import_batch p
+       ) o
+       WHERE b.id = o.next_id`,
+    );
     await pool.query(`ANALYZE`);
   }, 120_000);
 
@@ -111,13 +128,13 @@ describe.skipIf(databaseUrl === undefined)('the plan of the booking range (§32.
     return nodes(rows[0]['QUERY PLAN'][0].Plan as PlanNode);
   };
   const seqScans = (plan: readonly PlanNode[]) => plan.filter((n) => n['Node Type'] === 'Seq Scan').map((n) => n['Relation Name']);
-  /** The review-item rows the statement looked at: those it kept and those its filter dropped, over all loops. */
-  const itemRowsRead = (plan: readonly PlanNode[]) =>
+  /** The review-item rows the statement looked at (through `index`, or any way): kept and dropped, over all loops. */
+  const itemRowsRead = (plan: readonly PlanNode[], index?: string) =>
     plan
-      .filter((n) => n['Relation Name'] === 'import_review_item')
+      .filter((n) => n['Relation Name'] === 'import_review_item' && (index === undefined || n['Index Name'] === index))
       .reduce((sum, n) => sum + (n['Actual Rows'] + (n['Rows Removed by Filter'] ?? 0)) * (n['Actual Loops'] ?? 1), 0);
 
-  it('reads the page s Transactions by primary key and its review items by their batch; no table is scanned whole', async () => {
+  it('reads the page s Transactions and named review items by primary key and its own items by their batch; no table is scanned whole', async () => {
     const plan = await planOf(pool, await rangeQuery());
     expect(seqScans(plan)).toEqual([]);
     // The Transactions by their id: the primary key, or `UNIQUE (id, mre_realm_id)` whose first column is the id too.
@@ -129,8 +146,15 @@ describe.skipIf(databaseUrl === undefined)('the plan of the booking range (§32.
       expect(scan['Actual Rows']).toBe(1);
     }
     expect(plan.map((n) => n['Index Name'])).toContain('import_review_item_batch_idx');
-    // Exactly the page's items: two per batch.
-    expect(itemRowsRead(plan)).toBe(2 * PAGE_SIZE);
+    // Exactly the page's own items (two per batch) and the items its duplicate rows name (one per batch), by primary key.
+    const named = plan.filter((n) => n['Relation Name'] === 'import_review_item' && n['Index Name'] === 'import_review_item_pkey');
+    expect(named.length).toBeGreaterThan(0);
+    for (const scan of named) {
+      expect(scan['Node Type']).toBe('Index Scan');
+      expect(scan['Actual Rows']).toBe(1);
+    }
+    expect(itemRowsRead(plan, 'import_review_item_pkey')).toBe(PAGE_SIZE);
+    expect(itemRowsRead(plan)).toBe(3 * PAGE_SIZE);
   });
 
   it('counter-check: without the review-item index the same statement reads every item of the Realm (or the table)', async () => {
