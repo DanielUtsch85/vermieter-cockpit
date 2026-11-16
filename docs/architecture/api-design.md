@@ -2686,7 +2686,7 @@ The cockpit takes it over (#368, same PR): „Vorschlag in Aufteilung übernehme
 
 ## 37.7 Choosing the Tenant and the term: the Realm's Tenants and a Tenant's terms (#364, VC-X-72, implemented)
 
-**Status:** implemented in #PRNUM (backlog VC-X-72), backend and cockpit in one PR; open questions 2–4 read as proposed until the owner answers them; see "As implemented (VC-X-72)" below. Two reads, no write, no migration. They add two routes to §37's route list; nothing of §37.1–37.6 changes. The routes that take `mreTenantId` and `mreRentTerm` (§37.1, §37.2, §37.6) keep them as they are, so a typed id stays possible.
+**Status:** implemented in #375 (backlog VC-X-72), backend and cockpit in one PR; open questions 2–4 read as proposed until the owner answers them; see "As implemented (VC-X-72)" below. Two reads, no write, no migration. They add two routes to §37's route list; nothing of §37.1–37.6 changes. The routes that take `mreTenantId` and `mreRentTerm` (§37.1, §37.2, §37.6) keep them as they are, so a typed id stays possible.
 
 **Decided by the owner on 2026-11-16 (chat)** (verbatim; Entscheidung des Projektinhabers, 2026-11-16):
 
@@ -2754,7 +2754,7 @@ Both routes change `docs/development/api-inventory.md` (`yarn api:inventory`, 17
 - **(b):** the query `400`s; `AVAILABLE` with a term on both sides, on the MRE side only and on the DE side only (`inMre: false`); `matchedTotal` over `CONFIRMED` only; coverage at its boundaries (as §37.2); `NOT_RETURNED` for an unknown Tenant and for one of another Realm, both with the DE side; `UNAVAILABLE` when one month of the window fails, with the DE side; `401` / `403` passed through; nothing of a Tenant but the ids in the result or a log; the window edges (a term of the month before `from` and after `to` not listed).
 - **Mutations** (each alone, restored byte for byte): the Realm filter dropped from either DE read; `RELEASED` summed into `matchedTotal`; a failed month skipped instead of `UNAVAILABLE`; the DE-only terms left out; the Tenant check skipped (an unknown Tenant answered `AVAILABLE` with an empty list); the window's upper bound exclusive.
 
-### As implemented (VC-X-72, #PRNUM)
+### As implemented (VC-X-72, #375)
 
 As specified above, with open questions 2–4 read as their proposals until the owner answers them: (a) counts reconciliations of any status; (b) takes `from` and `to` as required, at most 12 months; an unknown Tenant answers `200` with `NOT_RETURNED`. Where the text leaves room, the narrowest reading, each listed in the PR for the owner:
 
