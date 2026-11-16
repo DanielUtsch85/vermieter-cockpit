@@ -22,8 +22,9 @@ import { testSchemaName } from './test-schema.test-support.js';
 /**
  * VC-X-75 (api-design.md §32.6, Entscheidung des Projektinhabers, 2026-11-16): `firstBookingDate` / `lastBookingDate`
  * of a batch, past the repository. Batches come from the real import, so their rows are what an upload stores: the
- * Transactions of `created` rows and the batch's own review items count; duplicates, rows re-presenting another
- * batch's item, errors and skipped rows do not. The upload answer, the single read and the list answer the same range.
+ * Transactions of `created` rows, the Transactions and review items `duplicate` rows name (Entscheidung des
+ * Projektinhabers, 2026-11-16) and the batch's own review items count; rows re-presenting another batch's pending item,
+ * errors and skipped rows do not. The upload answer, the single read and the list answer the same range.
  * Synthetic data only.
  */
 const databaseUrl = process.env['DE_TEST_DATABASE_URL'];
@@ -166,34 +167,118 @@ describe.skipIf(databaseUrl === undefined)('the booking range of an import (§32
     expect(range((await imports.findBatch(second.id, realm)) as ImportBatch)).toEqual(['2026-08-01', '2026-09-28']);
   });
 
-  it('duplicates and rows re-presenting another batch s item do not count: the same file again has no range', async () => {
+  it('the same file again: its duplicates have the range of the Transactions they name, errors and skipped rows still out', async () => {
     const realm = freshRealm();
     const account = await openAccount(realm);
-    await run(realm, account, [{ bookingDate: '2026-07-01', description: 'Miete Juli' }]);
-    const specs: RowSpec[] = [{ bookingDate: '2026-07-01', description: 'Miete Juli' }, { bookingDate: '2026-07-31' }];
-    const owning = await run(realm, account, specs);
-    expect(owning.rows.map((r) => r.outcome)).toEqual(['needs_review', 'created']);
+    const specs: RowSpec[] = [{ bookingDate: '2026-10-31' }, { error: 'INVALID_FORMAT' }, { bookingDate: '2026-10-01' }, { error: 'ZERO_AMOUNT' }];
+    const first = await run(realm, account, specs);
+    expect(first.rows.map((r) => r.outcome)).toEqual(['created', 'error', 'created', 'skipped']);
     const again = await run(realm, account, specs);
-    // The created row is a duplicate now, the review row re-presents the owning batch's PENDING item.
-    expect(again.rows.map((r) => r.outcome)).toEqual(['needs_review', 'duplicate']);
-    expect(again.needsReviewCount).toBe(0);
-    expect(await rangesOf(realm, again)).toEqual([null, null]);
-    expect(await rangesOf(realm, owning)).toEqual(['2026-07-01', '2026-07-31']);
+    expect(again.rows.map((r) => r.outcome)).toEqual(['duplicate', 'error', 'duplicate', 'skipped']);
+    expect(again.rows.filter((r) => r.outcome === 'duplicate')).toMatchObject([{ duplicateOf: 'TRANSACTION' }, { duplicateOf: 'TRANSACTION' }]);
+    expect(again.transactionCount).toBe(0);
+    expect(await rangesOf(realm, again)).toEqual(['2026-10-01', '2026-10-31']);
+    expect(await rangesOf(realm, first)).toEqual(['2026-10-01', '2026-10-31']);
   });
 
-  it('another Realm s rows never count, not even when a batch of Realm A names its Transaction', async () => {
+  it('a duplicate naming another batch s resolved review item counts with the item s booking date, after CREATE and after SKIP', async () => {
+    const realm = freshRealm();
+    const account = await openAccount(realm);
+    for (const [date, description, resolution] of [
+      ['2026-06-01', 'Miete Juni', 'CREATE'],
+      ['2026-06-02', 'Miete Juni 2', 'SKIP'],
+    ] as const) {
+      await run(realm, account, [{ bookingDate: date, description }]);
+      // The row again in another file: a review item of that batch (same content, other statement).
+      const file: RowSpec[] = [{ bookingDate: date, description }, { error: 'INVALID_FORMAT' }];
+      const owning = await run(realm, account, file);
+      expect(owning.rows.map((r) => r.outcome)).toEqual(['needs_review', 'error']);
+      const [item] = (await imports.listReviewItems(owning.id, realm))?.items ?? [];
+      if (item === undefined) throw new Error('no review item');
+      expect((await imports.resolveReviewItem(owning.id, item.id, realm, resolution, actor)).kind).toBe('RESOLVED');
+      // The owning file again: its row is a duplicate naming the owning batch's resolved item, the only dated row.
+      const again = await run(realm, account, file);
+      expect(again.rows.map((r) => r.outcome)).toEqual(['duplicate', 'error']);
+      expect(again.rows[0]).toMatchObject({ duplicateOf: 'RESOLVED_REVIEW_ITEM', reviewItemId: item.id, importBatchId: owning.id, resolution });
+      expect(await rangesOf(realm, again)).toEqual([date, date]);
+      expect(await rangesOf(realm, owning)).toEqual([date, date]);
+    }
+  });
+
+  it('mixed: both kinds of duplicates count; a row re-presenting another batch s pending item, errors and skipped rows do not', async () => {
+    const realm = freshRealm();
+    const account = await openAccount(realm);
+    await run(realm, account, [
+      { bookingDate: '2026-01-15', description: 'Miete Januar' },
+      { bookingDate: '2026-02-01', description: 'Miete Februar' },
+    ]);
+    const file: RowSpec[] = [
+      { bookingDate: '2026-01-15', description: 'Miete Januar' },
+      { bookingDate: '2026-02-01', description: 'Miete Februar' },
+      { error: 'INVALID_FORMAT' },
+      { bookingDate: '2026-03-10' },
+      { error: 'ZERO_AMOUNT' },
+    ];
+    const owning = await run(realm, account, file);
+    expect(owning.rows.map((r) => r.outcome)).toEqual(['needs_review', 'needs_review', 'error', 'created', 'skipped']);
+    // Februar is skipped, Januar stays PENDING.
+    const items = (await imports.listReviewItems(owning.id, realm))?.items ?? [];
+    const februar = items.find((i) => i.normalizedRow['bookingDate'] === '2026-02-01');
+    if (februar === undefined) throw new Error('no review item');
+    expect((await imports.resolveReviewItem(owning.id, februar.id, realm, 'SKIP', actor)).kind).toBe('RESOLVED');
+
+    const again = await run(realm, account, file);
+    expect(again.rows.map((r) => r.outcome)).toEqual(['needs_review', 'duplicate', 'error', 'duplicate', 'skipped']);
+    expect(again.rows[0]).toMatchObject({ importBatchId: owning.id });
+    expect(again.rows[1]).toMatchObject({ duplicateOf: 'RESOLVED_REVIEW_ITEM', reviewItemId: februar.id });
+    expect(again.rows[3]).toMatchObject({ duplicateOf: 'TRANSACTION' });
+    // The pending Januar item (15.01.) is owned by the first batch; the earliest here is the Februar item.
+    expect(await rangesOf(realm, again)).toEqual(['2026-02-01', '2026-03-10']);
+    expect(await rangesOf(realm, owning)).toEqual(['2026-01-15', '2026-03-10']);
+  });
+
+  /** A resolved review item of OTHER_REALM, its own batch and booking date. */
+  async function foreignResolvedItem(): Promise<{ id: string; batchId: string }> {
+    const account = await openAccount(OTHER_REALM);
+    await run(OTHER_REALM, account, [{ bookingDate: '2024-05-05', description: 'Miete Mai fremd' }]);
+    const owning = await run(OTHER_REALM, account, [{ bookingDate: '2024-05-05', description: 'Miete Mai fremd' }, { error: 'INVALID_FORMAT' }]);
+    const [item] = (await imports.listReviewItems(owning.id, OTHER_REALM))?.items ?? [];
+    if (item === undefined) throw new Error('no review item');
+    expect((await imports.resolveReviewItem(owning.id, item.id, OTHER_REALM, 'SKIP', actor)).kind).toBe('RESOLVED');
+    return { id: item.id, batchId: owning.id };
+  }
+
+  it('another Realm s rows never count, not even when a batch of Realm A names its Transaction or review item', async () => {
     const realm = freshRealm();
     const other = await run(OTHER_REALM, await openAccount(OTHER_REALM), [{ bookingDate: '2025-01-02' }, { bookingDate: '2025-12-30', amount: '7.00' }]);
     expect(range(other)).toEqual(['2025-01-02', '2025-12-30']);
     const foreignTransaction = other.rows.flatMap((r) => (r.outcome === 'created' ? [r.transactionId] : []))[0];
-    // Not possible through the import: a batch of Realm A whose stored row names Realm B's Transaction.
+    // Not possible through the import: a batch of Realm A whose stored rows name Realm B's Transaction (created and
+    // duplicate) and Realm B's resolved review item (duplicate).
     const account = await openAccount(realm);
     const crafted = '00000000-0000-4000-8000-0000000000a1';
+    const foreignItem = await foreignResolvedItem();
     await pool.query(
       `INSERT INTO import_batch (id, mre_realm_id, financial_account_id, adapter_id, adapter_version, content_hash, provenance, status,
          transaction_count, duplicate_count, needs_review_count, error_count, skipped_count, rows, imported_by)
        VALUES ($1, $2, $3, 'generic-csv', '1', 'crafted', 'BANK_CSV', 'COMPLETED', 1, 0, 0, 0, 0, $4, 'anna@example.com')`,
-      [crafted, realm, account, JSON.stringify([{ outcome: 'created', position: 1, transactionId: foreignTransaction }])],
+      [
+        crafted,
+        realm,
+        account,
+        JSON.stringify([
+          { outcome: 'created', position: 1, transactionId: foreignTransaction },
+          { outcome: 'duplicate', position: 2, duplicateOf: 'TRANSACTION', transactionId: foreignTransaction },
+          {
+            outcome: 'duplicate',
+            position: 3,
+            duplicateOf: 'RESOLVED_REVIEW_ITEM',
+            reviewItemId: foreignItem.id,
+            importBatchId: foreignItem.batchId,
+            resolution: 'SKIP',
+          },
+        ]),
+      ],
     );
     expect((await queries.list(realm, {}, all)).items).toMatchObject([{ id: crafted, firstBookingDate: null, lastBookingDate: null }]);
     // Asked from Realm A by its id, Realm B's batch has no range (neither its Transactions nor its items are read).
