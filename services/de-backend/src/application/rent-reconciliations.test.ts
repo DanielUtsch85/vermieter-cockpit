@@ -303,10 +303,12 @@ describe('suggestions (§37.3)', () => {
             // Both fit their term in the window: counted, and never suggested.
             pair('t1', TENANT, '2027010100'),
             pair('t2', TENANT, '2027020100'),
-            // December is a neighbour month (never suggested), t3's amount does not fit, t1 is outside March's window.
+            // December is a neighbour month (never suggested), t3's amount does not fit, March is outside the run's window,
+            // and t1 (booked 2027-01-03) is outside February's booking window although February is in the run's window.
             pair('t0', '6512f0c2a1b2c3d4e5f60a09', '2026120100'),
             pair('t3', TENANT, '2027010100'),
             pair('t1', TENANT, '2027030100'),
+            pair('t1', TENANT, '2027020100'),
           ],
         }),
         writeSuggestions: async () => [],
