@@ -250,8 +250,8 @@ describe.skipIf(databaseUrl === undefined)('choosing the Tenant and the term end
       expect(mre.requests.slice(requests).some((r) => r.path.startsWith('/api/v2/rents/'))).toBe(false);
     }
     // A Tenant MRE no longer lists keeps its DE matches visible.
-    const tenants = realmA.tenants;
-    realmA.tenants = (tenants ?? []).filter((t) => t['_id'] !== TENANT);
+    const tenants = realmA.tenants ?? [];
+    realmA.tenants = tenants.filter((t) => t['_id'] !== TENANT);
     try {
       const body = (await (await call(REALM_A, 'GET', `/rent-reconciliations/terms/${TENANT}?from=2027-01&to=2027-04`)).json()) as {
         mreStatus: string;
