@@ -5,16 +5,17 @@
  * route the cockpit calls is missing, so a new backend state is checked (routes and DTOs, ui-guide.md §2) before the pin
  * moves. Moving the pin is a change of this file with that check, never a side effect.
  *
- * The pin is the `main` commit with VC-X-69 (#318) merged: the UI is written against the finished answers of
- * `POST /transactions` and the resolve of a review item (Entscheidung des Projektinhabers, 2026-11-10). VC-X-69 changed
- * no route: the inventory and its hash are the same as at ff680ba, only the commit moved.
+ * The pin is the backend commit of #364 (VC-X-72, api-design.md §37.7): its two reads, the Realm's Tenants and a
+ * Tenant's terms, are the routes the cockpit adds (174 → 176). Routes and DTOs were checked against that commit; it
+ * reaches `main` with the pull request that carries it (a merge, not a squash). Before it the pin was 1d2f37f (VC-X-69,
+ * #318), whose inventory was the same as at ff680ba.
  */
 export const BACKEND_PIN = {
-  commit: '1d2f37ffd307c0d16090f985f436408ddfd5c8eb',
-  /** `Routes: 174.` in the inventory. */
-  routes: 174,
+  commit: 'eefd11092b3234b793e034073196fb430447977e',
+  /** `Routes: 176.` in the inventory. */
+  routes: 176,
   /** SHA-256 of `docs/development/api-inventory.md` at the pinned commit. */
-  inventorySha256: '768829d617385ed72db5be671799db1ea19e31bff085332d6e7eab82ce560ba0',
+  inventorySha256: 'a66ba6a68334e352d208b64481b7e82243ba98e2cd3f36706fa48b51a796a8ed',
 } as const;
 
 /** Every DE route the cockpit calls, as the inventory names it (method, path with `:parameter`). */
@@ -63,4 +64,9 @@ export const USED_ROUTES: readonly (readonly [method: string, path: string])[] =
   // §23.1). Both routes are in the pinned inventory; the Realm's MRE property list is MRE's own `GET /api/v2/properties`.
   ['POST', '/api/v1/financial-accounts'],
   ['POST', '/api/v1/property-references/link'],
+  // Choosing the Tenant and the term (Issue #364; Entscheidung des Projektinhabers, 2026-11-16): the Realm's Tenants by
+  // their MRE id from its reconciliations, and a Tenant's terms around the booking date (api-design.md §37.7), in
+  // „Aufteilungsvorschlag aus MRE“ and „Manuell zuordnen“. Both are reads; the typed id and key stay possible.
+  ['GET', '/api/v1/rent-reconciliations/tenants'],
+  ['GET', '/api/v1/rent-reconciliations/terms/:mreTenantId'],
 ];

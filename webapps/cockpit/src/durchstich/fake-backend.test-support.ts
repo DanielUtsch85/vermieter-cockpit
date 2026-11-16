@@ -462,16 +462,17 @@ export function createBackend(real: RealMappings): Backend {
 
   /* ---------------------------------------------------------------- rent reconciliation (§37): fake-rent.test-support.ts */
 
-  const { rentCash, marker, suggest, newRec, recCommand, termCoverage, transactionRent, splitProposal, createMatch, termKey } = createRentFake({
-    real,
-    transactions,
-    reconciliations,
-    mreTerm,
-    mreTerms,
-    counters,
-    state: () => backend,
-    linkedProperty: (realm, mrePropertyId) => setup.references.find((r) => r.mreRealmId === realm && r.mrePropertyId === mrePropertyId)?.propertyReferenceId,
-  });
+  const { rentCash, marker, suggest, newRec, recCommand, termCoverage, transactionRent, splitProposal, createMatch, termKey, tenantList, tenantTerms } =
+    createRentFake({
+      real,
+      transactions,
+      reconciliations,
+      mreTerm,
+      mreTerms,
+      counters,
+      state: () => backend,
+      linkedProperty: (realm, mrePropertyId) => setup.references.find((r) => r.mreRealmId === realm && r.mrePropertyId === mrePropertyId)?.propertyReferenceId,
+    });
 
   /* ---------------------------------------------------------------- routing */
 
@@ -524,6 +525,8 @@ export function createBackend(real: RealMappings): Backend {
         break;
     }
     if (method === 'GET' && head === 'rent-reconciliations' && id === 'split-proposal' && sub === undefined) return splitProposal(realm, search);
+    if (method === 'GET' && head === 'rent-reconciliations' && id === 'tenants' && sub === undefined) return tenantList(realm, search);
+    if (method === 'GET' && head === 'rent-reconciliations' && id === 'terms' && rest.length === 0) return tenantTerms(realm, sub ?? '', search);
     if (method === 'GET' && head === 'rent-reconciliations' && id === 'terms') return termCoverage(realm, sub ?? '', rest[0] ?? '');
     if (head === 'transactions') {
       const t = of(realm, id);

@@ -2,7 +2,9 @@ import type {
   RentReconciliationDto,
   RentReconciliationReadDto,
   RentSplitProposalDto,
+  RentTenantDto,
   SuggestResultDto,
+  TenantTermsDto,
   TermCoverageDto,
   TransactionRentCoverageDto,
 } from '../api/rent-reconciliations';
@@ -185,6 +187,44 @@ export function splitProposal(
     splits: splits.filter(([, c]) => c > 0n).map(([financialCategoryCode, c]) => ({ financialCategoryCode, amount: eur(text(c)), propertyReferenceId })),
     unallocated: eur(text(amount - base - advance)),
     flags,
+    ...overrides,
+  };
+}
+
+/** #364 (§37.7 (a)): one Tenant of the list, by its MRE id only. */
+export function rentTenant(overrides: Partial<RentTenantDto> = {}): RentTenantDto {
+  return { mreTenantId: TENANT, latestMreRentTerm: TERM, reconciliationCount: 2, latestCreatedAt: '2026-03-05T10:00:00.000Z', ...overrides };
+}
+
+/** #364 (§37.7 (b)): a Tenant's terms from February to April 2026, March in MRE with 850,00 € due and 300,00 € matched. */
+export function tenantTerms(overrides: Partial<TenantTermsDto> = {}): TenantTermsDto {
+  return {
+    mreTenantId: TENANT,
+    from: '2026-02',
+    to: '2026-04',
+    mreStatus: 'AVAILABLE',
+    items: [
+      {
+        mreRentTerm: TERM_2,
+        month: '2026-04',
+        inMre: true,
+        amountDue: { amount: '850.00', currency: 'EUR' },
+        matchedTotal: { amount: '0.00', currency: 'EUR' },
+        reconciliationCount: 0,
+        coverage: 'UNMATCHED',
+        openAmount: { amount: '850.00', currency: 'EUR' },
+      },
+      {
+        mreRentTerm: TERM,
+        month: '2026-03',
+        inMre: true,
+        amountDue: { amount: '850.00', currency: 'EUR' },
+        matchedTotal: { amount: '300.00', currency: 'EUR' },
+        reconciliationCount: 1,
+        coverage: 'PARTIALLY_MATCHED',
+        openAmount: { amount: '550.00', currency: 'EUR' },
+      },
+    ],
     ...overrides,
   };
 }

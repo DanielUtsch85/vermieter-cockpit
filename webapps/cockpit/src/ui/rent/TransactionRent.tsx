@@ -4,6 +4,7 @@ import type { Loadable } from '../RealmChoice';
 import { LoadingState, ReadProblem } from '../states';
 import { ManualMatch } from './ManualMatch';
 import { ReconciliationBadges, ReconciliationLink, TenantText, TermLink, TermText } from './RentParts';
+import type { RentChoices } from './TenantTermChoice';
 
 /**
  * The rent reconciliations of one Transaction (api-design.md §37.2, `GET /transactions/{id}/rent-reconciliations`;
@@ -18,12 +19,15 @@ export function TransactionRentSection({
   onRetry,
   create,
   onCreated,
+  choices,
 }: {
   readonly realmId: string;
   readonly coverage: Loadable<TransactionRentCoverageDto>;
   readonly onRetry: () => void;
   readonly create?: (body: CreateReconciliationInputDto, idempotencyKey: string) => Promise<ReconciliationChanged>;
   readonly onCreated?: () => void;
+  /** #364: the lists „Manuell zuordnen“ chooses the Tenant and the term from (api-design.md §37.7). */
+  readonly choices?: RentChoices;
 }) {
   return (
     <section aria-labelledby="buchung-mietabgleich" className="rounded-card border border-border bg-surface p-6">
@@ -38,7 +42,14 @@ export function TransactionRentSection({
         <>
           <Coverage realmId={realmId} c={coverage.data} />
           {create !== undefined && (
-            <ManualMatch key={coverage.data.transactionId} realmId={realmId} coverage={coverage.data} create={create} onCreated={() => onCreated?.()} />
+            <ManualMatch
+              key={coverage.data.transactionId}
+              realmId={realmId}
+              coverage={coverage.data}
+              create={create}
+              onCreated={() => onCreated?.()}
+              {...(choices === undefined ? {} : { choices })}
+            />
           )}
         </>
       )}

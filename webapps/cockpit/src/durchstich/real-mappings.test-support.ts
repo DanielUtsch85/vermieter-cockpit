@@ -5,7 +5,9 @@ import type {
   RentReconciliationDto,
   RentReconciliationReadDto,
   RentSplitProposalDto,
+  RentTenantDto,
   SuggestResultDto,
+  TenantTermsDto,
   TermCoverageDto,
   TransactionRentCoverageDto,
 } from '../api/rent-reconciliations';
@@ -55,6 +57,9 @@ export interface RealMappings {
   readonly transactionRent: (t: unknown) => TransactionRentCoverageDto;
   /** §37.6's answer (step 8). */
   readonly splitProposal: (p: unknown) => RentSplitProposalDto;
+  /** §37.7's two reads (#364): one Tenant of the list, and a Tenant's terms. */
+  readonly tenant: (t: unknown) => RentTenantDto;
+  readonly tenantTerms: (t: unknown) => TenantTermsDto;
   /** §29.2's account and §23.1's reference (the setup, Issue #365). */
   readonly account: (a: unknown) => FinancialAccountDto;
   readonly propertyReference: (r: unknown) => PropertyReferenceDto;
@@ -97,6 +102,8 @@ export async function loadRealMappings(): Promise<RealMappings> {
     toTermDto: RealMappings['term'];
     toTransactionDto: RealMappings['transactionRent'];
     splitProposalDto: RealMappings['splitProposal'];
+    toTenantDto: RealMappings['tenant'];
+    toTenantTermsDto: RealMappings['tenantTerms'];
     suggestBody: Schema;
     confirmBody: Schema;
     releaseBody: Schema;
@@ -117,6 +124,8 @@ export async function loadRealMappings(): Promise<RealMappings> {
     term: rent.toTermDto,
     transactionRent: rent.toTransactionDto,
     splitProposal: rent.splitProposalDto,
+    tenant: rent.toTenantDto,
+    tenantTerms: rent.toTenantTermsDto,
     account: accounts.toDto,
     propertyReference: references.toDto,
     schemas: {

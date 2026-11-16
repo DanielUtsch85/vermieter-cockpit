@@ -13,7 +13,7 @@ import {
   reverseTransaction,
   type TransactionRead,
 } from '../../api/transactions';
-import { createReconciliation, getSplitProposal, getTransactionRentCoverage } from '../../api/rent-reconciliations';
+import { createReconciliation, getSplitProposal, getTenantTerms, getTransactionRentCoverage, listRentTenants } from '../../api/rent-reconciliations';
 import { navigate } from '../../navigation';
 import { realmKey } from '../../query';
 import { AREAS, areaPath } from '../../routing';
@@ -22,6 +22,7 @@ import { correctable } from '../../transactions/correction-draft';
 import { splitsEditable } from '../../transactions/split-draft';
 import { rentKeys } from '../rent/rent-keys';
 import { SplitProposal } from '../rent/SplitProposal';
+import type { RentChoiceSource } from '../rent/TenantTermChoice';
 import { TransactionRentSection } from '../rent/TransactionRent';
 import { ConfirmAction } from './ConfirmAction';
 import { CorrectionForm } from './CorrectionForm';
@@ -141,6 +142,14 @@ function TransactionDetailPage(props: {
     void queryClient.invalidateQueries({ queryKey: transactionKeys.all(props.realmId, props.epoch) });
     void queryClient.invalidateQueries({ queryKey: rentKeys.all(props.realmId, props.epoch) });
   };
+  // #364: the Tenant and the term chosen from lists in both rent forms (api-design.md §37.7).
+  const choiceSource: RentChoiceSource = {
+    tenantsKey: rentKeys.tenants(props.realmId, props.epoch),
+    loadTenants: (signal) => listRentTenants(props.client, signal),
+    termsKey: (tenant, months) => rentKeys.tenantTerms(props.realmId, props.epoch, tenant, months.from, months.to),
+    loadTerms: (tenant, months, signal) => getTenantTerms(props.client, tenant, months, signal),
+  };
+  const choices = first === undefined ? undefined : { source: choiceSource, bookingDate: first.transaction.bookingDate };
   const reload = async (): Promise<TransactionRead> => {
     const result = await read.refetch();
     if (result.status === 'error' || result.data === undefined) throw result.error ?? new Error('No Transaction read.');
@@ -157,6 +166,7 @@ function TransactionDetailPage(props: {
           // Step 8: the manual match (api-design.md §37.1); a command of its own, never MRE (Entscheidung des Projektinhabers, 2026-11-11).
           create={(body, key) => createReconciliation(props.client, body, key)}
           onCreated={invalidate}
+          {...(choices === undefined ? {} : { choices })}
         />
       )}
       {first !== undefined && (
@@ -191,6 +201,7 @@ function TransactionDetailPage(props: {
               references={props.references}
               load={(term, signal) => getSplitProposal(props.client, props.transactionId, term, signal)}
               queryKey={(term, version) => rentKeys.proposal(props.realmId, props.epoch, props.transactionId, version, term)}
+              {...(choices === undefined ? {} : { choices })}
             />
           )}
         />

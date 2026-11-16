@@ -7,11 +7,13 @@ import {
   REC,
   REC_2,
   released,
+  rentTenant,
   splitProposal,
   suggestResult,
   TENANT,
   TERM,
   termCoverage,
+  tenantTerms,
   transactionCoverage,
   written,
 } from '../rent/fixtures.test-support';
@@ -24,9 +26,11 @@ import {
   createReconciliation,
   getReconciliation,
   getSplitProposal,
+  getTenantTerms,
   getTermCoverage,
   getTransactionRentCoverage,
   listReconciliations,
+  listRentTenants,
   rejectReconciliation,
   releaseReconciliation,
   removeFromMre,
@@ -278,6 +282,8 @@ describe('integration gate: step 6 calls only routes of the pinned inventory', (
       json(200, transactionCoverage()),
       json(200, splitProposal()),
       json(201, confirmed('850.00', { confidence: null, suggestionReason: null })),
+      json(200, { items: [rentTenant()], page: 1, pageSize: 200, total: 1 }),
+      json(200, tenantTerms()),
     );
     await suggestReconciliations(de, { from: '2026-03', to: '2026-04' });
     await listReconciliations(de, { status: undefined, page: 1 });
@@ -291,12 +297,20 @@ describe('integration gate: step 6 calls only routes of the pinned inventory', (
     await getTransactionRentCoverage(de, TX);
     await getSplitProposal(de, TX, { mreTenantId: TENANT, mreRentTerm: TERM });
     await createReconciliation(de, { transactionId: TX, mreTenantId: TENANT, mreRentTerm: TERM, matchedAmount: EUR('850.00') }, 'key-1');
+    // #364 (§37.7): the Tenants and a Tenant's terms; `…/tenants` is the literal route, never `…/:reconciliationId`.
+    await listRentTenants(de);
+    await getTenantTerms(de, TENANT, { from: '2026-02', to: '2026-04' });
     const reached = calls.map(routeOf);
     expect(reached).not.toContain(undefined);
     const rent = USED_ROUTES.filter(([, path]) => path.includes('rent-reconciliations')).map(([method, path]) => `${method} ${path}`);
     expect(new Set(reached)).toEqual(new Set(rent));
-    expect(rent).toHaveLength(12);
-    expect(reached.slice(-2)).toEqual(['GET /api/v1/rent-reconciliations/split-proposal', 'POST /api/v1/rent-reconciliations']);
+    expect(rent).toHaveLength(14);
+    expect(reached.slice(-4)).toEqual([
+      'GET /api/v1/rent-reconciliations/split-proposal',
+      'POST /api/v1/rent-reconciliations',
+      'GET /api/v1/rent-reconciliations/tenants',
+      'GET /api/v1/rent-reconciliations/terms/:mreTenantId',
+    ]);
   });
 
   it('counter-check: a list read by PUT, another method and the ignore of a Transaction are not used routes', () => {
