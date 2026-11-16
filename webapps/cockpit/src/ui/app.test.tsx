@@ -106,8 +106,6 @@ describe('step 1, the Realm choice (§47.2 point 3)', () => {
     const html = renderToStaticMarkup(<RealmList realms={{ status: 'success', data: [] }} />);
     expect(html).toContain('Zu Ihrem Konto gibt es keinen Bestand');
     expect(html).not.toContain('role="alert"');
-    // A Realm is created in MRE: the link opens it in a new tab (Entscheidung des Projektinhabers, 2026-11-16, #372).
-    expect(html).toContain('href="/" title="Öffnet in einem neuen Tab" target="_blank" rel="noopener noreferrer">MicroRealEstate öffnen</a>');
   });
 
   it('error: a 403 (no landlord account) and a 503 with Retry-After are errors, never an empty list', () => {

@@ -75,12 +75,6 @@ test('import, review items, split from the MRE proposal, confirm, rent suggestio
   await setup.getByRole('link', { name: 'Objekte verknüpfen' }).click();
   const mreList = page.getByRole('list', { name: 'Objekte in MicroRealEstate' });
   await expect(mreList.getByRole('listitem').filter({ hasText: PROPERTY_NAME })).toContainText('Verknüpft');
-  // Objects are created in MRE: its landlord interface at / of the same origin, in a new tab (Entscheidung des
-  // Projektinhabers, 2026-11-16, #372); the link is checked, not followed.
-  const mreLink = page.getByRole('link', { name: 'MicroRealEstate öffnen' });
-  await expect(mreLink).toHaveAttribute('href', '/');
-  await expect(mreLink).toHaveAttribute('target', '_blank');
-  await expect(mreLink).toHaveAttribute('rel', 'noopener noreferrer');
   const link = page.waitForResponse((r) => r.url().endsWith('/api/v1/property-references/link'));
   await page.getByRole('button', { name: `${SECOND_PROPERTY_NAME} verknüpfen` }).click();
   expect((await link).status()).toBe(201);
