@@ -23,6 +23,8 @@ const REQUIRED: Readonly<Record<string, string>> = {
   'GET /api/v1/loans/:loanId/payments': 'year=2027',
   'GET /api/v1/property-references/:propertyReferenceId/tax-meanings': 'year=2027',
   'GET /api/v1/rent-reconciliations/split-proposal': `transactionId=${UUID}&mreTenantId=6512f0c2a1b2c3d4e5f60a61&mreRentTerm=2027010100`,
+  // §37.7 (b) (#364): the window is required.
+  'GET /api/v1/rent-reconciliations/terms/:mreTenantId': 'from=2027-01&to=2027-03',
   'GET /api/v1/rental-contract-references': 'mreTenantId=6512f0c2a1b2c3d4e5f60a61',
   'GET /api/v1/tax-classifications': `sourceType=TRANSACTION_SPLIT&sourceId=${UUID}`,
   'GET /api/v1/transactions/:transactionId/settlement-proposal': `statementId=${UUID}`,
@@ -82,8 +84,8 @@ const UNKNOWN = [
 ];
 
 describe('every route refuses an unknown query parameter by its name (§58W rules 1–3)', () => {
-  it('the inventory has 174 routes and exactly the two probes outside /api/v1, exempted by a literal', () => {
-    expect(routes).toHaveLength(174);
+  it('the inventory has 176 routes and exactly the two probes outside /api/v1, exempted by a literal', () => {
+    expect(routes).toHaveLength(176);
     expect(routes.filter((r) => !r.path.startsWith('/api/v1/')).map((r) => r.path)).toEqual(EXEMPT);
     // Counter-check: every path parameter of the inventory has a value, so the walk below reaches every handler.
     for (const r of routes) for (const name of paramsOf(r.path)) expect(PATH_VALUES, `${key(r)}: ${name}`).toHaveProperty(name);
@@ -98,7 +100,7 @@ describe('every route refuses an unknown query parameter by its name (§58W rule
       if (!ok) wrong.push(`${key(r)}: ${answer.status} ${JSON.stringify(answer.fields)} calls=${calls.length}`);
     }
     expect(wrong).toEqual([]);
-    expect(apiRoutes).toHaveLength(172);
+    expect(apiRoutes).toHaveLength(174);
   });
 
   it('without a query the same requests reach their command (the refusal above is the query, not the path or the body)', async () => {
@@ -194,8 +196,8 @@ describe('one paging on every paged route (§58W "Pagination consistent across r
     for (const r of getRoutes) if ((await send('GET', url(r, 'page=1000000&pageSize=200'))).status === 500) paged.push(r);
   });
 
-  it('19 routes take page and pageSize at their maxima; every other read refuses both by name', async () => {
-    expect(paged).toHaveLength(19);
+  it('20 routes take page and pageSize at their maxima; every other read refuses both by name', async () => {
+    expect(paged).toHaveLength(20);
     for (const r of getRoutes.filter((x) => !paged.includes(x) && x.path !== '/api/v1/health')) {
       const answer = await send('GET', url(r, 'page=1&pageSize=200'));
       expect(answer.fields?.slice(-2), key(r)).toEqual([

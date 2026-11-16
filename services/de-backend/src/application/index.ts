@@ -545,6 +545,9 @@ export type {
   RentCategoryCode,
   RentSplitProposalView,
 } from './rent-split-proposal.js';
+export { getTenantTerms, listRentTenants } from './rent-tenant-terms.js';
+export type { GetTenantTerms, ListRentTenants, TenantTermItem, TenantTerms } from './rent-tenant-terms.js';
+export type { RentTenantPage, RentTenantSummary, RentTenantTermQueries, TenantTermReconciliation } from '../domains/rent-reconciliation/index.js';
 export {
   AdministratorInactiveError,
   InvalidMembershipError,

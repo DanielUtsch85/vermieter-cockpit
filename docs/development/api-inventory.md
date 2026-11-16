@@ -8,7 +8,7 @@ Implemented routes only: a route in `docs/architecture/api-design.md` that is no
 Contracts, payloads and error codes are in `api-design.md`; the business routes need `Authorization: Bearer <MRE token>` and
 `organizationid: <mreRealmId>` (`mre-integration.md` §47.2).
 
-Routes: 174.
+Routes: 176.
 
 | Method | Path |
 |---|---|
@@ -119,6 +119,8 @@ Routes: 174.
 | POST | `/api/v1/rent-reconciliations/:reconciliationId/write-back-to-mre` |
 | GET | `/api/v1/rent-reconciliations/split-proposal` |
 | POST | `/api/v1/rent-reconciliations/suggest` |
+| GET | `/api/v1/rent-reconciliations/tenants` |
+| GET | `/api/v1/rent-reconciliations/terms/:mreTenantId` |
 | GET | `/api/v1/rent-reconciliations/terms/:mreTenantId/:mreRentTerm` |
 | GET | `/api/v1/rental-contract-references` |
 | POST | `/api/v1/rental-contract-references` |
@@ -336,6 +338,8 @@ Routes: 174.
 - POST `/api/v1/rent-reconciliations/:reconciliationId/write-back-to-mre`
 - GET `/api/v1/rent-reconciliations/split-proposal`
 - POST `/api/v1/rent-reconciliations/suggest`
+- GET `/api/v1/rent-reconciliations/tenants`
+- GET `/api/v1/rent-reconciliations/terms/:mreTenantId`
 - GET `/api/v1/rent-reconciliations/terms/:mreTenantId/:mreRentTerm`
 
 ### `rental-contract-references`

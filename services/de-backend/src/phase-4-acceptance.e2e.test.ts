@@ -41,6 +41,7 @@ import {
 import { testSchemaName } from './infrastructure/postgres/test-schema.test-support.js';
 import { findBankStatementAdapter } from './integrations/bank-import/index.js';
 import { HttpMreClient } from './integrations/mre/index.js';
+import { rentTenantTermCommands } from './rent-tenant-terms.test-support.js';
 import { signJwt, startFakeMre, type FakeMre, type FakeRealm } from './integrations/mre/fake-mre.test-support.js';
 import {
   mreMonthReader,
@@ -152,6 +153,7 @@ describe.skipIf(databaseUrl === undefined)('Phase 4 acceptance (roadmap exit)', 
             findLinkedPropertyReference: (realm, id) => new PostgresPropertyReferenceRepository(db).findLinkedId(realm, id),
           }),
           removeFromMre: removeFromMre({ ...writeBack, marginMs: 0 }),
+          ...rentTenantTermCommands(db, client),
         },
         financialAccounts: { create: createFinancialAccount({ repository: accounts }) },
         transactions: {
@@ -388,6 +390,16 @@ describe.skipIf(databaseUrl === undefined)('Phase 4 acceptance (roadmap exit)', 
         { expect: (body) => expect(body).toMatchObject({ reconciliations: [], matchedTotal: eur('0.00'), mreStatus: 'NOT_RETURNED', mre: null }) },
       ],
       'GET /transactions/:transactionId/rent-reconciliations': [{ expect: 404 }],
+      // #364 (§37.7): A's Tenant is neither among B's Tenants nor answered with A's matches.
+      'GET /rent-reconciliations/tenants': [
+        { expect: (body) => expect((body as { items: { mreTenantId: string }[] }).items.map((i) => i.mreTenantId)).not.toContain(T1) },
+      ],
+      'GET /rent-reconciliations/terms/:mreTenantId': [
+        {
+          expect: (body) => expect(body).toEqual({ mreTenantId: T1, from: '2027-03', to: '2027-04', mreStatus: 'NOT_RETURNED', items: [] }),
+          query: 'from=2027-03&to=2027-04',
+        },
+      ],
     };
     // The table is the app's Phase-4 routes, no more and no fewer: a new route without a row turns this red.
     expect(Object.keys(routes).sort()).toEqual(

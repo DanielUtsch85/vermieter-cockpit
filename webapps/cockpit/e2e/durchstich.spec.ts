@@ -134,8 +134,15 @@ test('import, review items, split from the MRE proposal, confirm, rent suggestio
   // The proposal starts collapsed, its first sentence as the summary (Issue #353, point 9).
   await expect(proposal.getByLabel('Mieter in MRE (ID)')).toBeHidden();
   await proposal.getByText('Für einen Mieteingang: Mieter und Miettermin in MRE wählen, bei einer Sammelzahlung mehrere.').click();
+  // #364: the Realm has no earlier match, so the list of Tenants is empty and the MRE id is typed (the free text the owner
+  // kept for a Tenant without an earlier match); the term is chosen from the Tenant's terms around the booking date.
+  await expect(proposal.getByLabel('Mieter aus bisherigen Zuordnungen')).toBeDisabled();
   await proposal.getByLabel('Mieter in MRE (ID)').fill(s.tenantId);
-  await proposal.getByLabel('Miettermin (MRE-Schlüssel JJJJMMTTHH)').fill(TERM_OCT);
+  const termList = proposal.getByLabel('Miettermin aus MRE');
+  await expect(termList).toBeEnabled();
+  await expect(proposal.getByText(/Termine von 09\.2026 bis 11\.2026, um das Buchungsdatum\./)).toBeVisible();
+  await termList.selectOption(TERM_OCT);
+  await expect(proposal.getByLabel('Miettermin (MRE-Schlüssel JJJJMMTTHH)')).toHaveValue(TERM_OCT);
   await proposal.getByRole('button', { name: 'Vorschlag laden' }).click();
   const terms = proposal.getByRole('list', { name: 'Gewählte Termine' });
   await expect(terms).toContainText(`Kaltmiete laut Mietvertrag${euro('700,00')}`);

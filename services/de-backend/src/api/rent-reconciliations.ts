@@ -2,6 +2,10 @@ import express, { type Response, type Router } from 'express';
 import { z } from 'zod';
 import {
   type GetRentSplitProposal,
+  type GetTenantTerms,
+  type ListRentTenants,
+  type TenantTerms,
+  type RentTenantSummary,
   type RentSplitProposalView,
   type RemoveFromMre,
   type GetReconciliationWithPresence,
@@ -73,16 +77,19 @@ export const releaseBody = z.object({ reason: z.string().trim().min(1).max(500) 
 /** `YYYY-MM` with a real month. */
 const yearMonth = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/);
 const monthIndex = (ym: string) => Number(ym.slice(0, 4)) * 12 + Number(ym.slice(5, 7));
-export const suggestBody = z
-  .object({ from: yearMonth, to: yearMonth })
-  .strict()
-  .superRefine((body, ctx) => {
-    // Refinements run even after a field failed to parse: only check what parsed.
-    if (typeof body.from !== 'string' || typeof body.to !== 'string') return;
-    const span = monthIndex(body.to) - monthIndex(body.from);
-    if (span < 0) ctx.addIssue({ code: 'custom', path: ['to'], params: { code: 'INVALID_RANGE' } });
-    else if (span >= 12) ctx.addIssue({ code: 'custom', path: ['to'], params: { code: 'RANGE_TOO_LONG' } });
-  });
+/** §37.3's window: `from` ≤ `to`, at most 12 months inclusive; §37.7 (b) takes the same rules and codes. */
+function checkWindow(window: { readonly from: unknown; readonly to: unknown }, ctx: z.RefinementCtx): void {
+  // Refinements run even after a field failed to parse: only check what parsed.
+  if (typeof window.from !== 'string' || typeof window.to !== 'string') return;
+  const span = monthIndex(window.to) - monthIndex(window.from);
+  if (span < 0) ctx.addIssue({ code: 'custom', path: ['to'], params: { code: 'INVALID_RANGE' } });
+  else if (span >= 12) ctx.addIssue({ code: 'custom', path: ['to'], params: { code: 'RANGE_TOO_LONG' } });
+}
+export const suggestBody = z.object({ from: yearMonth, to: yearMonth }).strict().superRefine(checkWindow);
+/** §37.7 (b)'s query: `from` and `to` required, the window of `suggest`. */
+const tenantTermsQuery = z.object({ from: yearMonth, to: yearMonth }).superRefine(checkWindow);
+/** §37.7 (a)'s query: the shared paging only. */
+const tenantsQuery = z.object({ ...PAGING });
 export const confirmBody = z
   .object({ matchedAmount: money.optional() })
   .strict()
@@ -123,6 +130,8 @@ export interface RentReconciliationCommands {
   readonly removeFromMre: RemoveFromMre;
   readonly getWithPresence: GetReconciliationWithPresence;
   readonly splitProposal: GetRentSplitProposal;
+  readonly tenants: ListRentTenants;
+  readonly tenantTerms: GetTenantTerms;
 }
 
 /** Rent reconciliation API (api-design.md §37.1, backlog VC-4-01). */
@@ -179,6 +188,16 @@ export function rentReconciliationRoutes(commands: RentReconciliationCommands): 
     commands
       .splitProposal({ principal: principalOf(res), authorizationHeader: req.headers.authorization ?? '', ...parsed.data })
       .then((proposal) => res.json(splitProposalDto(proposal)))
+      .catch(next);
+  });
+
+  // §37.7 (a), #364: DE alone, never MRE. Registered before `/rent-reconciliations/:reconciliationId`, which would answer it 400.
+  router.get('/rent-reconciliations/tenants', (req, res, next) => {
+    const parsed = readQuery(tenantsQuery, req);
+    if (refuseQuery(res, parsed)) return;
+    commands
+      .tenants({ principal: principalOf(res), page: parsed.data })
+      .then((result) => res.json({ ...result, items: result.items.map(toTenantDto) }))
       .catch(next);
   });
 
@@ -250,6 +269,21 @@ export function rentReconciliationRoutes(commands: RentReconciliationCommands): 
     commands
       .termCoverage({ principal: principalOf(res), authorizationHeader: req.headers.authorization ?? '', ...parsed.data })
       .then((result) => res.json(toTermDto(result)))
+      .catch(next);
+  });
+
+  // §37.7 (b), #364: a Tenant's terms in a window, MRE's month reads beside DE's matches.
+  router.get('/rent-reconciliations/terms/:mreTenantId', (req, res, next) => {
+    const window = readQuery(tenantTermsQuery, req);
+    const parsed = parse(z.object({ mreTenantId }), req.params);
+    if (!parsed.success) {
+      sendValidationError(res, fieldErrors(parsed.error));
+      return;
+    }
+    if (refuseQuery(res, window)) return;
+    commands
+      .tenantTerms({ principal: principalOf(res), authorizationHeader: req.headers.authorization ?? '', ...parsed.data, ...window.data })
+      .then((result) => res.json(toTenantTermsDto(result)))
       .catch(next);
   });
 
@@ -417,6 +451,36 @@ export function toTransactionDto(t: TransactionCoverage) {
     matchedTotal: t.matchedTotal.toJSON(),
     available: t.available?.toJSON() ?? null,
     reconciliations: t.reconciliations.map(toDto),
+  };
+}
+
+/** One item of `GET /rent-reconciliations/tenants` (§37.7 (a)): ids, counts and dates only, no name. */
+export function toTenantDto(t: RentTenantSummary) {
+  return {
+    mreTenantId: t.mreTenantId,
+    latestMreRentTerm: t.latestMreRentTerm,
+    reconciliationCount: t.reconciliationCount,
+    latestCreatedAt: t.latestCreatedAt.toISOString(),
+  };
+}
+
+/** The answer of `GET /rent-reconciliations/terms/{mreTenantId}?from&to` (§37.7 (b)). */
+export function toTenantTermsDto(t: TenantTerms) {
+  return {
+    mreTenantId: t.mreTenantId,
+    from: t.from,
+    to: t.to,
+    mreStatus: t.mreStatus,
+    items: t.items.map((i) => ({
+      mreRentTerm: i.mreRentTerm,
+      month: i.month,
+      inMre: i.inMre,
+      amountDue: i.amountDue?.toJSON() ?? null,
+      matchedTotal: i.matchedTotal.toJSON(),
+      reconciliationCount: i.reconciliationCount,
+      coverage: i.coverage,
+      openAmount: i.openAmount?.toJSON() ?? null,
+    })),
   };
 }
 

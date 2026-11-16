@@ -19,6 +19,8 @@ import type {
   toDto as toReconciliationDto,
   toReadDto as toReconciliationReadDto,
   toSuggestDto,
+  toTenantDto,
+  toTenantTermsDto,
   toTermDto,
   toTransactionDto as toTransactionCoverageDto,
 } from './rent-reconciliations.js';
@@ -119,3 +121,7 @@ export type { RentCategoryCode };
 export type TermCoverageDto = Wire<ReturnType<typeof toTermDto>>;
 /** `GET /transactions/{transactionId}/rent-reconciliations` (api-design.md §37.2). */
 export type TransactionRentCoverageDto = Wire<ReturnType<typeof toTransactionCoverageDto>>;
+/** `GET /rent-reconciliations/tenants` items (api-design.md §37.7 (a)): the Realm's Tenants by MRE id, no name. */
+export type RentTenantDto = Wire<ReturnType<typeof toTenantDto>>;
+/** `GET /rent-reconciliations/terms/{mreTenantId}?from&to` (api-design.md §37.7 (b)): a Tenant's terms in a window. */
+export type TenantTermsDto = Wire<ReturnType<typeof toTenantTermsDto>>;

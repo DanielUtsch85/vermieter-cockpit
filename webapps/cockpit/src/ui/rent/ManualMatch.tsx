@@ -13,6 +13,7 @@ import { inputClass } from '../transactions/SplitRows';
 import { rentRefusalText } from './rent-labels';
 import { IdText } from '../IdText';
 import { ReconciliationBadges, ReconciliationLink, TenantText, TermInSentence, TermLink, TermText } from './RentParts';
+import { TenantTermChoice, type RentChoices } from './TenantTermChoice';
 
 const AMOUNT_TEXTS: Readonly<Record<MatchAmountProblem, string>> = {
   EMPTY: 'Bitte einen Betrag angeben.',
@@ -46,7 +47,7 @@ interface Intent {
  * „Manuell zuordnen“ (api-design.md §37.1 `POST /rent-reconciliations`; ui-guide.md §6.6; Entscheidung des
  * Projektinhabers, 2026-11-11): for what the suggest run leaves alone (partial, collective and overpayments, ambiguous
  * amounts, §37.3), the user matches the free rent cash of a confirmed inflow to one MRE term, named by the Tenant's MRE
- * id and the term key, with an amount up to the free cash. Its own action: the form, then a confirmation step that says
+ * id and the term key (chosen from the lists of #364 or typed, §37.7), with an amount up to the free cash. Its own action: the form, then a confirmation step that says
  * what happens; only „Jetzt zuordnen“ sends, once, with the intent's `Idempotency-Key`. The match is created
  * `CONFIRMED` in DE; nothing goes to MRE (BR-MRE-005): „An MRE übertragen“ stays a separate step on the match.
  */
@@ -57,6 +58,8 @@ export function ManualMatch(props: {
   readonly onCreated: () => void;
   /** A new `Idempotency-Key`; `crypto.randomUUID` unless a test passes its own. */
   readonly newKey?: () => string;
+  /** #364: the Tenant and the term chosen from lists (api-design.md §37.7); without it only typed. */
+  readonly choices?: RentChoices;
 }) {
   const c = props.coverage;
   const free: MoneyValue | null = c.available;
@@ -225,6 +228,17 @@ export function ManualMatch(props: {
             </div>
           )}
           <form aria-label="Manuelle Zuordnung erfassen" noValidate onSubmit={ask} className="flex flex-wrap items-start gap-4">
+            {props.choices !== undefined && (
+              <TenantTermChoice
+                choices={props.choices}
+                idPrefix="zuordnen"
+                tenant={tenant}
+                term={term}
+                onTenant={change(setTenant)}
+                onTerm={change(setTerm)}
+                disabled={step.asking !== undefined}
+              />
+            )}
             <div className="flex flex-col gap-1">
               <label htmlFor="zuordnen-mieter" className="text-label text-muted">
                 Mieter in MRE (ID)

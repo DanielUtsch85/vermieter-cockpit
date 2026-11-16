@@ -198,6 +198,7 @@ import { depreciationCommands } from './depreciation-commands.test-support.js';
 import { testSchemaName } from './infrastructure/postgres/test-schema.test-support.js';
 import { findBankStatementAdapter } from './integrations/bank-import/index.js';
 import { HttpMreClient } from './integrations/mre/index.js';
+import { rentTenantTermCommands } from './rent-tenant-terms.test-support.js';
 import { signJwt, startFakeMre, type FakeMre } from './integrations/mre/fake-mre.test-support.js';
 import {
   mrePrincipalVerifier,
@@ -452,6 +453,7 @@ describe.skipIf(databaseUrl === undefined)('Phase 3 acceptance (roadmap exit)', 
           leaseMs: 4000,
           marginMs: 0,
         }),
+        ...rentTenantTermCommands(db, client),
       },
       loanTerms: {
         create: createLoanTerms({ repository: new PostgresLoanTermsRepository(db) }),

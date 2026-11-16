@@ -263,6 +263,69 @@ export function createRentFake(ctx: RentContext) {
     );
   };
 
+  /**
+   * §37.7 (a), #364: the Realm's Tenants from its reconciliations, any status, the one matched last first; never MRE.
+   * Only `page` and `pageSize` are taken, as the route does.
+   */
+  const tenantList = (realm: string, search: URLSearchParams): Response => {
+    const unknown = [...search.keys()].find((k) => k !== 'page' && k !== 'pageSize');
+    if (unknown !== undefined) return invalid(unknown);
+    const page = Number(search.get('page') ?? '1');
+    const pageSize = Number(search.get('pageSize') ?? '50');
+    const byTenant = new Map<string, Rec[]>();
+    for (const r of reconciliations.values()) if (r.mreRealmId === realm) byTenant.set(r.mreTenantId, [...(byTenant.get(r.mreTenantId) ?? []), r]);
+    const all = [...byTenant.entries()]
+      .map(([mreTenantId, recs]) => ({
+        mreTenantId,
+        latestMreRentTerm: recs.map((r) => r.mreRentTerm).reduce((a, b) => (a > b ? a : b)),
+        reconciliationCount: recs.length,
+        latestCreatedAt: new Date(Math.max(...recs.map((r) => r.createdAt.getTime()))),
+      }))
+      .sort((a, b) => b.latestCreatedAt.getTime() - a.latestCreatedAt.getTime() || (a.mreTenantId < b.mreTenantId ? -1 : 1));
+    const items = all.slice((page - 1) * pageSize, page * pageSize).map(real.tenant);
+    return json(200, { items, page, pageSize, total: all.length });
+  };
+
+  /**
+   * §37.7 (b), #364: a Tenant's terms in the window. MRE's side is the terms the fake knows (a Tenant with none is not
+   * returned by MRE); DE's side the Realm's reconciliations of the Tenant in the window, answered whatever MRE says.
+   */
+  const tenantTerms = (realm: string, tenant: string, search: URLSearchParams): Response => {
+    const from = search.get('from') ?? '';
+    const to = search.get('to') ?? '';
+    const unknown = [...search.keys()].find((k) => k !== 'from' && k !== 'to');
+    if (unknown !== undefined) return invalid(unknown);
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(from)) return invalid('from');
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(to) || to < from) return invalid('to');
+    const ym = (term: string) => `${term.slice(0, 4)}-${term.slice(4, 6)}`;
+    const inWindow = (term: string) => ym(term) >= from && ym(term) <= to;
+    const mre = [...mreTerms.entries()].map(([id, state]) => ({ id: id.split('/'), state }));
+    const mreStatus = !state().mreUp ? 'UNAVAILABLE' : mre.some((m) => m.id[0] === tenant) ? 'AVAILABLE' : 'NOT_RETURNED';
+    const due = new Map(
+      mreStatus === 'AVAILABLE' ? mre.filter((m) => m.id[0] === tenant && inWindow(m.id[1] ?? '')).map((m) => [m.id[1] ?? '', m.state.amountDue]) : [],
+    );
+    const recs = [...reconciliations.values()].filter((r) => r.mreRealmId === realm && r.mreTenantId === tenant && inWindow(r.mreRentTerm));
+    const keys = [...new Set([...recs.map((r) => r.mreRentTerm), ...due.keys()])].sort().reverse();
+    const items = keys.map((term) => {
+      const own = recs.filter((r) => r.mreRentTerm === term);
+      const matchedTotal = confirmedTotal(own);
+      const amountDue = due.get(term) ?? null;
+      const order = amountDue === null ? 0 : matchedTotal.compare(amountDue);
+      const coverage = amountDue === null ? null : order > 0 ? 'OVERPAID' : order === 0 ? 'MATCHED' : matchedTotal.isZero() ? 'UNMATCHED' : 'PARTIALLY_MATCHED';
+      return {
+        mreRentTerm: term,
+        month: ym(term),
+        inMre: mreStatus === 'AVAILABLE' ? due.has(term) : null,
+        amountDue,
+        matchedTotal,
+        reconciliationCount: own.length,
+        coverage,
+        openAmount: amountDue === null ? null : amountDue.subtract(matchedTotal),
+      };
+    });
+    return json(200, real.tenantTerms({ mreTenantId: tenant, from, to, mreStatus, items }));
+  };
+
   const transactionRent = (t: Tx): Response => {
     const recs = [...reconciliations.values()].filter((r) => r.transactionId === t.id);
     const counted = t.status === 'CONFIRMED' && t.correctionRole !== 'REVERSAL';
@@ -429,5 +492,5 @@ export function createRentFake(ctx: RentContext) {
     return json(201, answer, { etag: `"${r.version}"` });
   };
 
-  return { rentCash, marker, suggest, newRec, recCommand, termCoverage, transactionRent, splitProposal, createMatch, termKey };
+  return { rentCash, marker, suggest, newRec, recCommand, termCoverage, transactionRent, splitProposal, createMatch, termKey, tenantList, tenantTerms };
 }

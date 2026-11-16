@@ -6,8 +6,10 @@ import type {
   RentReconciliationDto,
   RentReconciliationReadDto,
   RentSplitProposalDto,
+  RentTenantDto,
   SuggestInputDto,
   SuggestResultDto,
+  TenantTermsDto,
   TermCoverageDto,
   TransactionRentCoverageDto,
 } from '@vermieter-cockpit/de-backend/client-contract';
@@ -24,8 +26,10 @@ export type {
   ReconciliationReasonInputDto,
   RentReconciliationDto,
   RentReconciliationReadDto,
+  RentTenantDto,
   SuggestInputDto,
   SuggestResultDto,
+  TenantTermsDto,
   TermCoverageDto,
   TransactionRentCoverageDto,
 };
@@ -276,4 +280,48 @@ export async function createReconciliation(
     throw unexpected('The answer is not the match that was sent.');
   }
   return { reconciliation: data, etag: etag ?? ifMatchForVersion(data.version) };
+}
+
+/** The page size of the Tenant list: §37.7 (a)'s maximum; the Tenants matched last come first. */
+export const TENANT_PAGE_SIZE = 200;
+const MRE_ID = /^[0-9a-f]{24}$/;
+
+/**
+ * `GET /rent-reconciliations/tenants` (api-design.md §37.7 (a); #364): the first page of the Realm's Tenants by their MRE
+ * id, the one matched last first; DE alone, never MRE, and no name (Entscheidung des Projektinhabers, 2026-11-16). The
+ * answer is checked: the page asked, each id an MRE id and listed once.
+ */
+export async function listRentTenants(client: DeClient, signal?: AbortSignal): Promise<PageDto<RentTenantDto>> {
+  const { data } = await client.get<PageDto<RentTenantDto>>('/rent-reconciliations/tenants', {
+    query: { page: 1, pageSize: TENANT_PAGE_SIZE },
+    ...(signal === undefined ? {} : { signal }),
+  });
+  const ids = data.items.map((t) => t.mreTenantId);
+  if (data.page !== 1 || ids.some((id) => !MRE_ID.test(id)) || new Set(ids).size !== ids.length) throw unexpected('The Tenant list is not the page asked.');
+  return data;
+}
+
+/** A window of months as §37.7 (b) takes it: `YYYY-MM`, `from` ≤ `to`, at most twelve months. */
+export interface TermWindow {
+  readonly from: string;
+  readonly to: string;
+}
+
+/**
+ * `GET /rent-reconciliations/terms/{mreTenantId}?from&to` (api-design.md §37.7 (b); #364): the Tenant's terms in the
+ * window, MRE's amount due beside DE's matched total. The answer is checked: this Tenant and window, each term a key of
+ * the window listed once, and MRE's side only with `AVAILABLE`.
+ */
+export async function getTenantTerms(client: DeClient, mreTenantId: string, window: TermWindow, signal?: AbortSignal): Promise<TenantTermsDto> {
+  const { data } = await client.get<TenantTermsDto>(apiPath`/rent-reconciliations/terms/${mreTenantId}`, {
+    query: { from: window.from, to: window.to },
+    ...(signal === undefined ? {} : { signal }),
+  });
+  if (data.mreTenantId !== mreTenantId || data.from !== window.from || data.to !== window.to) throw unexpected('The answer names another Tenant or window.');
+  const keys = data.items.map((i) => i.mreRentTerm);
+  const inWindow = (i: TenantTermsDto['items'][number]) =>
+    /^\d{10}$/.test(i.mreRentTerm) && i.month === `${i.mreRentTerm.slice(0, 4)}-${i.mreRentTerm.slice(4, 6)}` && i.month >= window.from && i.month <= window.to;
+  if (new Set(keys).size !== keys.length || !data.items.every(inWindow)) throw unexpected('A term outside the window was listed.');
+  if (data.mreStatus !== 'AVAILABLE' && data.items.some((i) => i.inMre !== null || i.amountDue !== null)) throw unexpected('MRE values without MRE.');
+  return data;
 }

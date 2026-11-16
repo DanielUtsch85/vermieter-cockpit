@@ -70,3 +70,4 @@ export type {
 } from './reconciliation.js';
 export { proposeRentSplit, soleTermProperty } from './split-proposal.js';
 export type { NoPropertyReason, ProposalProperty, RentSplitProposal, RentTermBreakdown, RentTermTotals, SplitProposalFlag } from './split-proposal.js';
+export type { RentTenantPage, RentTenantSummary, RentTenantTermQueries, TenantTermReconciliation } from './tenant-terms.js';

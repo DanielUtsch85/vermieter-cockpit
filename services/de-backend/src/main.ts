@@ -107,6 +107,8 @@ import {
   writeBackToMre,
   getReconciliationWithPresence,
   getRentSplitProposal,
+  getTenantTerms,
+  listRentTenants,
   removeFromMre,
   createBalanceStatement,
   createLoanTerms,
@@ -193,6 +195,7 @@ import {
   PostgresLoanTermsRepository,
   PostgresLoanAllocationRepository,
   PostgresRentReconciliationRepository,
+  PostgresRentTenantTermQueries,
   PostgresOwnerAllocationSource,
   PostgresAcquisitionRepository,
   PostgresFinancialCategoryRepository,
@@ -265,6 +268,7 @@ const loanTerms = new PostgresLoanTermsRepository(db);
 const loanAllocations = new PostgresLoanAllocationRepository(db);
 const loanDebt = new PostgresLoanDebtRepository(db);
 const rentReconciliations = new PostgresRentReconciliationRepository(db);
+const rentTenantTerms = new PostgresRentTenantTermQueries(db);
 const imports = new PostgresImportRepository(db);
 const transactions = new PostgresTransactionRepository(db);
 const unconfirmed = new PostgresUnconfirmedTransactionRepository(db);
@@ -456,6 +460,9 @@ const app = createApp({
       readBreakdown: mreRentBreakdownReader(mreClient),
       findLinkedPropertyReference: (mreRealmId, mrePropertyId) => propertyReferences.repository.findLinkedId(mreRealmId, mrePropertyId),
     }),
+    // §37.7 (#364): the Tenants from DE alone; a Tenant's terms from MRE's month reads beside DE's matches.
+    tenants: listRentTenants({ queries: rentTenantTerms }),
+    tenantTerms: getTenantTerms({ queries: rentTenantTerms, lookupMreTenant: mreTenantLookup(mreClient), readMreMonth: mreMonthReader(mreClient) }),
     // §37.5: a removal waits one MRE timeout past the last lease (review on #82).
     removeFromMre: removeFromMre({
       repository: rentReconciliations,

@@ -13,4 +13,8 @@ export const rentKeys = {
   /** Step 8: the split proposal of one term for one Transaction in the version read (§37.6; a read of MRE, never a write). */
   proposal: (realmId: string, epoch: number, transactionId: string, version: number, term: RentTermKey) =>
     realmKey(realmId, epoch, 'rent-reconciliations', 'split-proposal', transactionId, version, term.mreTenantId, term.mreRentTerm),
+  /** #364: the Realm's Tenants from its reconciliations (§37.7 (a)) and one Tenant's terms in a window (§37.7 (b)). */
+  tenants: (realmId: string, epoch: number) => realmKey(realmId, epoch, 'rent-reconciliations', 'tenants'),
+  tenantTerms: (realmId: string, epoch: number, mreTenantId: string, from: string, to: string) =>
+    realmKey(realmId, epoch, 'rent-reconciliations', 'tenant-terms', mreTenantId, from, to),
 };

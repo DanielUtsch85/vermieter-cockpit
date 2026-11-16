@@ -23,6 +23,7 @@ import { inputClass } from '../transactions/SplitRows';
 import { categoryName, propertyName, type References } from '../transactions/references';
 import { rentRefusalText } from './rent-labels';
 import { TenantText, TermText } from './RentParts';
+import { TenantTermChoice, type RentChoices } from './TenantTermChoice';
 
 const INPUT_TEXTS: Readonly<Record<TenantIdProblem | TermProblem | 'DUPLICATE', string>> = {
   TENANT_MISSING: 'Bitte die ID des Mieters in MRE angeben.',
@@ -132,7 +133,8 @@ function TermCard(props: {
 /**
  * Step 8 (Entscheidung des Projektinhabers, 2026-11-11; ui-guide.md §6.6 steps 2 and 3, api-design.md §37.6): the split
  * proposal for an unconfirmed inflow. The user names one or more MRE terms by the Tenant's MRE id and the term key (no
- * Tenant names: Entscheidung des Projektinhabers, 2026-11-11); each is read with `GET …/split-proposal` and shown with its
+ * Tenant names: Entscheidung des Projektinhabers, 2026-11-11), chosen from the lists of #364 or typed (§37.7: the typed id
+ * stays, Entscheidung des Projektinhabers, 2026-11-16); each is read with `GET …/split-proposal` and shown with its
  * source. Several terms make a collective payment (several months or Tenants); the combined lines never exceed the
  * payment and a remainder is shown and taken over as its own row without a category. „Vorschlag in Aufteilung
  * übernehmen“ fills the split editor's draft only: nothing is saved until „Aufteilung speichern“, nothing is confirmed,
@@ -145,6 +147,8 @@ export function SplitProposal(props: {
   readonly load: (term: RentTermRef, signal: AbortSignal) => Promise<RentSplitProposalDto>;
   /** The cache key of one term's proposal for the Transaction in this version (`rentKeys.proposal`). */
   readonly queryKey: (term: RentTermRef, version: number) => QueryKey;
+  /** #364: the Tenant and the term chosen from lists (api-design.md §37.7); without it only typed. */
+  readonly choices?: RentChoices;
 }) {
   const t = props.slot.transaction;
   const [tenant, setTenant] = useState('');
@@ -219,6 +223,17 @@ export function SplitProposal(props: {
             mit „Aufteilung speichern“. Das ist weder „Buchung bestätigen“ noch eine Mietzuordnung noch eine Übertragung an MRE.
           </p>
           <form aria-label="Termin für den Vorschlag wählen" noValidate onSubmit={add} className="flex flex-wrap items-end gap-4">
+            {props.choices !== undefined && (
+              <TenantTermChoice
+                choices={props.choices}
+                idPrefix="vorschlag"
+                tenant={tenant}
+                term={termKey}
+                onTenant={setTenant}
+                onTerm={setTermKey}
+                disabled={props.slot.disabled}
+              />
+            )}
             <div className="flex flex-col gap-1">
               <label htmlFor="vorschlag-mieter" className="text-label text-muted">
                 Mieter in MRE (ID)
