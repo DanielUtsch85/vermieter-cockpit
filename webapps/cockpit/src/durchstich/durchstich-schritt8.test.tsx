@@ -3,7 +3,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { TENANT_2 } from '../rent/fixtures.test-support';
 import { rentTermPath, transactionPath } from '../routing';
-import { REALM_A } from '../transactions/fixtures.test-support';
+import { PROPERTY, REALM_A } from '../transactions/fixtures.test-support';
 import { click, commands, confirmTransaction, go, MIETABGLEICH, openApp, requests, twice, type, useDurchstich } from './walk.test-support';
 import { findSaved } from '../ui/technical.test-support';
 
@@ -114,11 +114,12 @@ async function collective(press: (name: string) => unknown) {
   const writes = backend().sent.filter((s) => s.method !== 'GET');
   expect(writes.map((s) => body(s.body))).toEqual([
     {
+      // #368: the lease's one linked object is the reference of every split taken over.
       splits: [
-        { amount: EUR('700.00'), financialCategoryCode: 'RENT_BASE' },
-        { amount: EUR('150.00'), financialCategoryCode: 'RENT_OPERATING_COST_ADVANCE' },
-        { amount: EUR('700.00'), financialCategoryCode: 'RENT_BASE' },
-        { amount: EUR('150.00'), financialCategoryCode: 'RENT_OPERATING_COST_ADVANCE' },
+        { amount: EUR('700.00'), financialCategoryCode: 'RENT_BASE', propertyReferenceId: PROPERTY },
+        { amount: EUR('150.00'), financialCategoryCode: 'RENT_OPERATING_COST_ADVANCE', propertyReferenceId: PROPERTY },
+        { amount: EUR('700.00'), financialCategoryCode: 'RENT_BASE', propertyReferenceId: PROPERTY },
+        { amount: EUR('150.00'), financialCategoryCode: 'RENT_OPERATING_COST_ADVANCE', propertyReferenceId: PROPERTY },
       ],
     },
     null,

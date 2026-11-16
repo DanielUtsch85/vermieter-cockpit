@@ -66,6 +66,26 @@ describe('step 8: GET /rent-reconciliations/split-proposal (api-design.md §37.6
     expect((await getSplitProposal(c, TX, TERM_REF)).unallocated).toEqual(EUR('50.00'));
   });
 
+  it('#368: the object is the same on every split, and none only with NO_PROPERTY_REFERENCE; anything else is refused', async () => {
+    const linked = splitProposal();
+    const unlinked = splitProposal({ object: 'PROPERTY_NOT_LINKED' });
+    for (const odd of [
+      { ...linked, splits: [linked.splits[0], { ...linked.splits[1], propertyReferenceId: null }] },
+      { ...linked, flags: unlinked.flags },
+      { ...unlinked, flags: [] },
+      { ...unlinked, splits: linked.splits },
+    ]) {
+      const { client: de } = client(json(200, odd));
+      expect((await refused(getSplitProposal(de, TX, TERM_REF))).code).toBe(CLIENT_CODES.unexpected);
+    }
+    const { client: ok } = client(json(200, unlinked), json(200, linked));
+    expect((await getSplitProposal(ok, TX, TERM_REF)).property.propertyReferenceId).toBeNull();
+    expect((await getSplitProposal(ok, TX, TERM_REF)).splits.map((s) => s.propertyReferenceId)).toEqual([
+      linked.property.propertyReferenceId,
+      linked.property.propertyReferenceId,
+    ]);
+  });
+
   it('refusals reach the caller with code and details: NOT_PROPOSABLE, MRE_RENT_TERM_NOT_FOUND, 503, 404', async () => {
     const { client: de } = client(
       envelope(409, 'CONFLICT', { reason: 'NOT_PROPOSABLE', direction: 'INFLOW', status: 'CONFIRMED' }),

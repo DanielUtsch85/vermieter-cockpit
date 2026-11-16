@@ -12,6 +12,7 @@ import {
   firstBoundControl,
   MAX_SPLITS,
   removeRow,
+  rentRowsWithoutProperty,
   splitsEditable,
   toSplitsRequest,
   type DraftRow,
@@ -104,6 +105,7 @@ export function SplitEditor(props: SplitEditorProps) {
   const bound = refusal?.bound ?? NO_BINDING;
   const blocked = sending || (conflict !== undefined && conflict.stage !== 'kept');
   const canSave = editable && check.complete && !blocked;
+  const withoutProperty = useMemo(() => rentRowsWithoutProperty(rows), [rows]);
   const unsaved = useMemo(() => draftDiffers(rows, transaction.splits, transaction.amount.amount), [rows, transaction.splits, transaction.amount.amount]);
   const onDraftChange = useRef(props.onDraftChange);
   onDraftChange.current = props.onDraftChange;
@@ -285,8 +287,21 @@ export function SplitEditor(props: SplitEditorProps) {
           {rows.length >= MAX_SPLITS && <span className="text-label text-muted">Höchstens {MAX_SPLITS} Teilbeträge.</span>}
         </div>
         <Totals amount={transaction.amount.amount} currency={currency} sum={check.sum} rest={check.rest} exact={check.exact} />
+        {editable && withoutProperty.length > 0 && (
+          <div id="split-ohne-objekt">
+            <Notice tone="warning">
+              {`${withoutProperty.length === 1 ? 'Teilbetrag' : 'Teilbeträge'} ${withoutProperty.map((index) => index + 1).join(', ')} in einer Mietkategorie ohne Objekt. `}
+              Gespeichert wird trotzdem; nach dem Bestätigen ist der Bezug nur noch über eine Korrektur zu ändern.
+            </Notice>
+          </div>
+        )}
         <div className="flex flex-wrap items-center gap-4">
-          <button type="submit" className={buttonClass} disabled={!canSave} aria-describedby="split-rest">
+          <button
+            type="submit"
+            className={buttonClass}
+            disabled={!canSave}
+            aria-describedby={editable && withoutProperty.length > 0 ? 'split-rest split-ohne-objekt' : 'split-rest'}
+          >
             {sending ? 'Wird gespeichert …' : 'Aufteilung speichern'}
           </button>
           {unsaved && (

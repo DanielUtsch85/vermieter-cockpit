@@ -451,7 +451,11 @@ const app = createApp({
       leaseMs: 2 * config.MRE_TIMEOUT_MS,
     }),
     getWithPresence: getReconciliationWithPresence({ repository: rentReconciliations, readTerm: mreWriteBackTermReader(mreClient) }),
-    splitProposal: getRentSplitProposal({ queries: new PostgresTransactionQueries(db), readBreakdown: mreRentBreakdownReader(mreClient) }),
+    splitProposal: getRentSplitProposal({
+      queries: new PostgresTransactionQueries(db),
+      readBreakdown: mreRentBreakdownReader(mreClient),
+      findLinkedPropertyReference: (mreRealmId, mrePropertyId) => propertyReferences.repository.findLinkedId(mreRealmId, mrePropertyId),
+    }),
     // §37.5: a removal waits one MRE timeout past the last lease (review on #82).
     removeFromMre: removeFromMre({
       repository: rentReconciliations,

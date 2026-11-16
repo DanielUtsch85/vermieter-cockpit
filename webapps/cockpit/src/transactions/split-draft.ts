@@ -1,5 +1,5 @@
 import { partitionFieldErrors, type FieldError } from '../api/errors';
-import type { SplitInputDto, TransactionDetailDto, TransactionSplitDto } from '../api/transactions';
+import type { RentCategoryCode, SplitInputDto, TransactionDetailDto, TransactionSplitDto } from '../api/transactions';
 import { addCents, compareCents, decimalToCents, decimalToInput, differenceAsDecimal, parseAmountInput, type AmountProblem } from './split-amount';
 
 /**
@@ -151,6 +151,17 @@ export function checkDraft(rows: readonly DraftRow[], transactionAmount: string)
     countOk,
     complete: exact && countOk && problems.every((found) => found.length === 0),
   };
+}
+
+/** The rent categories (P4-D3, api-design.md §37.1), checked against the backend's list by the type. */
+const RENT_CATEGORIES: Readonly<Record<RentCategoryCode, true>> = { RENT_BASE: true, RENT_OPERATING_COST_ADVANCE: true, RENT_OPERATING_COST_SETTLEMENT: true };
+
+/**
+ * The rows (by index) in a rent category without an object (Issue #368; Entscheidung des Projektinhabers, 2026-11-16:
+ * „vor dem Speichern einer Mietkategorie ohne Objekt ein Hinweis, kein Blocker“). A hint only: such a row is saved as it is.
+ */
+export function rentRowsWithoutProperty(rows: readonly DraftRow[]): readonly number[] {
+  return rows.flatMap((row, index) => (Object.hasOwn(RENT_CATEGORIES, row.financialCategoryCode) && !('propertyReferenceId' in row.reference) ? [index] : []));
 }
 
 /**

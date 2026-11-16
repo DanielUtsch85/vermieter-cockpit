@@ -90,6 +90,8 @@ const tenantLeasesDto = zod3.array(
       .optional(),
   }),
 );
+/** A lease entry's populated property record (§37.6, #368): only its MRE id is read. */
+const propertyRecordId = z.object({ _id: z.string().regex(/^[0-9a-f]{24}$/) });
 /** A rent term of `GET /rents/tenant/:id/:term`: only its key, its amount due and its payments are read. */
 const rentTermDto = z.object({
   term: zod3.integer(),
@@ -239,14 +241,19 @@ export class HttpMreClient implements MreClient {
     };
     let rent = 0;
     let charges = 0;
+    const mrePropertyIds: string[] = [];
     for (const p of tenant.properties ?? []) {
       if (p.property == null || !encloses(p.entryDate, p.exitDate)) continue;
       rent += p.rent ?? 0;
       for (const e of p.expenses ?? []) if (encloses(e.beginDate ?? p.entryDate, e.endDate ?? p.exitDate)) charges += e.amount;
+      // #368: only the record's `_id` is kept; its name and address never reach the result or an error message.
+      const id = propertyRecordId.safeParse(p.property);
+      if (!id.success) throw new MreClientError('UNAVAILABLE', 'Unexpected MRE lease property id');
+      if (!mrePropertyIds.includes(id.data._id)) mrePropertyIds.push(id.data._id);
     }
     const [rentMoney, chargesMoney] = [toCents(rent), toCents(charges)];
     if (rentMoney === undefined || chargesMoney === undefined) throw new MreClientError('UNAVAILABLE', 'Unexpected MRE lease amount');
-    return { rent: rentMoney, charges: chargesMoney, due: termRead.amountDue };
+    return { rent: rentMoney, charges: chargesMoney, due: termRead.amountDue, mrePropertyIds };
   }
 
   async rentTermExists(accessToken: string, mreRealmId: string, mreTenantId: string, term: string): Promise<boolean> {

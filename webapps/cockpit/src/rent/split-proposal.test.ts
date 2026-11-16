@@ -1,8 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { checkDraft } from '../transactions/split-draft';
+import { PROPERTY } from '../transactions/fixtures.test-support';
+import { checkDraft, rentRowsWithoutProperty } from '../transactions/split-draft';
 import { addCents, decimalToCents } from '../transactions/split-amount';
 import { splitProposal, TENANT, TENANT_2, TERM, TERM_2 } from './fixtures.test-support';
-import { checkMatchAmount, checkTenantId, checkTermKey, combineProposals, draftFromProposal, hasFreeCash, type CombinedProposal } from './split-proposal';
+import {
+  checkMatchAmount,
+  checkTenantId,
+  checkTermKey,
+  combineProposals,
+  draftFromProposal,
+  hasFreeCash,
+  linesWithoutProperty,
+  type CombinedProposal,
+} from './split-proposal';
 
 /**
  * Step 8's rules (Entscheidung des Projektinhabers, 2026-11-11; ui-guide.md §6.6 steps 2 and 3; api-design.md §37.1,
@@ -114,8 +124,8 @@ describe('step 8: combining proposals (api-design.md §37.6, applied to what is 
       {},
       {
         splits: [
-          { financialCategoryCode: 'RENT_BASE', amount: EUR('0.00') },
-          { financialCategoryCode: 'RENT_OPERATING_COST_ADVANCE', amount: EUR('850.00') },
+          { financialCategoryCode: 'RENT_BASE', amount: EUR('0.00'), propertyReferenceId: PROPERTY },
+          { financialCategoryCode: 'RENT_OPERATING_COST_ADVANCE', amount: EUR('850.00'), propertyReferenceId: PROPERTY },
         ],
       },
     );
@@ -133,24 +143,41 @@ describe('step 8: combining proposals (api-design.md §37.6, applied to what is 
   it('an unreadable amount or another currency: no combination', () => {
     expect(combineProposals(EUR('8,50'), [splitProposal()])).toBeUndefined();
     expect(
-      combineProposals(EUR('850.00'), [splitProposal({}, { splits: [{ financialCategoryCode: 'RENT_BASE', amount: { amount: '850.00', currency: 'CHF' } }] })]),
+      combineProposals(EUR('850.00'), [
+        splitProposal({}, { splits: [{ financialCategoryCode: 'RENT_BASE', amount: { amount: '850.00', currency: 'CHF' }, propertyReferenceId: PROPERTY }] }),
+      ]),
     ).toBeUndefined();
   });
 });
 
 describe('step 8: the draft taken over (ui-guide.md §6.4: an editable draft, nothing sent)', () => {
-  it('one row per line without a reference; the draft covers the payment exactly', () => {
+  it('one row per line with the object the server proposed (#368); the draft covers the payment exactly', () => {
     const combined = combineProposals(EUR('1700.00'), [splitProposal({ amount: '1700.00' }), splitProposal({ amount: '1700.00', term: TERM_2 })]);
     const rows = combined === undefined ? undefined : draftFromProposal(combined, key);
-    expect(rows?.map((row) => [row.financialCategoryCode, row.amount, row.reference.kind, row.description])).toEqual([
-      ['RENT_BASE', '700,00', 'none', ''],
-      ['RENT_OPERATING_COST_ADVANCE', '150,00', 'none', ''],
-      ['RENT_BASE', '700,00', 'none', ''],
-      ['RENT_OPERATING_COST_ADVANCE', '150,00', 'none', ''],
+    expect(rows?.map((row) => [row.financialCategoryCode, row.amount, row.reference, row.description])).toEqual([
+      ['RENT_BASE', '700,00', { kind: 'property', propertyReferenceId: PROPERTY }, ''],
+      ['RENT_OPERATING_COST_ADVANCE', '150,00', { kind: 'property', propertyReferenceId: PROPERTY }, ''],
+      ['RENT_BASE', '700,00', { kind: 'property', propertyReferenceId: PROPERTY }, ''],
+      ['RENT_OPERATING_COST_ADVANCE', '150,00', { kind: 'property', propertyReferenceId: PROPERTY }, ''],
     ]);
     const check = checkDraft(rows ?? [], '1700.00');
     expect([check.sum, check.rest, check.exact, check.complete]).toEqual(['1700.00', '0.00', true, true]);
+    expect(combined === undefined ? undefined : linesWithoutProperty(combined)).toBe(false);
+    expect(rentRowsWithoutProperty(rows ?? [])).toEqual([]);
   });
+
+  it.each(['NO_PROPERTY_FOR_TERM', 'SEVERAL_PROPERTIES', 'PROPERTY_NOT_LINKED'] as const)(
+    '#368: %s leaves the rows of that term without a reference; the other term keeps its object',
+    (object) => {
+      const combined = combineProposals(EUR('1700.00'), [splitProposal({ amount: '1700.00' }), splitProposal({ amount: '1700.00', term: TERM_2, object })]);
+      const rows = combined === undefined ? undefined : draftFromProposal(combined, key);
+      expect(rows?.map((row) => row.reference.kind)).toEqual(['property', 'property', 'none', 'none']);
+      expect(combined === undefined ? undefined : linesWithoutProperty(combined)).toBe(true);
+      expect(rentRowsWithoutProperty(rows ?? [])).toEqual([2, 3]);
+      // A hint only: the draft is still complete and can be saved.
+      expect(checkDraft(rows ?? [], '1700.00').complete).toBe(true);
+    },
+  );
 
   it('a remainder becomes its own row without a category: the sum is still the payment, saving waits for the category', () => {
     const combined = combineProposals(EUR('900.00'), [splitProposal({ amount: '900.00' })]);
@@ -162,6 +189,7 @@ describe('step 8: the draft taken over (ui-guide.md §6.4: an editable draft, no
     ]);
     const check = checkDraft(rows ?? [], '900.00');
     expect([check.sum, check.exact, check.complete, check.problems[2]]).toEqual(['900.00', true, false, ['CATEGORY_MISSING']]);
+    expect(rows?.[2]?.reference).toEqual({ kind: 'none' });
   });
 
   it('more than 100 rows cannot be taken over', () => {

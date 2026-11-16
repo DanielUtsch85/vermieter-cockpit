@@ -261,4 +261,17 @@ describe.skipIf(databaseUrl === undefined)('PostgresPropertyReferenceRepository'
   it('the database rejects an mre_property_id that is not an ObjectId', async () => {
     await expect(repository.linkOnce(draft('not-an-object-id'), actor)).rejects.toThrow(/check constraint/);
   });
+
+  it('findLinkedId (§37.6, #368): the Realm link of one MRE property, any state; another Realm link of the same id is not found', async () => {
+    const id = '6512f0c2a1b2c3d4e5f60730';
+    expect(await repository.findLinkedId(REALM, id)).toBeUndefined();
+    const other = await repository.linkOnce(draft(id, OTHER_REALM), actor);
+    expect(await repository.findLinkedId(REALM, id)).toBeUndefined();
+    const own = await repository.linkOnce(draft(id), actor);
+    expect(await repository.findLinkedId(REALM, id)).toBe(own.reference.id);
+    expect(await repository.findLinkedId(OTHER_REALM, id)).toBe(other.reference.id);
+    await repository.refresh(own.reference.id, REALM, { kind: 'NOT_FOUND', observedAt: new Date('2026-10-21T09:00:00Z') }, actor);
+    expect((await repository.findById(own.reference.id, REALM))?.externalReferenceState).toBe('MISSING');
+    expect(await repository.findLinkedId(REALM, id)).toBe(own.reference.id);
+  });
 });

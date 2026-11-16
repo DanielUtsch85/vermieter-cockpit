@@ -10,6 +10,7 @@ import {
   MAX_SPLITS,
   referenceKinds,
   removeRow,
+  rentRowsWithoutProperty,
   splitsEditable,
   toSplitsRequest,
   withReferenceKind,
@@ -229,5 +230,27 @@ describe('the unsaved draft that locks Buchung bestaetigen (Entscheidung des Pro
     if (only === undefined) throw new Error('one row expected');
     expect(draftDiffers([only], [], '850.00')).toBe(false);
     expect(draftDiffers([{ ...only, financialCategoryCode: 'RENT_BASE' }], [], '850.00')).toBe(true);
+  });
+});
+
+describe('a rent category without an object (Issue #368; Entscheidung des Projektinhabers, 2026-11-16)', () => {
+  it('each rent category without an object is named; with an object, another category or another reference not', () => {
+    const rows = [
+      row({ financialCategoryCode: 'RENT_BASE' }),
+      row({ financialCategoryCode: 'RENT_OPERATING_COST_ADVANCE' }),
+      row({ financialCategoryCode: 'RENT_OPERATING_COST_SETTLEMENT' }),
+      row({ financialCategoryCode: 'RENT_BASE', reference: { kind: 'property', propertyReferenceId: PROPERTY } }),
+      row({ financialCategoryCode: 'MAINTENANCE' }),
+      row({ financialCategoryCode: '' }),
+      row({ financialCategoryCode: 'RENT_BASE_X' }),
+    ];
+    expect(rentRowsWithoutProperty(rows)).toEqual([0, 1, 2]);
+  });
+
+  it('a hint, no blocker: the draft stays complete and is sent as it is', () => {
+    const rows = [row({ amount: '850,00' })];
+    expect(rentRowsWithoutProperty(rows)).toEqual([0]);
+    expect(checkDraft(rows, '850.00').complete).toBe(true);
+    expect(toSplitsRequest(rows, 'EUR').splits).toEqual([{ amount: { amount: '850.00', currency: 'EUR' }, financialCategoryCode: 'RENT_BASE' }]);
   });
 });

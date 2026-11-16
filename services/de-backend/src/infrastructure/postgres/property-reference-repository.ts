@@ -33,6 +33,26 @@ export class PostgresPropertyReferenceRepository implements PropertyReferenceRep
     return row === undefined ? undefined : toDomain(row);
   }
 
+  /**
+   * The id of the Realm's PropertyReference of one MRE property, any `externalReferenceState`, in a short
+   * `REPEATABLE READ READ ONLY` read of its own (api-design.md §37.6, #368: after the split proposal's MRE read).
+   */
+  async findLinkedId(mreRealmId: string, mrePropertyId: string): Promise<string | undefined> {
+    return this.db
+      .transaction()
+      .setIsolationLevel('repeatable read')
+      .setAccessMode('read only')
+      .execute(async (trx) => {
+        const row = await trx
+          .selectFrom('property_reference')
+          .select('id')
+          .where('mre_realm_id', '=', mreRealmId)
+          .where('mre_property_id', '=', mrePropertyId)
+          .executeTakeFirst();
+        return row?.id;
+      });
+  }
+
   async findById(id: string, mreRealmId: string): Promise<PropertyReference | undefined> {
     if (!UUID.test(id)) return undefined;
     const row = await this.db.selectFrom('property_reference').selectAll().where('id', '=', id).where('mre_realm_id', '=', mreRealmId).executeTakeFirst();

@@ -26,7 +26,7 @@ import {
   unreachable,
 } from './fake-model.test-support';
 import { createRentFake, type MreTermState } from './fake-rent.test-support';
-import { createSetupFake, type SetupFake } from './fake-setup.test-support';
+import { createSetupFake, MRE_LINKED, type SetupFake } from './fake-setup.test-support';
 import type { Money, RealMappings } from './real-mappings.test-support';
 
 /** MRE's token lifetimes in production (`services/authenticator/src/routes/landlord.js`), modelled by this fake. */
@@ -66,7 +66,8 @@ export interface Backend {
    */
   suggestRule: 'ANY_AMOUNT' | 'EXACT';
   /** A further MRE term with its lease values (§37.6); its amount due is rent + charges + adjustments. */
-  addMreTerm(tenant: string, term: string, lease: { rent: string; charges: string; adjustments?: string }): void;
+  /** `mrePropertyIds`: the lease's MRE properties for the term, by default Realm A's linked one (#368). */
+  addMreTerm(tenant: string, term: string, lease: { rent: string; charges: string; adjustments?: string; mrePropertyIds?: readonly string[] }): void;
   /**
    * An inflow of Realm A as an import left it (`IMPORTED`, no splits), with synthetic text and counterparty; with
    * `confirmedRent`, as an earlier step left it: one `RENT_BASE` split over the whole amount, `CONFIRMED`.
@@ -181,6 +182,7 @@ export function createBackend(real: RealMappings): Backend {
     rent: eur('700.00'),
     charges: eur('150.00'),
     adjustments: eur('0.00'),
+    mrePropertyIds: [MRE_LINKED],
   };
   const mreTerms = new Map<string, MreTermState>([[`${TENANT}/${TERM_OCT}`, mreTerm]]);
   const counters = { mreWrites: 0, signIns: 0, refreshes: 0 };
@@ -468,6 +470,7 @@ export function createBackend(real: RealMappings): Backend {
     mreTerms,
     counters,
     state: () => backend,
+    linkedProperty: (realm, mrePropertyId) => setup.references.find((r) => r.mreRealmId === realm && r.mrePropertyId === mrePropertyId)?.propertyReferenceId,
   });
 
   /* ---------------------------------------------------------------- routing */
@@ -608,7 +611,8 @@ export function createBackend(real: RealMappings): Backend {
     suggestRule: 'ANY_AMOUNT',
     addMreTerm: (tenant, term, lease) => {
       const [rent, charges, adjustments] = [eur(lease.rent), eur(lease.charges), eur(lease.adjustments ?? '0.00')];
-      mreTerms.set(termKey(tenant, term), { amountDue: rent.add(charges).add(adjustments), payments: [], rent, charges, adjustments });
+      const mrePropertyIds = lease.mrePropertyIds ?? [MRE_LINKED];
+      mreTerms.set(termKey(tenant, term), { amountDue: rent.add(charges).add(adjustments), payments: [], rent, charges, adjustments, mrePropertyIds });
     },
     seedInflow: (description, amount, bookingDate, confirmedRent = false) => {
       const t = tx({

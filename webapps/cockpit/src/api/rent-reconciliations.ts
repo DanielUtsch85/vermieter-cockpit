@@ -238,6 +238,10 @@ export async function getSplitProposal(client: DeClient, transactionId: string, 
   const total = centsOf(data.amount, currency);
   if (total === undefined || parts.some((c) => c === undefined)) throw unexpected('The proposal has an amount that is not readable.');
   if (parts.reduce<string>((sum, c) => addCents(sum, c ?? '0'), '0') !== total) throw unexpected('The proposal does not add up to the amount.');
+  // §37.6 (#368): every split carries the proposal's object, the same on all; none only with the flag that says why.
+  const property = data.property.propertyReferenceId;
+  if (data.splits.some((s) => s.propertyReferenceId !== property)) throw unexpected('The proposal names different objects.');
+  if ((property === null) !== data.flags.some((f) => f.code === 'NO_PROPERTY_REFERENCE')) throw unexpected('The proposal object and its flag disagree.');
   return data;
 }
 

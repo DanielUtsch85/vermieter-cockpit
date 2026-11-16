@@ -719,6 +719,8 @@ async function stopAndStart(commands: CommandOverrides): Promise<string> {
 describe('GET /api/v1/rent-reconciliations/split-proposal (§37.6, #126)', () => {
   const TX_ID = '0b6f1f9e-2f2c-4a8e-9d55-1f0d8c1e2a3c';
   const TENANT_ID = '6512f0c2a1b2c3d4e5f60a01';
+  const FLAT = '6a0000000000000000000001';
+  const GARAGE = '6a0000000000000000000002';
   const query = (q: Record<string, string>) => `/rent-reconciliations/split-proposal?${new URLSearchParams(q).toString()}`;
   const proposal = {
     transactionId: TX_ID,
@@ -726,12 +728,17 @@ describe('GET /api/v1/rent-reconciliations/split-proposal (§37.6, #126)', () =>
     mreRentTerm: '2027020100',
     amount: Money.of('790.00', 'EUR'),
     term: { rent: Money.of('650.00', 'EUR'), charges: Money.of('150.00', 'EUR'), adjustments: Money.of('0.00', 'EUR'), due: Money.of('800.00', 'EUR') },
+    property: { mrePropertyIds: [FLAT, GARAGE], propertyReferenceId: null },
     splits: [
-      { financialCategoryCode: 'RENT_BASE', amount: Money.of('650.00', 'EUR') },
-      { financialCategoryCode: 'RENT_OPERATING_COST_ADVANCE', amount: Money.of('140.00', 'EUR') },
+      { financialCategoryCode: 'RENT_BASE', amount: Money.of('650.00', 'EUR'), propertyReferenceId: null },
+      { financialCategoryCode: 'RENT_OPERATING_COST_ADVANCE', amount: Money.of('140.00', 'EUR'), propertyReferenceId: null },
     ],
     unallocated: Money.of('0.00', 'EUR'),
-    flags: [{ code: 'AMOUNT_DIFFERS_FROM_TERM', details: { difference: Money.of('-10.00', 'EUR') } }, { code: 'ALREADY_SPLIT' }],
+    flags: [
+      { code: 'AMOUNT_DIFFERS_FROM_TERM', details: { difference: Money.of('-10.00', 'EUR') } },
+      { code: 'ALREADY_SPLIT' },
+      { code: 'NO_PROPERTY_REFERENCE', details: { reason: 'SEVERAL_PROPERTIES', mrePropertyIds: [FLAT, GARAGE] } },
+    ],
   } as unknown as RentSplitProposalView;
 
   it('200 with the proposal as Money JSON; the query reaches the use case with the caller header; the id lower-cased', async () => {
@@ -750,14 +757,40 @@ describe('GET /api/v1/rent-reconciliations/split-proposal (§37.6, #126)', () =>
         adjustments: { amount: '0.00', currency: 'EUR' },
         due: { amount: '800.00', currency: 'EUR' },
       },
+      property: { mrePropertyIds: [FLAT, GARAGE], propertyReferenceId: null },
       splits: [
-        { financialCategoryCode: 'RENT_BASE', amount: { amount: '650.00', currency: 'EUR' } },
-        { financialCategoryCode: 'RENT_OPERATING_COST_ADVANCE', amount: { amount: '140.00', currency: 'EUR' } },
+        { financialCategoryCode: 'RENT_BASE', amount: { amount: '650.00', currency: 'EUR' }, propertyReferenceId: null },
+        { financialCategoryCode: 'RENT_OPERATING_COST_ADVANCE', amount: { amount: '140.00', currency: 'EUR' }, propertyReferenceId: null },
       ],
       unallocated: { amount: '0.00', currency: 'EUR' },
-      flags: [{ code: 'AMOUNT_DIFFERS_FROM_TERM', details: { difference: { amount: '-10.00', currency: 'EUR' } } }, { code: 'ALREADY_SPLIT' }],
+      flags: [
+        { code: 'AMOUNT_DIFFERS_FROM_TERM', details: { difference: { amount: '-10.00', currency: 'EUR' } } },
+        { code: 'ALREADY_SPLIT' },
+        { code: 'NO_PROPERTY_REFERENCE', details: { reason: 'SEVERAL_PROPERTIES', mrePropertyIds: [FLAT, GARAGE] } },
+      ],
     });
     expect(seen[0]).toMatchObject({ authorizationHeader: 'Bearer a.b.c', transactionId: TX_ID, mreTenantId: TENANT_ID, mreRentTerm: '2027020100' });
+  });
+
+  it('#368: a linked property is on the proposal and every split, in the order of the amended answer', async () => {
+    const P = '2b6f1f9e-2f2c-4a8e-9d55-1f0d8c1e2a3c';
+    const linked = {
+      ...proposal,
+      property: { mrePropertyIds: [FLAT], propertyReferenceId: P },
+      splits: proposal.splits.map((s) => ({ ...s, propertyReferenceId: P })),
+      flags: [],
+    } as unknown as RentSplitProposalView;
+    const base = await start({ rentReconciliations: { splitProposal: async () => linked } });
+    const body = (await (await call(base, 'GET', query({ transactionId: TX_ID, mreTenantId: TENANT_ID, mreRentTerm: '2027020100' }))).json()) as Record<
+      string,
+      unknown
+    >;
+    expect(Object.keys(body)).toEqual(['transactionId', 'mreTenantId', 'mreRentTerm', 'amount', 'term', 'property', 'splits', 'unallocated', 'flags']);
+    expect(body).toMatchObject({
+      property: { mrePropertyIds: [FLAT], propertyReferenceId: P },
+      splits: [{ propertyReferenceId: P }, { propertyReferenceId: P }],
+      flags: [],
+    });
   });
 
   it('400 for a missing or malformed parameter or an unknown one; the route is not taken for a reconciliation id', async () => {

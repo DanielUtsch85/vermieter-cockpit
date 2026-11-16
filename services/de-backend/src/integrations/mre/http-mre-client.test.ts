@@ -30,6 +30,14 @@ async function startStub(status: number, body: string, delayMs = 0): Promise<{ u
 const PROPERTY_A = '6512f0c2a1b2c3d4e5f60718';
 const PROPERTY_B = '6512f0c2a1b2c3d4e5f60719';
 const TENANT_A = '6512f0c2a1b2c3d4e5f60a01';
+const CELLAR = '6512f0c2a1b2c3d4e5f6071a';
+// Realm C for the lease's properties of a term (#368, §37.6), with its own member so realm-a's reads stay as they are.
+const TENANT_C1 = '6512f0c2a1b2c3d4e5f60c01';
+const TENANT_C2 = '6512f0c2a1b2c3d4e5f60c02';
+const FLAT = '6a0000000000000000000001';
+const OLD = '6a0000000000000000000003';
+const LATER = '6a0000000000000000000004';
+const lease = (property: unknown, entryDate: string, exitDate: string) => ({ property, rent: 100, entryDate, exitDate, expenses: [] });
 
 describe('HttpMreClient against a fake MRE', () => {
   let mre: FakeMre;
@@ -87,7 +95,7 @@ describe('HttpMreClient against a fake MRE', () => {
                 expenses: [],
               },
               // A cellar for the second half of January only: the month counts whole (the lease's frequency is months).
-              { propertyId: 'cellar', property: { _id: 'cellar' }, rent: 30, entryDate: '15/01/2027', exitDate: '31/01/2027', expenses: [] },
+              { propertyId: CELLAR, property: { _id: CELLAR }, rent: 30, entryDate: '15/01/2027', exitDate: '31/01/2027', expenses: [] },
               // A property whose record is gone is skipped, as computeRent does.
               { propertyId: 'gone', rent: 999, entryDate: '01/01/2027', exitDate: '31/12/2027', expenses: [] },
             ],
@@ -109,6 +117,30 @@ describe('HttpMreClient against a fake MRE', () => {
         name: 'Landlord B',
         members: [{ name: 'Bert', email: 'bert@example.com', role: 'administrator', registered: true }],
         applications: [],
+      },
+      {
+        _id: 'realm-c',
+        name: 'Landlord C',
+        members: [{ name: 'Carla', email: 'carla@example.com', role: 'administrator', registered: true }],
+        applications: [],
+        tenants: [
+          {
+            _id: TENANT_C1,
+            frequency: 'months',
+            properties: [
+              lease({ _id: OLD }, '01/01/2026', '31/12/2026'),
+              lease({ _id: FLAT, name: 'Wohnung C', address: { street1: 'Musterweg 3' } }, '01/01/2027', '31/12/2027'),
+              lease({ _id: LATER }, '01/03/2027', '30/06/2027'),
+              lease(null, '01/01/2027', '31/12/2027'),
+              lease({ _id: FLAT }, '01/02/2027', '31/12/2027'),
+            ],
+          },
+          {
+            _id: TENANT_C2,
+            properties: [lease({ _id: 'Wohnung Geheim', name: 'Geheimname', address: { street1: 'Geheimweg 1' } }, '01/01/2027', '31/12/2027')],
+          },
+        ],
+        rents: { [TENANT_C1]: [2027020100, 2027040100, 2028010100], [TENANT_C2]: [2027020100] },
       },
     ]);
     client = new HttpMreClient({ apiBaseUrl: `${mre.apiBaseUrl}/`, timeoutMs: 2000 });
@@ -204,6 +236,7 @@ describe('HttpMreClient against a fake MRE', () => {
       rent: eur('680.00'),
       charges: eur('150.00'),
       due: eur('800.00'),
+      mrePropertyIds: [PROPERTY_A, CELLAR],
     });
     expect(mre.requests.slice(before)).toMatchObject([
       { path: '/api/v2/tenants', organizationid: 'realm-a' },
@@ -214,10 +247,27 @@ describe('HttpMreClient against a fake MRE', () => {
       rent: eur('700.00'),
       charges: eur('170.00'),
       due: eur('800.00'),
+      mrePropertyIds: [PROPERTY_A, PROPERTY_B],
     });
     expect(await client.readRentBreakdown(token, 'realm-a', TENANT_A, '2027030100')).toBeUndefined();
     expect(await client.readRentBreakdown(token, 'realm-a', '6512f0c2a1b2c3d4e5f60aff', '2027010100')).toBeUndefined();
     await expectCode(client.readRentBreakdown(token, 'realm-b', TENANT_A, '2027010100'), 'FORBIDDEN');
+  });
+
+  it('readRentBreakdown (#368): the properties enclosing the term, distinct, in lease order; ended, later and recordless entries left out', async () => {
+    const token = signJwt({ account: { email: 'carla@example.com' } });
+    const ids = async (term: string) => (await client.readRentBreakdown(token, 'realm-c', TENANT_C1, term))?.mrePropertyIds;
+    // February: the old flat ended, the later one not begun, the entry without a record skipped, the flat twice kept once.
+    expect(await ids('2027020100')).toEqual([FLAT]);
+    expect(await ids('2027040100')).toEqual([FLAT, LATER]);
+    expect(await ids('2028010100')).toEqual([]);
+  });
+
+  it('readRentBreakdown (#368): a property id that is not an ObjectId is UNAVAILABLE, and the record leaves no trace in the error', async () => {
+    const token = signJwt({ account: { email: 'carla@example.com' } });
+    const read = client.readRentBreakdown(token, 'realm-c', TENANT_C2, '2027020100');
+    await expectCode(read, 'UNAVAILABLE');
+    await expect(read).rejects.not.toThrow(/Geheim/);
   });
 
   it.each([

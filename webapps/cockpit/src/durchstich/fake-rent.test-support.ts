@@ -41,6 +41,8 @@ export interface MreTermState {
   readonly rent: Money;
   readonly charges: Money;
   readonly adjustments: Money;
+  /** The MRE properties of the lease that enclose the term (§37.6, #368). */
+  readonly mrePropertyIds: readonly string[];
 }
 
 export interface RentContext {
@@ -52,6 +54,8 @@ export interface RentContext {
   readonly mreTerms: Map<string, MreTermState>;
   readonly counters: { mreWrites: number };
   readonly state: () => { readonly mreUp: boolean; readonly suggestRule: 'ANY_AMOUNT' | 'EXACT' };
+  /** The Realm's PropertyReference of an MRE property, any state (§37.6, #368). */
+  readonly linkedProperty: (realm: string, mrePropertyId: string) => string | undefined;
 }
 
 const lastDay = (ym: string) => {
@@ -65,7 +69,7 @@ const monthBefore = (ym: string) => {
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function createRentFake(ctx: RentContext) {
-  const { real, transactions, reconciliations, mreTerm, mreTerms, counters, state } = ctx;
+  const { real, transactions, reconciliations, mreTerm, mreTerms, counters, state, linkedProperty } = ctx;
   const { Money } = real;
   const eur = (amount: string) => Money.of(amount, 'EUR');
   const creates = new Map<string, { fingerprint: string; body: unknown }>();
@@ -352,10 +356,17 @@ export function createRentFake(ctx: RentContext) {
     if (known === undefined) return envelope(422, 'MRE_RENT_TERM_NOT_FOUND', { mreTenantId: tenant, mreRentTerm: term });
     const base = min(known.rent, t.amount);
     const advance = min(known.charges, t.amount.subtract(base));
-    const flags: { code: string; details?: Record<string, Money> }[] = [];
+    const flags: { code: string; details?: Record<string, unknown> }[] = [];
     if (!t.amount.equals(known.amountDue)) flags.push({ code: 'AMOUNT_DIFFERS_FROM_TERM', details: { difference: t.amount.subtract(known.amountDue) } });
     if (!known.adjustments.isZero()) flags.push({ code: 'TERM_HAS_ADJUSTMENTS', details: { adjustments: known.adjustments } });
     if (t.splits.length > 0) flags.push({ code: 'ALREADY_SPLIT' });
+    // #368: exactly one enclosing MRE property, linked in this Realm, is the object of every split.
+    const { mrePropertyIds } = known;
+    const [sole] = mrePropertyIds;
+    const linked = mrePropertyIds.length === 1 && sole !== undefined ? linkedProperty(realm, sole) : undefined;
+    const reason = mrePropertyIds.length === 0 ? 'NO_PROPERTY_FOR_TERM' : mrePropertyIds.length > 1 ? 'SEVERAL_PROPERTIES' : 'PROPERTY_NOT_LINKED';
+    const propertyReferenceId = linked ?? null;
+    if (linked === undefined) flags.push({ code: 'NO_PROPERTY_REFERENCE', details: { reason, mrePropertyIds } });
     return json(
       200,
       real.splitProposal({
@@ -364,9 +375,10 @@ export function createRentFake(ctx: RentContext) {
         mreRentTerm: term,
         amount: t.amount,
         term: { rent: known.rent, charges: known.charges, adjustments: known.adjustments, due: known.amountDue },
+        property: { mrePropertyIds, propertyReferenceId },
         splits: [
-          { financialCategoryCode: 'RENT_BASE', amount: base },
-          { financialCategoryCode: 'RENT_OPERATING_COST_ADVANCE', amount: advance },
+          { financialCategoryCode: 'RENT_BASE', amount: base, propertyReferenceId },
+          { financialCategoryCode: 'RENT_OPERATING_COST_ADVANCE', amount: advance, propertyReferenceId },
         ].filter((s) => !s.amount.isZero()),
         unallocated: t.amount.subtract(base).subtract(advance),
         flags,

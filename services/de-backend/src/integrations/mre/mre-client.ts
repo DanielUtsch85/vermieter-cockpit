@@ -128,12 +128,14 @@ export interface MreTenantDeposit {
  * One rent term of a Tenant broken into rent and charges (api-design.md §37.6), each rounded half-up to the cent once.
  * `toRentData` has no separate rent and charges, and the Tenant list drops the stored `rents[]` (`toOccupantData`,
  * baseline `479d0ad`); so `rent` and `charges` are the lease's for the term as `computeRent` takes them
- * (`tasks/1_base.js`), and `due` is the term's `totalWithoutBalanceAmount`.
+ * (`tasks/1_base.js`), and `due` is the term's `totalWithoutBalanceAmount`. `mrePropertyIds` are the `property._id`s of
+ * the lease entries `rent` is summed from, distinct, in lease order (#368); nothing else of a property record is kept.
  */
 export interface MreRentBreakdown {
   readonly rent: Money;
   readonly charges: Money;
   readonly due: Money;
+  readonly mrePropertyIds: readonly string[];
 }
 
 export type MreClientErrorCode =
@@ -185,7 +187,7 @@ export interface MreClient {
   /**
    * One rent term of a Tenant (api-design.md §37.6): the lease's properties from the Realm's list `GET /tenants`, then
    * the term's amount due from `GET /rents/tenant/:id/:term`; undefined when the list has no such Tenant or MRE no
-   * such term. Only amounts and dates are kept.
+   * such term. Only amounts, dates and the enclosing properties' `_id`s are kept.
    */
   readRentBreakdown(accessToken: string, mreRealmId: string, mreTenantId: string, term: string): Promise<MreRentBreakdown | undefined>;
 

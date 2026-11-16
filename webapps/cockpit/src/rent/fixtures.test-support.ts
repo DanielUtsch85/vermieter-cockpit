@@ -6,7 +6,7 @@ import type {
   TermCoverageDto,
   TransactionRentCoverageDto,
 } from '../api/rent-reconciliations';
-import { REALM_A, TX } from '../transactions/fixtures.test-support';
+import { PROPERTY, REALM_A, TX } from '../transactions/fixtures.test-support';
 
 /** Synthetic DTOs of step 6, shaped as the backend's `toDto`, `toTermDto` and `toTransactionDto`; no real person or account. */
 export const REC = '8d6b0e9f-1a2c-4d34-8f56-f708192a3b4c';
@@ -134,12 +134,26 @@ export const TERM_2 = '2026040100';
 
 const eur = (amount: string) => ({ amount, currency: 'EUR' });
 
+/** Synthetic MRE properties of the lease (#368). */
+export const MRE_FLAT = '6a0000000000000000000001';
+export const MRE_GARAGE = '6a0000000000000000000002';
+
 /**
  * A split proposal as `GET …/split-proposal` answers it (api-design.md §37.6): rent 700,00 and charges 150,00 by
- * default; the splits, `unallocated` and the flags follow the server's rule for the amount given.
+ * default; the splits, `unallocated` and the flags follow the server's rule for the amount given. The lease's object
+ * (#368) is the linked `PROPERTY` by default; `object` sets the reason the server gives none instead.
  */
 export function splitProposal(
-  options: { amount?: string; rent?: string; charges?: string; adjustments?: string; tenant?: string; term?: string; transactionId?: string } = {},
+  options: {
+    amount?: string;
+    rent?: string;
+    charges?: string;
+    adjustments?: string;
+    tenant?: string;
+    term?: string;
+    transactionId?: string;
+    object?: 'NO_PROPERTY_FOR_TERM' | 'SEVERAL_PROPERTIES' | 'PROPERTY_NOT_LINKED';
+  } = {},
   overrides: Partial<RentSplitProposalDto> = {},
 ): RentSplitProposalDto {
   const cents = (a: string) => BigInt(a.replace('.', ''));
@@ -158,13 +172,17 @@ export function splitProposal(
   const flags: RentSplitProposalDto['flags'][number][] = [];
   if (amount !== due) flags.push({ code: 'AMOUNT_DIFFERS_FROM_TERM', details: { difference: eur(text(amount - due)) } });
   if (adjustments !== 0n) flags.push({ code: 'TERM_HAS_ADJUSTMENTS', details: { adjustments: eur(text(adjustments)) } });
+  const mrePropertyIds = options.object === 'NO_PROPERTY_FOR_TERM' ? [] : options.object === 'SEVERAL_PROPERTIES' ? [MRE_FLAT, MRE_GARAGE] : [MRE_FLAT];
+  const propertyReferenceId = options.object === undefined ? PROPERTY : null;
+  if (options.object !== undefined) flags.push({ code: 'NO_PROPERTY_REFERENCE', details: { reason: options.object, mrePropertyIds } });
   return {
     transactionId: options.transactionId ?? TX,
     mreTenantId: options.tenant ?? TENANT,
     mreRentTerm: options.term ?? TERM,
     amount: eur(text(amount)),
     term: { rent: eur(text(rent)), charges: eur(text(charges)), adjustments: eur(text(adjustments)), due: eur(text(due)) },
-    splits: splits.filter(([, c]) => c > 0n).map(([financialCategoryCode, c]) => ({ financialCategoryCode, amount: eur(text(c)) })),
+    property: { mrePropertyIds, propertyReferenceId },
+    splits: splits.filter(([, c]) => c > 0n).map(([financialCategoryCode, c]) => ({ financialCategoryCode, amount: eur(text(c)), propertyReferenceId })),
     unallocated: eur(text(amount - base - advance)),
     flags,
     ...overrides,
