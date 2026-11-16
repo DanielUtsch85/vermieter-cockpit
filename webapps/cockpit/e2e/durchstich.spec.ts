@@ -17,7 +17,8 @@ import {
 /**
  * A reduced walk over steps 1–7 of ui-guide.md §10 plus step 8 against the real backend, the pinned MRE and PostgreSQL,
  * through Caddy (backlog VC-X-70): sign-in, the setup of Issue #365 (an account created and an MRE property linked in
- * the cockpit), CSV import with a synthetic file, both decisions on review items, the split
+ * the cockpit), CSV import with a synthetic file, the import found again in „Bisherige Importe“ (#369), both decisions
+ * on review items, the split
  * from MRE's proposal (step 8) saved and the booking confirmed, the rent suggestion confirmed and written back to MRE.
  * The jsdom Durchstich (src/durchstich) stays the place for error and conflict cases and exact request bodies; this file
  * shows that the same clicks work against the real services. One test: each step needs the one before.
@@ -99,6 +100,20 @@ test('import, review items, split from the MRE proposal, confirm, rent suggestio
   await expect(rows).toHaveCount(4);
   await expect(rows.filter({ hasText: 'Neu angelegt' })).toHaveCount(1);
   await expect(rows.filter({ hasText: 'Klärfall' })).toHaveCount(2);
+
+  // „Bisherige Importe“ under the form (#369, api-design.md §32.6): this import first, highlighted with its two open review
+  // items, the seed's earlier import below it; the import is reached again from the list, without its address.
+  const resultPath = new URL(page.url()).pathname;
+  await nav(page, 'Import');
+  const history = page.getByRole('list', { name: /^Bisherige Importe, Seite 1 von 1$/ });
+  await expect(history.getByRole('listitem')).toHaveCount(2);
+  const pending = history.getByRole('listitem').first();
+  await expect(pending).toHaveAccessibleName(`${WALK_CSV_NAME}, Klärfälle offen`);
+  await expect(pending).toContainText('2 offene Klärfälle');
+  await expect(history.getByRole('listitem').nth(1)).toHaveAccessibleName('e2e-umsaetze-frueher.csv');
+  await expectNoSideScroll(page, 'import list');
+  await pending.getByRole('link', { name: 'Klärfälle bearbeiten' }).click();
+  await expect(page).toHaveURL(new RegExp(`${resultPath}$`));
 
   // Both decisions, each with its confirmation step.
   const insurance = page.getByRole('article').filter({ hasText: 'Gutschrift Testversicherung Nachtrag' });

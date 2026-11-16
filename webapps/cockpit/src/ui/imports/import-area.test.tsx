@@ -50,7 +50,12 @@ function Routed({ client }: { readonly client: ReturnType<typeof createDeClient>
 
 function area(routes: Record<string, (() => Response)[]>, path = `/cockpit/r/${REALM_A}/import`) {
   window.history.pushState(null, '', path);
-  const { fetch, calls } = routedFetch({ 'GET /api/v1/financial-accounts': [() => json(200, page([account({ iban: IBAN })]))], ...routes });
+  const { fetch, calls } = routedFetch({
+    'GET /api/v1/financial-accounts': [() => json(200, page([account({ iban: IBAN })]))],
+    // The list under the form (#369): empty here; import-history.test.tsx tests it.
+    'GET /api/v1/imports': [() => json(200, { items: [], page: 1, pageSize: 20, total: 0 })],
+    ...routes,
+  });
   const client = createDeClient({ tokens: countingTokens(), realmId: REALM_A, fetch });
   const queryClient = createQueryClient();
   // A Transaction list of the Realm read before: what an import or a decision must invalidate (§7.3).

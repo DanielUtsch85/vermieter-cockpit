@@ -301,6 +301,22 @@ export function createBackend(real: RealMappings): Backend {
     return json(201, real.batch(batch));
   };
 
+  /** `GET /imports` (§32.6, #369): newest first, then the id descending; filters `financialAccountId` and `status`. */
+  const listBatches = (realm: string, search: URLSearchParams): Response => {
+    const unknown = [...search.keys()].find((k) => !['financialAccountId', 'status', 'page', 'pageSize'].includes(k));
+    if (unknown !== undefined) return invalid(unknown);
+    const page = Number(search.get('page') ?? '1');
+    const pageSize = Number(search.get('pageSize') ?? '50');
+    const account = search.get('financialAccountId')?.toLowerCase();
+    const statuses = search.get('status')?.split(',');
+    const all = [...batches.values()]
+      .filter(
+        (b) => b.mreRealmId === realm && (account === undefined || b.financialAccountId === account) && (statuses === undefined || statuses.includes(b.status)),
+      )
+      .sort((a, b) => b.importedAt.getTime() - a.importedAt.getTime() || (a.id < b.id ? 1 : -1));
+    return json(200, { items: all.slice((page - 1) * pageSize, page * pageSize).map(real.batchSummary), page, pageSize, total: all.length });
+  };
+
   const conflictsOf = (item: Item) =>
     new Map(
       item.conflictingTransactionIds.flatMap((id) => {
@@ -498,6 +514,8 @@ export function createBackend(real: RealMappings): Backend {
         const list = [...transactions.values()].filter((t) => t.mreRealmId === realm && (statuses === undefined || statuses.includes(t.status)));
         return json(200, page(list.map(real.transaction)));
       }
+      case 'GET imports':
+        return listBatches(realm, search);
       case 'POST imports/{id}':
         return id === 'bank-transactions' ? importFile(realm, form) : notFound();
       case 'GET imports/{id}': {

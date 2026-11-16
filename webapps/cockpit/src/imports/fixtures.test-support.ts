@@ -1,4 +1,4 @@
-import type { ConflictingTransactionDto, ImportBatchDto, ImportRowDto, ReviewItemDto } from '../api/imports';
+import type { ConflictingTransactionDto, ImportBatchDto, ImportBatchSummaryDto, ImportRowDto, ReviewItemDto } from '../api/imports';
 import { ACCOUNT, REALM_A, TX, TX_REPLACEMENT } from '../transactions/fixtures.test-support';
 
 /**
@@ -43,6 +43,12 @@ export function batch(overrides: Partial<ImportBatchDto> = {}): ImportBatchDto {
     continuity: null,
     ...overrides,
   };
+}
+
+/** A batch as `GET /imports` lists it (§32.6, #369): the single read without `rows` and `continuity`. */
+export function batchSummary(overrides: Partial<ImportBatchSummaryDto> = {}): ImportBatchSummaryDto {
+  const { rows: _rows, continuity: _continuity, ...summary } = batch();
+  return { ...summary, ...overrides };
 }
 
 /** A batch with one row of every outcome, its own pending item and a reference to a pending item of an earlier batch. */
