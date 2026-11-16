@@ -32,7 +32,7 @@ const input = (label: string) => screen.getByLabelText<HTMLInputElement>(label);
 const pick = (label: string, value: string) => fireEvent.change(select(label), { target: { value } });
 const click = (name: string | RegExp) => fireEvent.click(screen.getByRole('button', { name }));
 const optionTexts = (label: string) => Array.from(select(label).options).map((o) => o.textContent);
-const WINDOW = { from: '2026-02', to: '2026-04' };
+const WINDOW = { from: '2026-01', to: '2026-04' };
 
 /** „Manuell zuordnen“ of a counted inflow of 2 March 2026 with the lists, 550,00 € free. */
 function manual() {
@@ -108,9 +108,9 @@ describe('Aufteilungsvorschlag aus MRE: Tenant and term from the lists (#364)', 
     pick('Mieter aus bisherigen Zuordnungen', TENANT);
     expect(input('Mieter in MRE (ID)').value).toBe(TENANT);
     await waitFor(() => expect(select('Miettermin aus MRE').disabled).toBe(false));
-    // The window: the month before the booking (1 March 2026) to the month after.
+    // The window: the second month before the booking (1 March 2026) to the month after.
     expect(reads(calls, TERMS)).toEqual([WINDOW]);
-    expect(screen.getByText(/Termine von 02\.2026 bis 04\.2026, um das Buchungsdatum\./)).toBeTruthy();
+    expect(screen.getByText(/Termine von 01\.2026 bis 04\.2026, um das Buchungsdatum\./)).toBeTruthy();
     expect(optionTexts('Miettermin aus MRE')).toEqual([
       'Bitte wählen',
       `Termin 01.04.2026 (${TERM_2}) · Soll 850,00${NBSP}€ · offen 850,00${NBSP}€`,
@@ -239,13 +239,16 @@ describe('Manuell zuordnen: Tenant and term from the lists (#364)', () => {
     ]);
   });
 
-  it('another Tenant id typed in the field clears the term chosen from the list (#375 review)', async () => {
+  it('another Tenant id typed in the field clears the term chosen from the list; the same id with spaces keeps it (#375, #376 review)', async () => {
     manual();
     click('Manuell zuordnen');
     await waitFor(() => expect(optionTexts('Mieter aus bisherigen Zuordnungen')).toHaveLength(2));
     pick('Mieter aus bisherigen Zuordnungen', TENANT);
     await waitFor(() => expect(select('Miettermin aus MRE').disabled).toBe(false));
     pick('Miettermin aus MRE', TERM);
+    expect(input('Miettermin (MRE-Schlüssel JJJJMMTTHH)').value).toBe(TERM);
+    // Only spaces around the same id: still this Tenant, the term stays.
+    fireEvent.change(input('Mieter in MRE (ID)'), { target: { value: ` ${TENANT} ` } });
     expect(input('Miettermin (MRE-Schlüssel JJJJMMTTHH)').value).toBe(TERM);
     fireEvent.change(input('Mieter in MRE (ID)'), { target: { value: TENANT_2 } });
     expect([input('Mieter in MRE (ID)').value, input('Miettermin (MRE-Schlüssel JJJJMMTTHH)').value]).toEqual([TENANT_2, '']);

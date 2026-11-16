@@ -10,7 +10,7 @@ import { readListParams } from '../transactions/list-params';
 import { Badge, TONES } from './Badge';
 import { Breadcrumbs } from './Breadcrumbs';
 import { IdText } from './IdText';
-import { Link } from './Link';
+import { Link, MRE_HOME, MreLink } from './Link';
 import { SuggestForm } from './rent/SuggestForm';
 import { statusLabel } from './transactions/labels';
 import { StatusBadge, TransactionListView } from './transactions/TransactionList';
@@ -81,6 +81,26 @@ describe('Link', () => {
     expect(fireEvent.click(screen.getByRole('link', { name: 'A' }), { button: 0, ctrlKey: true })).toBe(true);
     expect(fireEvent.click(screen.getByRole('link', { name: 'B' }), { button: 0 })).toBe(true);
     expect(window.location.pathname).toBe('/');
+  });
+
+  it('a new-tab link opens in a new tab without the opener, never through the router; rel is fixed', () => {
+    window.history.replaceState(null, '', '/cockpit/r/x/');
+    render(
+      <Link href="/elsewhere" rel="prev" newTab>
+        Anderswo
+      </Link>,
+    );
+    const link = screen.getByRole('link', { name: 'Anderswo' });
+    expect(link.outerHTML).toBe(`<a class="${LINK_STYLE}" href="/elsewhere" target="_blank" rel="noopener noreferrer">Anderswo</a>`);
+    expect(fireEvent.click(link, { button: 0 })).toBe(true);
+    expect(window.location.pathname).toBe('/cockpit/r/x/');
+  });
+
+  it('MicroRealEstate öffnen: / of the same origin, which the proxy hands to MRE, in a new tab (Entscheidung des Projektinhabers, 2026-11-16)', () => {
+    expect(MRE_HOME).toBe('/');
+    expect(renderToStaticMarkup(<MreLink />)).toBe(
+      `<a class="${LINK_STYLE}" href="/" title="Öffnet in einem neuen Tab" target="_blank" rel="noopener noreferrer">MicroRealEstate öffnen</a>`,
+    );
   });
 });
 

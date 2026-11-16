@@ -23,7 +23,7 @@ const refused = async (promise: Promise<unknown>) => {
   expect(error).toBeInstanceOf(ApiError);
   return (error as ApiError).code;
 };
-const WINDOW = { from: '2026-02', to: '2026-04' };
+const WINDOW = { from: '2026-01', to: '2026-04' };
 const page = (items: unknown[], extra: Record<string, unknown> = {}) => ({ items, page: 1, pageSize: TENANT_PAGE_SIZE, total: items.length, ...extra });
 
 describe('#364: GET /rent-reconciliations/tenants (§37.7 (a))', () => {
@@ -61,7 +61,7 @@ describe('#364: GET /rent-reconciliations/terms/{mreTenantId}?from&to (§37.7 (b
       'GET',
       `/api/v1/rent-reconciliations/terms/${TENANT}`,
       [
-        ['from', '2026-02'],
+        ['from', '2026-01'],
         ['to', '2026-04'],
       ],
     ]);
@@ -72,8 +72,8 @@ describe('#364: GET /rent-reconciliations/terms/{mreTenantId}?from&to (§37.7 (b
     if (april === undefined || march === undefined) throw new Error('fixture');
     for (const answer of [
       tenantTerms({ mreTenantId: TENANT_2 }),
-      tenantTerms({ from: '2026-01' }),
-      tenantTerms({ items: [{ ...march, mreRentTerm: '2026010100', month: '2026-01' }] }),
+      tenantTerms({ from: '2025-12' }),
+      tenantTerms({ items: [{ ...march, mreRentTerm: '2025120100', month: '2025-12' }] }),
       tenantTerms({ items: [march, march] }),
       tenantTerms({ items: [{ ...march, month: '2026-04' }] }),
       tenantTerms({ mreStatus: 'UNAVAILABLE' }),

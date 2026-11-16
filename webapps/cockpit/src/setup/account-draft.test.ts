@@ -51,13 +51,14 @@ describe('client IBAN check: the backend check, case by case (shared/iban.ts)', 
   });
 });
 
-describe('IBAN required for bank accounts, optional for cash and clearing accounts (Entscheidung des Projektinhabers, 2026-11-16)', () => {
+describe('IBAN required for bank and deposit accounts, optional for cash, clearing and other accounts (Entscheidung des Projektinhabers, 2026-11-16)', () => {
   it('the form offers exactly the five types of the backend', () => {
     expect(ACCOUNT_TYPES.map((type) => type.code).sort()).toEqual([...domain.ACCOUNT_TYPES].sort());
   });
 
-  it('only CASH and LOAN_SETTLEMENT may be created without an IBAN', () => {
-    expect(ACCOUNT_TYPES.filter((type) => !ibanRequired(type.code)).map((type) => type.code)).toEqual(['CASH', 'LOAN_SETTLEMENT']);
+  it('only BANK and SECURITY_DEPOSIT need an IBAN; OTHER, CASH and LOAN_SETTLEMENT may be created without one', () => {
+    expect(ACCOUNT_TYPES.filter((type) => ibanRequired(type.code)).map((type) => type.code)).toEqual(['BANK', 'SECURITY_DEPOSIT']);
+    expect(ACCOUNT_TYPES.filter((type) => !ibanRequired(type.code)).map((type) => type.code)).toEqual(['OTHER', 'CASH', 'LOAN_SETTLEMENT']);
     for (const type of ACCOUNT_TYPES) {
       const checked = checkAccount({ accountType: type.code, displayName: 'Testkonto', iban: '' });
       expect(checked.ok, type.code).toBe(!type.ibanRequired);
@@ -71,6 +72,18 @@ describe('IBAN required for bank accounts, optional for cash and clearing accoun
       ok: true,
       body: { accountType: 'BANK', displayName: 'Girokonto', currency: 'EUR', iban: 'DE89370400440532013000' },
     });
+  });
+
+  it('a payment service as other account goes without IBAN; a deposit account still needs one', () => {
+    expect(checkAccount({ accountType: 'OTHER', displayName: 'Zahlungsdienst', iban: ' ' })).toEqual({
+      ok: true,
+      body: { accountType: 'OTHER', displayName: 'Zahlungsdienst', currency: 'EUR' },
+    });
+    expect(checkAccount({ accountType: 'OTHER', displayName: 'Zahlungsdienst', iban: 'DE89370400440532013001' })).toEqual({
+      ok: false,
+      problems: ['IBAN_INVALID'],
+    });
+    expect(checkAccount({ accountType: 'SECURITY_DEPOSIT', displayName: 'Kaution', iban: '' })).toEqual({ ok: false, problems: ['IBAN_MISSING'] });
   });
 
   it('an optional IBAN is left out when empty and checked when typed', () => {

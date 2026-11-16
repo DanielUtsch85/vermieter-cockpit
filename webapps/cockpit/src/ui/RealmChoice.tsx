@@ -4,6 +4,7 @@ import { sessionKey } from '../query';
 import { AREAS, areaPath, signOutAndReload } from '../routing';
 import { listRealms, type MreRealm } from '../session/mre-authenticator';
 import { useSession } from '../session/use-session';
+import { MreLink } from './Link';
 import { CenteredPage, ErrorState, LoadingState, Notice, secondaryButtonClass } from './states';
 
 /** The Realm query, shared by the choice and the shell's header. */
@@ -56,7 +57,9 @@ export function RealmList({ realms }: { readonly realms: Loadable<readonly MreRe
   if (realms.data.length === 0 || overview === undefined) {
     return (
       <Notice tone="info">
-        <p>Zu Ihrem Konto gibt es keinen Bestand. Legen Sie einen Bestand in MicroRealEstate an.</p>
+        <p>
+          Zu Ihrem Konto gibt es keinen Bestand. Legen Sie einen Bestand in MicroRealEstate an. <MreLink />
+        </p>
       </Notice>
     );
   }

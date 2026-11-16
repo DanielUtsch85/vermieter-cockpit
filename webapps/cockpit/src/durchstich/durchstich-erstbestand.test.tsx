@@ -39,6 +39,11 @@ const unlink = () => {
 };
 const nav = (name: string) => fireEvent.click(within(screen.getByRole('navigation', { name: 'Hauptnavigation' })).getByRole('link', { name }), { button: 0 });
 const linkIn = (element: HTMLElement, name: string) => within(element).getByRole('link', { name });
+/** „MicroRealEstate öffnen“: `/` of the same origin in a new tab (Entscheidung des Projektinhabers, 2026-11-16, #372). */
+const expectMreLink = (element: HTMLElement) => {
+  const link = linkIn(element, 'MicroRealEstate öffnen');
+  expect([link.getAttribute('href'), link.getAttribute('target'), link.getAttribute('rel')]).toEqual(['/', '_blank', 'noopener noreferrer']);
+};
 
 describe('empty choices say what is missing and link to where it comes from', () => {
   it('the import without an account links to Konto anlegen, which then leads back to the import', async () => {
@@ -69,6 +74,7 @@ describe('empty choices say what is missing and link to where it comes from', ()
     ).toEqual(['Objekt wählen']);
     const link = linkIn(hint, 'Objekte verknüpfen');
     expect(link.getAttribute('href')).toBe(OBJEKTE);
+    expectMreLink(hint);
     fireEvent.click(link, { button: 0 });
     expect(await screen.findByRole('heading', { level: 1, name: 'Objekte verknüpfen' })).toBeTruthy();
   });
@@ -79,6 +85,7 @@ describe('empty choices say what is missing and link to where it comes from', ()
     const filter = await screen.findByRole('form', { name: 'Filter der Buchungsliste' });
     const hint = await within(filter).findByText(/noch kein Objekt aus MicroRealEstate verknüpft/);
     expect(linkIn(hint, 'Objekte verknüpfen').getAttribute('href')).toBe(OBJEKTE);
+    expectMreLink(hint);
   });
 
   it('counter-check: with a linked object neither the split editor nor the filter shows the hint', async () => {

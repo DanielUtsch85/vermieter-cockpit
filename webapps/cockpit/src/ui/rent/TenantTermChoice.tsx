@@ -25,7 +25,7 @@ const NOTE = 'text-label text-muted';
 /**
  * Choosing the Tenant and the term from lists (#364; api-design.md §37.7; Entscheidung des Projektinhabers, 2026-11-16):
  * „Mieter aus bisherigen Zuordnungen“ lists the MRE ids of the Realm's reconciliations, without names; „Miettermin aus
- * MRE“ lists the chosen Tenant's terms from the month before to the month after the booking. A choice only fills the
+ * MRE“ lists the chosen Tenant's terms from the second month before to the month after the booking. A choice only fills the
  * fields beside it (the MRE id and the term key), which stay editable: the id of a Tenant without an earlier match is
  * typed there, and so is a key outside the window or while MRE is not reachable. Nothing is sent by choosing.
  */

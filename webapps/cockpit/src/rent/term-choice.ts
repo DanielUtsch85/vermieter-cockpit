@@ -13,9 +13,11 @@ const pad = (n: number) => String(n).padStart(2, '0');
 const monthOf = (index: number) => `${Math.floor(index / 12)}-${pad((index % 12) + 1)}`;
 
 /**
- * The months the term list asks for: from the month before the booking date to the month after it (§37.7 open question
- * 3, its proposal), so an early payer's next term and a late payer's last one are in it. Undefined for a date that is
- * none.
+ * The months the term list asks for: from the second month before the booking date to the month after it (§37.7;
+ * Entscheidung des Projektinhabers, 2026-11-16, on #375: „Zeitfenster: ändern auf zwei Monate davor bis einen Monat
+ * danach. Nachzahler sind häufiger als Vorauszahler; vier MRE-Monatsreads sind vertretbar.“), so a late payer's last
+ * two terms and an early payer's next one are in it: four months, within the route's twelve. Undefined for a date that
+ * is none.
  */
 export function termWindow(bookingDate: string): TermWindow | undefined {
   const match = /^(\d{4})-(\d{2})-\d{2}$/.exec(bookingDate);
@@ -23,7 +25,7 @@ export function termWindow(bookingDate: string): TermWindow | undefined {
   const month = Number(match[2]);
   if (month < 1 || month > 12) return undefined;
   const index = Number(match[1]) * 12 + month - 1;
-  return { from: monthOf(index - 1), to: monthOf(index + 1) };
+  return { from: monthOf(index - 2), to: monthOf(index + 1) };
 }
 
 /** `2026-10` → `10.2026`, for the window's text. */

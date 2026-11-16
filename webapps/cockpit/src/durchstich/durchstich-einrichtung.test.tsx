@@ -8,7 +8,7 @@ import { button, click, control, openApp, requests, settle, twice, type, useDurc
 
 /**
  * The setup of a Realm in the cockpit (Issue #365; Entscheidung des Projektinhabers, 2026-11-16): „Konto anlegen“ with the
- * IBAN required for bank accounts and checked as the backend checks it, and „Objekte verknüpfen“ from MRE's list of the
+ * IBAN required for bank and deposit accounts (optional for cash, clearing and other accounts, #372) and checked as the backend checks it, and „Objekte verknüpfen“ from MRE's list of the
  * Realm, against the real UI and the stateful fake DE and MRE (answers through the backend's own mappings, bodies checked
  * with the routes' own schemas). Synthetic IBANs only (the standard German example IBAN).
  */
@@ -31,6 +31,14 @@ const fill = (values: { type?: string; name?: string; iban?: string }) => {
 };
 const accountPosts = () => requests(backend(), 'POST', ACCOUNTS);
 const bodyOf = (index: number) => JSON.parse(accountPosts()[index]?.body ?? 'null') as unknown;
+/** „MicroRealEstate öffnen“: `/` of the same origin in a new tab (Entscheidung des Projektinhabers, 2026-11-16, #372). */
+const expectMreLink = (link: HTMLElement) =>
+  expect([link.textContent, link.getAttribute('href'), link.getAttribute('target'), link.getAttribute('rel')]).toEqual([
+    'MicroRealEstate öffnen',
+    '/',
+    '_blank',
+    'noopener noreferrer',
+  ]);
 
 describe('Konto anlegen: reachable from the overview, IBAN required for bank accounts', () => {
   it('the overview links both setup pages; the account page is a sub-page of the overview with the accounts listed', async () => {
@@ -56,12 +64,10 @@ describe('Konto anlegen: reachable from the overview, IBAN required for bank acc
     fill({ iban: 'DE89 3704 0044 0532 0130 01' });
     click('Konto anlegen');
     expect(screen.getByText(/Keine gültige IBAN: Aufbau oder Prüfziffer stimmen nicht/)).toBeTruthy();
-    for (const type of ['SECURITY_DEPOSIT', 'OTHER']) {
-      fill({ type, iban: '' });
-      expect(screen.getByLabelText('IBAN')).toBeTruthy();
-      click('Konto anlegen');
-      expect(screen.getByText(/Für diese Kontoart ist die IBAN Pflicht/)).toBeTruthy();
-    }
+    fill({ type: 'SECURITY_DEPOSIT', iban: '' });
+    expect(screen.getByLabelText('IBAN')).toBeTruthy();
+    click('Konto anlegen');
+    expect(screen.getByText(/Für diese Kontoart ist die IBAN Pflicht/)).toBeTruthy();
     fill({ type: 'BANK', name: ' ', iban: IBAN });
     click('Konto anlegen');
     expect(screen.getByText('Bitte einen Namen für das Konto angeben.')).toBeTruthy();
@@ -87,7 +93,7 @@ describe('Konto anlegen: reachable from the overview, IBAN required for bank acc
     expect(within(select).getByRole('option', { name: `Girokonto Neu · ${IBAN}` })).toBeTruthy();
   });
 
-  it('a cash account and a clearing account may go without IBAN; the body then has no iban', async () => {
+  it('a cash, a clearing and an other account may go without IBAN; the body then has no iban', async () => {
     await openAccountForm();
     fill({ type: 'CASH', name: 'Handkasse' });
     expect(screen.getByLabelText('IBAN (optional)')).toBeTruthy();
@@ -98,11 +104,19 @@ describe('Konto anlegen: reachable from the overview, IBAN required for bank acc
     fill({ type: 'LOAN_SETTLEMENT', name: 'Verrechnung Darlehen' });
     click('Konto anlegen');
     expect(await screen.findByText('Konto „Verrechnung Darlehen“ angelegt (Verrechnungskonto (Darlehen), ohne IBAN).')).toBeTruthy();
-    expect([bodyOf(0), bodyOf(1)]).toEqual([
+    // A payment service has no IBAN (Entscheidung des Projektinhabers, 2026-11-16, #372).
+    click('Weiteres Konto anlegen');
+    fill({ type: 'OTHER', name: 'Zahlungsdienst' });
+    expect(screen.getByLabelText('IBAN (optional)')).toBeTruthy();
+    expect(screen.getByText(/oder ein sonstiges Konto \(etwa einen Zahlungsdienst\) optional/)).toBeTruthy();
+    click('Konto anlegen');
+    expect(await screen.findByText('Konto „Zahlungsdienst“ angelegt (Sonstiges Konto, ohne IBAN).')).toBeTruthy();
+    expect([bodyOf(0), bodyOf(1), bodyOf(2)]).toEqual([
       { accountType: 'CASH', displayName: 'Handkasse', currency: 'EUR' },
       { accountType: 'LOAN_SETTLEMENT', displayName: 'Verrechnung Darlehen', currency: 'EUR' },
+      { accountType: 'OTHER', displayName: 'Zahlungsdienst', currency: 'EUR' },
     ]);
-    expect(new Set(accountPosts().map((p) => p.headers.get('idempotency-key'))).size).toBe(2);
+    expect(new Set(accountPosts().map((p) => p.headers.get('idempotency-key'))).size).toBe(3);
   });
 
   it('a double click sends one request and creates one account', async () => {
@@ -266,10 +280,24 @@ describe('Objekte verknüpfen: MRE list of the Realm, already linked shown, one 
     expect(button(`${MRE_UNLINKED_NAME} verknüpfen`).disabled).toBe(false);
   });
 
-  it('MRE without properties says where they come from', async () => {
+  it('MRE without properties says where they come from, with a link to MRE in a new tab', async () => {
     backend().setup.mreProperties.set(REALM_A, []);
     await openApp(backend(), OBJEKTE);
-    expect(await screen.findByText(/In MicroRealEstate gibt es in diesem Bestand noch kein Objekt/)).toBeTruthy();
+    const empty = await screen.findByText(/In MicroRealEstate gibt es in diesem Bestand noch kein Objekt/);
+    expectMreLink(within(empty).getByRole('link', { name: 'MicroRealEstate öffnen' }));
+  });
+
+  it('the page links to MRE, where objects are created: / of the same origin in a new tab, the cockpit stays (#372)', async () => {
+    await openLinkPage();
+    const links = screen.getAllByRole('link', { name: 'MicroRealEstate öffnen' });
+    expect(links).toHaveLength(1);
+    const [link] = links;
+    if (link === undefined) throw new Error('no link');
+    expectMreLink(link);
+    expect(link.closest('p')?.textContent).toContain('Objekte entstehen in MicroRealEstate.');
+    // No navigation inside the cockpit: the click is the browser's (a new tab), not the router's.
+    expect(fireEvent.click(link, { button: 0 })).toBe(true);
+    expect(window.location.pathname).toBe(OBJEKTE);
   });
 
   it('an unreachable MRE gateway is shown as an error, never as an empty list', async () => {
