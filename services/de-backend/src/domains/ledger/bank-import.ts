@@ -15,6 +15,8 @@ export type ImportBatchId = string & { readonly __brand: 'ImportBatchId' };
 export type ReviewItemId = string & { readonly __brand: 'ReviewItemId' };
 
 export type ImportBatchStatus = 'COMPLETED' | 'NEEDS_REVIEW';
+/** Why a batch has no continuity report (§32.1a, VC-X-77): no balance column read, or no valid row with a balance. */
+export type ContinuityMissing = 'NO_BALANCE_COLUMN' | 'NO_ROW_WITH_BALANCE';
 export type ReviewResolution = 'CREATE' | 'SKIP';
 
 export type AmbiguityReason =
@@ -71,9 +73,27 @@ export interface ImportBatch {
   readonly skippedCount: number;
   readonly importedAt: Date;
   readonly importedBy: string;
+  /**
+   * The earliest and latest booking date of the rows the batch took on (api-design.md §32.6, VC-X-75): the Transactions
+   * its `created` rows name and the review items it owns, in any status. Duplicates, rows re-presenting another batch's
+   * item, errors and skipped rows do not count. Both `null` when no row counts.
+   */
+  readonly firstBookingDate: BusinessDate | null;
+  readonly lastBookingDate: BusinessDate | null;
   readonly rows: readonly RowOutcome[];
   /** The continuity report (§70.6); null when the file has no balance column or no row with a balance. */
   readonly continuity: ContinuityReport | null;
+  /**
+   * Why `continuity` is null (§32.1a, VC-X-77); null while a report exists, and for a version 2 batch stored before the
+   * reason was recorded (migration 0079).
+   */
+  readonly continuityMissing: ContinuityMissing | null;
+}
+
+/** The reason stored with a new batch: none while there is a report, else whether the file had a balance column. */
+export function continuityMissingOf(statement: Pick<ParsedStatement, 'balanceColumn'>, continuity: ContinuityReport | null): ContinuityMissing | null {
+  if (continuity !== null) return null;
+  return statement.balanceColumn ? 'NO_ROW_WITH_BALANCE' : 'NO_BALANCE_COLUMN';
 }
 
 /** Statement identity and source-row identity within it (§70.2 fallback key, minus Realm and account). */

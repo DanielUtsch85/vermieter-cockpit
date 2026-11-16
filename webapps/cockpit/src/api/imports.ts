@@ -26,10 +26,15 @@ function unexpected(message: string): ApiError {
   return new ApiError(200, CLIENT_CODES.unexpected, message);
 }
 
-/** A batch belongs to the Realm asked for and is the one asked for; anything else is refused, never shown. */
+/**
+ * A batch belongs to the Realm asked for and is the one asked for, with a valid booking range (VC-X-75) and never a
+ * continuity report together with a reason for its absence (VC-X-77); anything else is refused, never shown.
+ */
 function checkBatch(client: DeClient, batch: ImportBatchDto, importBatchId?: string): ImportBatchDto {
   checkRealm(client.realmId, [batch]);
   if (importBatchId !== undefined && !same(batch.importBatchId, importBatchId)) throw unexpected('The answer names another ImportBatch.');
+  if (!bookingRangeValid(batch)) throw unexpected('The answer has an invalid booking range.');
+  if (batch.continuity !== null && batch.continuityMissing !== null) throw unexpected('The answer has a continuity report and a reason for its absence.');
   return batch;
 }
 
@@ -62,13 +67,39 @@ export async function getImportBatch(client: DeClient, importBatchId: string, si
 export const IMPORT_HISTORY_PAGE_SIZE = 20;
 
 /**
- * `GET /imports?page&pageSize` (api-design.md §32.6; #369): one page of the Realm's imports, newest first, without their
- * rows (Entscheidung des Projektinhabers, 2026-11-16). No filter is sent. The answer is checked: the page asked, every
- * batch of this Realm and listed once, newest first; anything else is refused, never shown.
+ * The filters of the import list (VC-X-76; Entscheidung des Projektinhabers, 2026-11-16): the shortcut „Nur mit offenen
+ * Klärfällen“ (`status=NEEDS_REVIEW`) and one account, both filters `GET /imports` already has (§32.6).
  */
-export async function listImportBatches(client: DeClient, page: number, signal?: AbortSignal): Promise<PageDto<ImportBatchSummaryDto>> {
+export interface ImportHistoryQuery {
+  readonly page: number;
+  readonly openOnly: boolean;
+  readonly financialAccountId: string | undefined;
+}
+
+const BUSINESS_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** `firstBookingDate` / `lastBookingDate` (§32.6, VC-X-75): both dates or both null, the first not after the last. */
+export function bookingRangeValid(b: Pick<ImportBatchSummaryDto, 'firstBookingDate' | 'lastBookingDate'>): boolean {
+  const { firstBookingDate: first, lastBookingDate: last } = b;
+  if (first === null || last === null) return first === last;
+  return BUSINESS_DATE.test(first) && BUSINESS_DATE.test(last) && first <= last;
+}
+
+/**
+ * `GET /imports?page&pageSize[&status][&financialAccountId]` (api-design.md §32.6; #369): one page of the Realm's
+ * imports, newest first, without their rows (Entscheidung des Projektinhabers, 2026-11-16), filtered as asked (VC-X-76).
+ * The answer is checked: the page asked, every batch of this Realm and listed once, newest first, each matching the
+ * filters sent, each with a valid booking range (VC-X-75); anything else is refused, never shown.
+ */
+export async function listImportBatches(client: DeClient, query: ImportHistoryQuery, signal?: AbortSignal): Promise<PageDto<ImportBatchSummaryDto>> {
+  const { page, openOnly, financialAccountId } = query;
   const { data } = await client.get<PageDto<ImportBatchSummaryDto>>('/imports', {
-    query: { page, pageSize: IMPORT_HISTORY_PAGE_SIZE },
+    query: {
+      page,
+      pageSize: IMPORT_HISTORY_PAGE_SIZE,
+      ...(openOnly ? { status: 'NEEDS_REVIEW' } : {}),
+      ...(financialAccountId === undefined ? {} : { financialAccountId }),
+    },
     ...(signal === undefined ? {} : { signal }),
   });
   checkRealm(client.realmId, data.items);
@@ -77,6 +108,11 @@ export async function listImportBatches(client: DeClient, page: number, signal?:
   if (data.page !== page || data.pageSize !== IMPORT_HISTORY_PAGE_SIZE || new Set(ids).size !== ids.length || !newestFirst) {
     throw unexpected('The import list is not the page asked.');
   }
+  if (openOnly && data.items.some((b) => b.status !== 'NEEDS_REVIEW')) throw unexpected('The import list holds an import without open review items.');
+  if (financialAccountId !== undefined && data.items.some((b) => !same(b.financialAccountId, financialAccountId))) {
+    throw unexpected('The import list holds an import of another account.');
+  }
+  if (!data.items.every(bookingRangeValid)) throw unexpected('An import of the list has an invalid booking range.');
   return data;
 }
 

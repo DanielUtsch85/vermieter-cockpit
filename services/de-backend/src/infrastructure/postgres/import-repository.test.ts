@@ -60,7 +60,7 @@ function statement(specs: readonly (RowSpec | { error: string })[], adapterVersi
     return { kind: 'ROW', position: index + 1, sourceRowId: null, row, contentFingerprint };
   });
   const contentHash = createHash('sha256').update(JSON.stringify(specs)).digest('hex');
-  return { adapterId: 'generic-csv', adapterVersion, contentHash, sourceStatementId: null, rows };
+  return { adapterId: 'generic-csv', adapterVersion, contentHash, sourceStatementId: null, rows, balanceColumn: false };
 }
 
 /** The same statement with the id column mapped: every row gets the external id, content and hash unchanged. */

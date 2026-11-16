@@ -56,6 +56,11 @@ export interface ParsedStatement {
   readonly sourceStatementId: string | null;
   readonly rows: readonly ParsedRow[];
   /**
+   * Whether the file was read with a balance column (`generic-csv` v2 with `balanceAfter` mapped, §32.5): the reason a
+   * batch without a continuity report gives (`continuityMissing`, §32.1a, VC-X-77).
+   */
+  readonly balanceColumn: boolean;
+  /**
    * The distinct IBANs of the file's own account column (normalized, in order of first appearance), when the adapter
    * reads one; absent otherwise. Checked against the FinancialAccount before anything is imported (#107).
    */

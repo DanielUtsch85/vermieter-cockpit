@@ -1,6 +1,14 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { DeClient } from '../../api/client';
-import { getImportBatch, importBankTransactions, listImportBatches, listReviewItems, resolveReviewItem, type ImportBatchDto } from '../../api/imports';
+import {
+  getImportBatch,
+  importBankTransactions,
+  listImportBatches,
+  listReviewItems,
+  resolveReviewItem,
+  type ImportBatchDto,
+  type ImportHistoryQuery,
+} from '../../api/imports';
 import { listFinancialAccounts } from '../../api/transactions';
 import { formatTimestamp } from '../../format/dates';
 import { navigate } from '../../navigation';
@@ -11,7 +19,7 @@ import { PageTitle } from '../PageTitle';
 import { LoadingState, ReadProblem, secondaryButtonClass } from '../states';
 import { transactionKeys } from '../transactions/TransactionsArea';
 import { ImportForm } from './ImportForm';
-import { historySearch, ImportHistory, readHistoryPage } from './ImportHistory';
+import { historySearch, ImportHistory, readHistoryQuery } from './ImportHistory';
 import { ImportResult } from './ImportResult';
 import { ImportSteps } from './ImportSteps';
 import { ReviewItems } from './ReviewItems';
@@ -24,7 +32,8 @@ export const importKeys = {
   reviewItems: (realmId: string, epoch: number, importBatchId: string) => realmKey(realmId, epoch, 'imports', importBatchId, 'review-items'),
   /** Every page of the import list (§32.6): what an import and a decision invalidate (#369). */
   historyAll: (realmId: string, epoch: number) => realmKey(realmId, epoch, 'import-history'),
-  history: (realmId: string, epoch: number, page: number) => realmKey(realmId, epoch, 'import-history', page),
+  history: (realmId: string, epoch: number, query: ImportHistoryQuery) =>
+    realmKey(realmId, epoch, 'import-history', query.page, query.openOnly, query.financialAccountId ?? ''),
 };
 
 const importArea = AREAS.find((area) => area.id === 'import');
@@ -47,10 +56,10 @@ export function ImportArea(props: {
     queryKey: transactionKeys.accounts(props.realmId, props.epoch),
     queryFn: ({ signal }) => listFinancialAccounts(props.client, signal),
   });
-  const historyPage = readHistoryPage(props.search);
+  const historyQuery = readHistoryQuery(props.search);
   const history = useQuery({
-    queryKey: importKeys.history(props.realmId, props.epoch, historyPage),
-    queryFn: ({ signal }) => listImportBatches(props.client, historyPage, signal),
+    queryKey: importKeys.history(props.realmId, props.epoch, historyQuery),
+    queryFn: ({ signal }) => listImportBatches(props.client, historyQuery, signal),
     enabled: props.importBatchId === undefined,
   });
   if (props.importBatchId !== undefined) {
@@ -75,9 +84,11 @@ export function ImportArea(props: {
       )}
       <ImportHistory
         realmId={props.realmId}
+        query={historyQuery}
         list={history}
         accounts={accounts.data?.items ?? []}
-        href={(page) => `${here}${historySearch(page)}`}
+        href={(query) => `${here}${historySearch(query)}`}
+        onFilter={(query) => navigate(`${here}${historySearch(query)}`)}
         onRetry={() => void history.refetch()}
       />
     </>

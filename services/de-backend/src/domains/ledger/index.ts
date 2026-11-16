@@ -55,6 +55,7 @@ export type {
 } from './bank-statement.js';
 export {
   businessDayOf,
+  continuityMissingOf,
   decideRow,
   importPostable,
   keepsExternalId,
@@ -67,6 +68,7 @@ export {
 export type {
   AmbiguityReason,
   ConflictingTransaction,
+  ContinuityMissing,
   ImportBatch,
   ImportBatchId,
   ImportBatchStatus,

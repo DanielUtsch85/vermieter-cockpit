@@ -5,12 +5,15 @@
  * route the cockpit calls is missing, so a new backend state is checked (routes and DTOs, ui-guide.md §2) before the pin
  * moves. Moving the pin is a change of this file with that check, never a side effect.
  *
- * The pin is the backend commit of #369 (VC-X-74, api-design.md §32.6): its read, the Realm's imports newest first, is
- * the route the cockpit adds (176 → 177). Routes and DTOs were checked against that commit; it reaches `main` with the
- * pull request that carries it (a merge, not a squash). Before it the pin was eefd110 (VC-X-72, #364, 174 → 176).
+ * The pin is the backend commit of „Import und Vorschlag, Nachträge“ (VC-X-75, VC-X-77, VC-X-78; api-design.md §32.1a,
+ * §32.6, §37.6): no route changes (177, the inventory and its hash as at a4b18bf), but the DTOs the cockpit reads do —
+ * `firstBookingDate` / `lastBookingDate` per import, `continuityMissing` on the single read, `skipped.decidedBefore` of
+ * a suggest run — so the pin moves with them, as it did for VC-X-69. DTOs were checked against that commit; it reaches
+ * `main` with the pull request that carries it (a merge, not a squash). Before it the pin was a4b18bf (VC-X-74, #369,
+ * 176 → 177).
  */
 export const BACKEND_PIN = {
-  commit: 'a4b18bffa0d28cf8f91aafb56e70294c3a2b7ef0',
+  commit: '215f447f1084616f6c73d4766af1f98dc0e50e34',
   /** `Routes: 177.` in the inventory. */
   routes: 177,
   /** SHA-256 of `docs/development/api-inventory.md` at the pinned commit. */
@@ -39,7 +42,8 @@ export const USED_ROUTES: readonly (readonly [method: string, path: string])[] =
   ['POST', '/api/v1/imports/bank-transactions'],
   ['GET', '/api/v1/imports/:importBatchId'],
   // „Bisherige Importe“ under the import form (Issue #369; Entscheidung des Projektinhabers, 2026-11-16): the Realm's
-  // imports newest first, paged, open review items highlighted (api-design.md §32.6). A read; no filter is sent.
+  // imports newest first, paged, open review items highlighted (api-design.md §32.6). A read; its filters `status`
+  // (only NEEDS_REVIEW) and `financialAccountId` are sent when chosen (VC-X-76).
   ['GET', '/api/v1/imports'],
   ['GET', '/api/v1/imports/:importBatchId/review-items'],
   ['POST', '/api/v1/imports/:importBatchId/review-items/:reviewItemId/resolve'],

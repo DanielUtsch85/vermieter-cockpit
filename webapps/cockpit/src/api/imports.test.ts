@@ -207,7 +207,7 @@ describe('integration gate: step 5 calls only routes of the pinned inventory', (
     await getImportBatch(de, BATCH);
     await listReviewItems(de, batch());
     await resolveReviewItem(de, reviewItem(), 'SKIP');
-    await listImportBatches(de, 1);
+    await listImportBatches(de, { page: 1, openOnly: false, financialAccountId: undefined });
     const reached = calls.map(routeOf);
     expect(reached).not.toContain(undefined);
     const imports = USED_ROUTES.filter(([, path]) => path.startsWith('/api/v1/imports')).map(([method, path]) => `${method} ${path}`);

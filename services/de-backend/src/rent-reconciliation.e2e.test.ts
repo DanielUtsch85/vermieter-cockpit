@@ -444,9 +444,13 @@ describe.skipIf(databaseUrl === undefined)('rent reconciliation end to end', () 
     // Reject is final, and the pair is never suggested again; open suggestions are not written twice.
     const rejected = await call(REALM_C, 'POST', `/rent-reconciliations/${by(t2).reconciliationId}/reject`, { reason: 'anderer Mieter' });
     expect(await rejected.json()).toMatchObject({ status: 'REJECTED', rejectReason: 'anderer Mieter' });
-    expect(
-      ((await (await call(REALM_C, 'POST', '/rent-reconciliations/suggest', { from: '2027-05', to: '2027-06' })).json()) as { items: unknown[] }).items,
-    ).toEqual([]);
+    const rerun = (await (await call(REALM_C, 'POST', '/rent-reconciliations/suggest', { from: '2027-05', to: '2027-06' })).json()) as {
+      items: unknown[];
+      skipped: { decidedBefore: number };
+    };
+    expect(rerun.items).toEqual([]);
+    // VC-X-78: the rejected pair still fits and is counted as left out, not suggested.
+    expect(rerun.skipped.decidedBefore).toBe(1);
     expect(await rows()).toBe(3);
 
     // A confirm may lower the amount, never raise it.
@@ -735,9 +739,9 @@ describe.skipIf(databaseUrl === undefined)('rent reconciliation end to end', () 
     ).json()) as { transactionId: string };
     const before = (await (await G('POST', '/rent-reconciliations/suggest', { from: '2028-03', to: '2028-03' })).json()) as {
       items: unknown[];
-      skipped: { unconfirmed: number; noRentCash: number };
+      skipped: { unconfirmed: number; noRentCash: number; decidedBefore: number };
     };
-    expect(before).toMatchObject({ items: [], skipped: { unconfirmed: 1, noRentCash: 0 } });
+    expect(before).toMatchObject({ items: [], skipped: { unconfirmed: 1, noRentCash: 0, decidedBefore: 0 } });
 
     const propose = async (tenant: string, term = '2028030100') => {
       const res = await G('GET', `/rent-reconciliations/split-proposal?transactionId=${tx.transactionId}&mreTenantId=${tenant}&mreRentTerm=${term}`);
@@ -803,9 +807,9 @@ describe.skipIf(databaseUrl === undefined)('rent reconciliation end to end', () 
     ).toBe(409);
     const after = (await (await G('POST', '/rent-reconciliations/suggest', { from: '2028-03', to: '2028-03' })).json()) as {
       items: { transactionId: string; mreRentTerm: string }[];
-      skipped: { unconfirmed: number; noRentCash: number };
+      skipped: { unconfirmed: number; noRentCash: number; decidedBefore: number };
     };
     expect(after.items.map((i) => [i.transactionId, i.mreRentTerm])).toEqual([[tx.transactionId, '2028030100']]);
-    expect(after.skipped).toEqual({ unconfirmed: 0, noRentCash: 0 });
+    expect(after.skipped).toEqual({ unconfirmed: 0, noRentCash: 0, decidedBefore: 0 });
   });
 });

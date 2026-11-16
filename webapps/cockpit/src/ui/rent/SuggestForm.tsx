@@ -29,12 +29,12 @@ function bookingsHref(realmId: string, window: SuggestInputDto, status: string):
 /**
  * What a suggest run says (ui-guide.md §6.6, api-design.md §37.3, §37.6): the suggestions it wrote, and the inflows of
  * the window no rule could see, with a link to them in Buchungen. An empty run is never "alle Mieten bezahlt". Every run
- * says that pairs with an earlier rejected or released reconciliation are left out and how to match them again: the
- * answer has no count of them (`skipped` counts only `unconfirmed` and `noRentCash`), so the hint has no number (Issue
- * #367 des Projektinhabers, 2026-11-16).
+ * says how many fitting pairs it left out because their reconciliation was rejected or released before
+ * (`skipped.decidedBefore`, api-design.md §37.6, VC-X-78; Entscheidung des Projektinhabers, 2026-11-16) and how to
+ * match them again (Issue #367 des Projektinhabers, 2026-11-16).
  */
 function SuggestOutcome({ realmId, result }: { readonly realmId: string; readonly result: SuggestResultDto }) {
-  const { unconfirmed, noRentCash } = result.skipped;
+  const { unconfirmed, noRentCash, decidedBefore } = result.skipped;
   const window = { from: result.from, to: result.to };
   return (
     <div className="flex flex-col gap-3">
@@ -77,9 +77,20 @@ function SuggestOutcome({ realmId, result }: { readonly realmId: string; readonl
       {unconfirmed === 0 && noRentCash === 0 && (
         <p className="text-muted">Im Zeitraum wurde kein Zahlungseingang übersprungen, weil er unbestätigt war oder keinen Mietanteil hat.</p>
       )}
-      <p>{`Ausgelassen werden Paare aus Buchung, Mieter und Termin, deren Zuordnung früher abgelehnt oder aufgehoben wurde: sie werden nie wieder vorgeschlagen. ${MANUAL_ONLY}`}</p>
+      <p>{decidedBeforeText(decidedBefore)}</p>
     </div>
   );
+}
+
+/** The run's pairs left out as decided before (VC-X-78): the number, why, and how to match one again. */
+export function decidedBeforeText(n: number): string {
+  if (n === 0) {
+    return `Kein passendes Paar aus Buchung, Mieter und Termin wurde ausgelassen, weil seine Zuordnung früher abgelehnt oder aufgehoben wurde. Solche Paare werden nie wieder vorgeschlagen. ${MANUAL_ONLY}`;
+  }
+  if (n === 1) {
+    return `1 passendes Paar aus Buchung, Mieter und Termin wurde ausgelassen, weil seine Zuordnung früher abgelehnt oder aufgehoben wurde: es wird nie wieder vorgeschlagen. ${MANUAL_ONLY}`;
+  }
+  return `${n} passende Paare aus Buchung, Mieter und Termin wurden ausgelassen, weil ihre Zuordnung früher abgelehnt oder aufgehoben wurde: sie werden nie wieder vorgeschlagen. ${MANUAL_ONLY}`;
 }
 
 /**

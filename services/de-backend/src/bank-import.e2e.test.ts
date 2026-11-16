@@ -198,11 +198,20 @@ describe.skipIf(databaseUrl === undefined)('bank import end to end', () => {
       [second.importBatchId, 'NEEDS_REVIEW', 2],
       [first['importBatchId'], 'COMPLETED', 0],
     ]);
-    // Each item is the single read without rows and continuity, field for field.
-    const { rows: _rows, continuity: _continuity, ...summary } = first;
+    // Each item is the single read without rows, continuity and its reason (VC-X-77), field for field.
+    const { rows: _rows, continuity: _continuity, continuityMissing, ...summary } = first;
+    expect(continuityMissing).toBe('NO_BALANCE_COLUMN');
     expect(byAccount.items[1]).toEqual(summary);
     expect(Object.keys(byAccount.items[0] ?? {})).not.toContain('rows');
     expect(Object.keys(byAccount.items[0] ?? {})).not.toContain('continuity');
+    expect(Object.keys(byAccount.items[0] ?? {})).not.toContain('continuityMissing');
+    // VC-X-75: the booking range of the rows the batch took on. The first file's zero-amount closing line (30.09.) and
+    // its error row (03.09.) are not counted; the second file's two rows are its own review items.
+    expect(byAccount.items.map((i) => [i['firstBookingDate'], i['lastBookingDate']])).toEqual([
+      ['2026-09-01', '2026-09-02'],
+      ['2026-09-01', '2026-09-02'],
+    ]);
+    expect(first).toMatchObject({ firstBookingDate: '2026-09-01', lastBookingDate: '2026-09-02' });
     expect((await list(`?status=NEEDS_REVIEW&financialAccountId=${accountId}`)).items.map((i) => i['importBatchId'])).toEqual([second.importBatchId]);
     expect((await list(`?financialAccountId=${accountId}&pageSize=1&page=2`)).items.map((i) => i['importBatchId'])).toEqual([first['importBatchId']]);
     // Another Realm: nothing of A, also with A's account; A's list unchanged by B's call.
@@ -225,7 +234,12 @@ describe.skipIf(databaseUrl === undefined)('bank import end to end', () => {
       importBatchId: second.importBatchId,
       status: 'COMPLETED',
       needsReviewCount: 0,
+      // Skipped items still count: the range does not move with a decision.
+      firstBookingDate: '2026-09-01',
+      lastBookingDate: '2026-09-02',
     });
+    const single = (await (await fetch(`${base}/api/v1/imports/${second.importBatchId}`, { headers: headers(REALM_A) })).json()) as Record<string, unknown>;
+    expect(single).toMatchObject({ firstBookingDate: '2026-09-01', lastBookingDate: '2026-09-02' });
     expect(await list(`?financialAccountId=${accountId}&status=NEEDS_REVIEW`)).toEqual({ items: [], page: 1, pageSize: 50, total: 0 });
   });
 
@@ -244,6 +258,8 @@ describe.skipIf(databaseUrl === undefined)('bank import end to end', () => {
       adapterVersion: '2',
       transactionCount: 2,
       continuity: { order: 'NEWEST_FIRST', breaks: [], previousExport: 'NO_EARLIER_BALANCE' },
+      // VC-X-77: a report, so no reason.
+      continuityMissing: null,
     });
     const second = await (await upload(REALM_A, accountId, november, v2)).json();
     expect(second).toMatchObject({

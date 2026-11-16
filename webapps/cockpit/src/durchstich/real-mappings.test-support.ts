@@ -54,7 +54,12 @@ export interface RealMappings {
   readonly reviewItem: (i: unknown, conflicts: ReadonlyMap<string, unknown>) => ReviewItemDto;
   readonly reconciliation: (r: unknown) => RentReconciliationDto;
   readonly reconciliationRead: (read: { reconciliation: unknown; mrePresence: null }) => RentReconciliationReadDto;
-  readonly suggest: (result: { from: string; to: string; items: readonly unknown[]; skipped: { unconfirmed: number; noRentCash: number } }) => SuggestResultDto;
+  readonly suggest: (result: {
+    from: string;
+    to: string;
+    items: readonly unknown[];
+    skipped: { unconfirmed: number; noRentCash: number; decidedBefore: number };
+  }) => SuggestResultDto;
   readonly term: (t: unknown) => TermCoverageDto;
   readonly transactionRent: (t: unknown) => TransactionRentCoverageDto;
   /** §37.6's answer (step 8). */
