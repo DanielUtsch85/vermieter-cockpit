@@ -1677,7 +1677,7 @@ Version 1 plus the bank's running balance (`data-model.md` §70.6). Select it wi
 
 ## 32.6 List the imports of a Realm (#369, VC-X-74, implemented)
 
-**Status:** implemented in the PR for #369 (backlog VC-X-74), backend and cockpit in one PR; open questions 5–7 read as proposed until the owner answers them; see "As implemented (VC-X-74)" below. One read, `GET /api/v1/imports`; no write. The order follows the owner: this spec, then the backend, then the cockpit's list under the import form.
+**Status:** implemented in #377 (backlog VC-X-74), backend and cockpit in one PR; open questions 5–7 read as proposed until the owner answers them; see "As implemented (VC-X-74)" below. One read, `GET /api/v1/imports`; no write. The order follows the owner: this spec, then the backend, then the cockpit's list under the import form.
 
 **Decided by the owner on 2026-11-16 (chat)** (verbatim; Entscheidung des Projektinhabers, 2026-11-16):
 
@@ -1715,7 +1715,7 @@ GET /api/v1/imports[?financialAccountId=&status=&page=&pageSize=]
 
 **Tests the implementation needs:** paging over more than one page with equal `importedAt`; both filters alone and together, a foreign account an empty page, a malformed one and an unknown `status` `400`; `needsReviewCount` and `status` before and after a resolve; another Realm's batches never listed (also with its `financialAccountId` as the filter); `rows` and `continuity` absent; the plan test. **Mutations** (each alone, restored byte for byte): the Realm filter dropped; the order ascending; `status` filter ignored; `total` read outside the page's snapshot; `rows` left in the items.
 
-### As implemented (VC-X-74, #369)
+### As implemented (VC-X-74, #377)
 
 As specified above, with open questions 5–7 read as their proposals until the owner answers them: the index comes with migration 0078 (5); the list shows adapter and version, no preset, and no column is added (6); no booking-date range per item (7). Where the text leaves room, the narrowest reading, each listed in the PR for the owner:
 
