@@ -22,9 +22,9 @@ import { testSchemaName } from './test-schema.test-support.js';
 /**
  * VC-X-75 (api-design.md §32.6, Entscheidung des Projektinhabers, 2026-11-16): `firstBookingDate` / `lastBookingDate`
  * of a batch, past the repository. Batches come from the real import, so their rows are what an upload stores: the
- * Transactions of `created` rows, the Transactions and review items `duplicate` rows name (Entscheidung des
- * Projektinhabers, 2026-11-16) and the batch's own review items count; rows re-presenting another batch's pending item,
- * errors and skipped rows do not. The upload answer, the single read and the list answer the same range.
+ * Transactions of `created` rows, the Transactions and review items `duplicate` rows name, the review items of other
+ * batches `needs_review` rows re-present (Entscheidung des Projektinhabers, 2026-11-16) and the batch's own review items
+ * count; errors and skipped rows do not. The upload answer, the single read and the list answer the same range.
  * Synthetic data only.
  */
 const databaseUrl = process.env['DE_TEST_DATABASE_URL'];
@@ -205,7 +205,43 @@ describe.skipIf(databaseUrl === undefined)('the booking range of an import (§32
     }
   });
 
-  it('mixed: both kinds of duplicates count; a row re-presenting another batch s pending item, errors and skipped rows do not', async () => {
+  it('a row re-presenting another batch s pending review item counts with the item s date in both batches, also once resolved', async () => {
+    const realm = freshRealm();
+    const account = await openAccount(realm);
+    await run(realm, account, [{ bookingDate: '2026-07-01', description: 'Miete Juli' }]);
+    const file: RowSpec[] = [{ bookingDate: '2026-07-01', description: 'Miete Juli' }, { error: 'INVALID_FORMAT' }];
+    const owning = await run(realm, account, file);
+    expect(owning.rows.map((r) => r.outcome)).toEqual(['needs_review', 'error']);
+    const [item] = (await imports.listReviewItems(owning.id, realm))?.items ?? [];
+    if (item === undefined) throw new Error('no review item');
+
+    // The owning file again while the item is open: its only dated row re-presents the owning batch's item.
+    const again = await run(realm, account, file);
+    expect(again.rows.map((r) => r.outcome)).toEqual(['needs_review', 'error']);
+    expect(again.rows[0]).toMatchObject({ reviewItemId: item.id, importBatchId: owning.id });
+    expect(await rangesOf(realm, again)).toEqual(['2026-07-01', '2026-07-01']);
+    expect(await rangesOf(realm, owning)).toEqual(['2026-07-01', '2026-07-01']);
+    // Only the date counts twice: the item stays the owning batch's, open, counted there alone.
+    const owner = async () => {
+      const [o, a] = [await imports.findBatch(owning.id, realm), await imports.findBatch(again.id, realm)];
+      return [o?.needsReviewCount, o?.status, a?.needsReviewCount, a?.status];
+    };
+    expect(await owner()).toEqual([1, 'NEEDS_REVIEW', 0, 'COMPLETED']);
+    expect((await imports.listReviewItems(again.id, realm))?.items).toEqual([]);
+    expect((await imports.listReviewItems(owning.id, realm))?.items).toMatchObject([{ id: item.id, importBatchId: owning.id, status: 'PENDING' }]);
+
+    // Resolved (CREATE books the same date): both ranges unchanged; the re-import's row still names the item.
+    expect((await imports.resolveReviewItem(owning.id, item.id, realm, 'CREATE', actor)).kind).toBe('RESOLVED');
+    expect(await owner()).toEqual([0, 'COMPLETED', 0, 'COMPLETED']);
+    const read = async (id: string) => range((await imports.findBatch(id, realm)) as ImportBatch);
+    expect(await read(again.id)).toEqual(['2026-07-01', '2026-07-01']);
+    expect(await read(owning.id)).toEqual(['2026-07-01', '2026-07-01']);
+    expect((await queries.list(realm, {}, all)).items.filter((b) => b.id !== again.id && b.id !== owning.id).map(range)).toEqual([
+      ['2026-07-01', '2026-07-01'],
+    ]);
+  });
+
+  it('mixed: both kinds of duplicates and a row re-presenting another batch s pending item count; errors and skipped rows do not', async () => {
     const realm = freshRealm();
     const account = await openAccount(realm);
     await run(realm, account, [
@@ -232,8 +268,8 @@ describe.skipIf(databaseUrl === undefined)('the booking range of an import (§32
     expect(again.rows[0]).toMatchObject({ importBatchId: owning.id });
     expect(again.rows[1]).toMatchObject({ duplicateOf: 'RESOLVED_REVIEW_ITEM', reviewItemId: februar.id });
     expect(again.rows[3]).toMatchObject({ duplicateOf: 'TRANSACTION' });
-    // The pending Januar item (15.01.) is owned by the first batch; the earliest here is the Februar item.
-    expect(await rangesOf(realm, again)).toEqual(['2026-02-01', '2026-03-10']);
+    // The pending Januar item (15.01.) is owned by the first batch and counts here with its date too (2026-11-16).
+    expect(await rangesOf(realm, again)).toEqual(['2026-01-15', '2026-03-10']);
     expect(await rangesOf(realm, owning)).toEqual(['2026-01-15', '2026-03-10']);
   });
 
@@ -245,6 +281,16 @@ describe.skipIf(databaseUrl === undefined)('the booking range of an import (§32
     const [item] = (await imports.listReviewItems(owning.id, OTHER_REALM))?.items ?? [];
     if (item === undefined) throw new Error('no review item');
     expect((await imports.resolveReviewItem(owning.id, item.id, OTHER_REALM, 'SKIP', actor)).kind).toBe('RESOLVED');
+    return { id: item.id, batchId: owning.id };
+  }
+
+  /** A still open review item of OTHER_REALM, its own batch and booking date. */
+  async function foreignPendingItem(): Promise<{ id: string; batchId: string }> {
+    const account = await openAccount(OTHER_REALM);
+    await run(OTHER_REALM, account, [{ bookingDate: '2024-04-04', description: 'Miete April fremd' }]);
+    const owning = await run(OTHER_REALM, account, [{ bookingDate: '2024-04-04', description: 'Miete April fremd' }, { error: 'INVALID_FORMAT' }]);
+    const [item] = (await imports.listReviewItems(owning.id, OTHER_REALM))?.items ?? [];
+    if (item === undefined) throw new Error('no review item');
     return { id: item.id, batchId: owning.id };
   }
 
@@ -280,7 +326,38 @@ describe.skipIf(databaseUrl === undefined)('the booking range of an import (§32
         ]),
       ],
     );
-    expect((await queries.list(realm, {}, all)).items).toMatchObject([{ id: crafted, firstBookingDate: null, lastBookingDate: null }]);
+    // And one whose only row re-presents Realm B's still open review item (needs_review, owned by Realm B's batch).
+    const foreignPending = await foreignPendingItem();
+    const craftedPending = '00000000-0000-4000-8000-0000000000a2';
+    await pool.query(
+      `INSERT INTO import_batch (id, mre_realm_id, financial_account_id, adapter_id, adapter_version, content_hash, provenance, status,
+         transaction_count, duplicate_count, needs_review_count, error_count, skipped_count, rows, imported_by, imported_at)
+       VALUES ($1, $2, $3, 'generic-csv', '1', 'crafted-pending', 'BANK_CSV', 'COMPLETED', 0, 0, 0, 0, 0, $4, 'anna@example.com', now() - interval '1 day')`,
+      [
+        craftedPending,
+        realm,
+        account,
+        JSON.stringify([
+          {
+            outcome: 'needs_review',
+            position: 1,
+            reviewItemId: foreignPending.id,
+            importBatchId: foreignPending.batchId,
+            reason: 'AMBIGUOUS_CROSS_FILE_MATCH',
+            conflictingTransactionIds: [],
+          },
+        ]),
+      ],
+    );
+    expect((await queries.list(realm, {}, all)).items).toMatchObject([
+      { id: crafted, firstBookingDate: null, lastBookingDate: null },
+      { id: craftedPending, firstBookingDate: null, lastBookingDate: null },
+    ]);
+    expect(await bookingRanges(db, realm, [craftedPending])).toEqual(new Map());
+    // Counter-check: Realm B's own batch counts its open item.
+    expect([...(await bookingRanges(db, OTHER_REALM, [foreignPending.batchId])).values()]).toEqual([
+      { firstBookingDate: '2024-04-04', lastBookingDate: '2024-04-04' },
+    ]);
     // Asked from Realm A by its id, Realm B's batch has no range (neither its Transactions nor its items are read).
     expect(await bookingRanges(db, realm, [other.id, crafted])).toEqual(new Map());
     expect([...(await bookingRanges(db, OTHER_REALM, [other.id])).values()]).toEqual([{ firstBookingDate: '2025-01-02', lastBookingDate: '2025-12-30' }]);

@@ -74,9 +74,10 @@ export interface ImportBatch {
   readonly importedAt: Date;
   readonly importedBy: string;
   /**
-   * The earliest and latest booking date of the rows the batch took on (api-design.md §32.6, VC-X-75): the Transactions
-   * its `created` rows name and the review items it owns, in any status. Duplicates, rows re-presenting another batch's
-   * item, errors and skipped rows do not count. Both `null` when no row counts.
+   * The earliest and latest booking date of the batch's rows (api-design.md §32.6, VC-X-75): the Transactions its
+   * `created` and `duplicate` rows name, the review items its `duplicate` rows name or its `needs_review` rows re-present
+   * (Entscheidung des Projektinhabers, 2026-11-16) and the review items it owns, in any status. Errors and skipped rows
+   * do not count. Both `null` when no row counts.
    */
   readonly firstBookingDate: BusinessDate | null;
   readonly lastBookingDate: BusinessDate | null;

@@ -230,8 +230,8 @@ export function createBackend(real: RealMappings): Backend {
       continuityMissing: null,
     };
     /**
-     * VC-X-75: the dates of the rows the batch took on and of the Transactions its duplicates name (Entscheidung des
-     * Projektinhabers, 2026-11-16); VC-X-77: whether a valid row had a balance.
+     * VC-X-75: the dates of the rows the batch took on, of the Transactions its duplicates name and of the review items
+     * its rows re-present (Entscheidung des Projektinhabers, 2026-11-16); VC-X-77: whether a valid row had a balance.
      */
     const dates: string[] = [];
     let balanced = false;
@@ -292,10 +292,9 @@ export function createBackend(real: RealMappings): Backend {
           createdAt: NOW,
         };
         items.set(item.id, item);
-        if (item.importBatchId === batch.id) {
-          batch.needsReviewCount += 1;
-          dates.push(row.bookingDate);
-        }
+        if (item.importBatchId === batch.id) batch.needsReviewCount += 1;
+        // VC-X-75: also a re-presented item of an earlier import counts here, with its date (2026-11-16, #380 question 1).
+        dates.push((item.normalizedRow as { bookingDate: string }).bookingDate);
         batch.rows.push({
           outcome: 'needs_review',
           position,
