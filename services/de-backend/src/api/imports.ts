@@ -5,14 +5,18 @@ import {
   type ConflictingTransaction,
   type GetImportBatch,
   type ImportBankStatement,
+  IMPORT_BATCH_STATUSES,
   type ImportBatch,
+  type ImportBatchSummary,
+  type ListImportBatches,
   type ListReviewItems,
   type ResolveReviewItem,
   type ReviewItem,
 } from '../application/index.js';
 import { principalOf } from './access-middleware.js';
 import { sendError } from './errors.js';
-import { fieldErrors, jsonBody, NO_QUERY, parse, readBody, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
+import { anyOf } from './transaction-dto.js';
+import { fieldErrors, jsonBody, NO_QUERY, PAGING, parse, readBody, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
 
 /** Upper bound of an uploaded statement, enforced while streaming, before any parsing. */
 export const MAX_IMPORT_FILE_BYTES = 5 * 1024 * 1024;
@@ -33,12 +37,19 @@ export const metadataSchema = z
   .passthrough();
 
 const listQuery = z.object({ status: z.enum(['PENDING', 'RESOLVED']).optional() });
+/** `GET /imports` (§32.6): both filters optional and combined with AND, `status` any of a comma-separated list; §58W's paging. */
+const batchListQuery = z.object({
+  financialAccountId: z.string().regex(RESOURCE_ID).optional(),
+  status: anyOf(IMPORT_BATCH_STATUSES).optional(),
+  ...PAGING,
+});
 /** Exported for its type only (client-contract.ts `ResolveInputDto`). */
 export const resolveBody = z.object({ resolution: z.enum(['CREATE', 'SKIP']) }).strict();
 
 export interface ImportCommands {
   readonly importStatement: ImportBankStatement;
   readonly getBatch: GetImportBatch;
+  readonly listBatches: ListImportBatches;
   readonly listReviewItems: ListReviewItems;
   readonly resolveReviewItem: ResolveReviewItem;
 }
@@ -111,6 +122,26 @@ export function importRoutes(commands: ImportCommands): Router {
           .then((batch) => {
             res.status(201).json(toDto(batch));
           });
+      })
+      .catch(next);
+  });
+
+  // §32.6 (#369, VC-X-74): the Realm's batches, newest first, without their rows. Its own path, never `/:importBatchId`.
+  router.get('/imports', (req, res, next) => {
+    const parsed = readQuery(batchListQuery, req);
+    if (refuseQuery(res, parsed)) return;
+    const { financialAccountId, status, page, pageSize } = parsed.data;
+    commands
+      .listBatches({
+        principal: principalOf(res),
+        filter: {
+          ...(financialAccountId === undefined ? {} : { financialAccountId: financialAccountId.toLowerCase() }),
+          ...(status === undefined ? {} : { statuses: status }),
+        },
+        page: { page, pageSize },
+      })
+      .then((result) => {
+        res.json({ items: result.items.map(toSummaryDto), page: result.page, pageSize: result.pageSize, total: result.total });
       })
       .catch(next);
   });
@@ -273,8 +304,8 @@ function readUpload(req: Request): Promise<Upload> {
   });
 }
 
-/** The batch as answered by the upload and `GET /imports/{id}`; exported for its type (client-contract.ts). */
-export function toDto(batch: ImportBatch) {
+/** A batch as listed by `GET /imports` (§32.6): the single read without `rows` and `continuity`; exported for its type (client-contract.ts). */
+export function toSummaryDto(batch: ImportBatchSummary) {
   return {
     importBatchId: batch.id,
     mreRealmId: batch.mreRealmId,
@@ -291,6 +322,13 @@ export function toDto(batch: ImportBatch) {
     skippedCount: batch.skippedCount,
     importedAt: batch.importedAt.toISOString(),
     importedBy: batch.importedBy,
+  };
+}
+
+/** The batch as answered by the upload and `GET /imports/{id}`; exported for its type (client-contract.ts). */
+export function toDto(batch: ImportBatch) {
+  return {
+    ...toSummaryDto(batch),
     rows: batch.rows,
     // generic-csv v2 (§70.6): null when the file had no balance column.
     continuity: batch.continuity,

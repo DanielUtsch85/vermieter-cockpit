@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { USED_ROUTES } from '../gate/backend-pin';
-import { batch, BATCH, csvFile, EARLIER_BATCH, EARLIER_ITEM, ITEM, resolved, reviewItem, TX_CREATED } from '../imports/fixtures.test-support';
+import { batch, BATCH, batchSummary, csvFile, EARLIER_BATCH, EARLIER_ITEM, ITEM, resolved, reviewItem, TX_CREATED } from '../imports/fixtures.test-support';
 import { importMetadata, importUpload } from '../imports/import-config';
 import { ACCOUNT, REALM_A, REALM_B } from '../transactions/fixtures.test-support';
 import { createDeClient } from './client';
 import { CLIENT_CODES } from './errors';
 import { countingTokens, envelope, json, scriptedFetch, type Call } from './fetch.test-support';
-import { getImportBatch, importBankTransactions, listReviewItems, resolveReviewItem } from './imports';
+import { getImportBatch, importBankTransactions, listImportBatches, listReviewItems, resolveReviewItem } from './imports';
 
 /**
  * Client contract of step 5 (ui-guide.md §12 point 2): the requests of the import, its reads and the resolve as they
@@ -201,21 +201,23 @@ describe('integration gate: step 5 calls only routes of the pinned inventory', (
       json(200, batch()),
       json(200, { importBatchId: BATCH, items: [reviewItem()] }),
       json(200, resolved('SKIP')),
+      json(200, { items: [batchSummary()], page: 1, pageSize: 20, total: 1 }),
     );
     await importBankTransactions(de, upload());
     await getImportBatch(de, BATCH);
     await listReviewItems(de, batch());
     await resolveReviewItem(de, reviewItem(), 'SKIP');
+    await listImportBatches(de, 1);
     const reached = calls.map(routeOf);
     expect(reached).not.toContain(undefined);
     const imports = USED_ROUTES.filter(([, path]) => path.startsWith('/api/v1/imports')).map(([method, path]) => `${method} ${path}`);
     expect(new Set(reached)).toEqual(new Set(imports));
-    expect(imports).toHaveLength(4);
+    expect(imports).toHaveLength(5);
   });
 
   it('counter-check: an import route outside USED_ROUTES is found', () => {
     expect(routeOf({ url: `/api/v1/imports/${BATCH}/review-items/${ITEM}/resolve`, method: 'PUT' })).toBeUndefined();
     expect(routeOf({ url: `/api/v1/imports/${BATCH}/review-items/${ITEM}`, method: 'GET' })).toBeUndefined();
-    expect(routeOf({ url: '/api/v1/imports', method: 'GET' })).toBeUndefined();
+    expect(routeOf({ url: '/api/v1/imports', method: 'POST' })).toBeUndefined();
   });
 });

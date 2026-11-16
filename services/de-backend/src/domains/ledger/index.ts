@@ -83,6 +83,8 @@ export type {
   RowOutcome,
   SourceRowKey,
 } from './bank-import.js';
+export { IMPORT_BATCH_STATUSES } from './import-batch-list.js';
+export type { ImportBatchFilter, ImportBatchPage, ImportBatchQueries, ImportBatchSummary } from './import-batch-list.js';
 export {
   DEPOSIT_SPLIT_CATEGORIES,
   LOAN_SPLIT_CATEGORIES,

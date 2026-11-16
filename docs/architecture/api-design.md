@@ -1555,7 +1555,7 @@ POST /api/v1/transactions/{id}/restore
 
 ```text
 POST /api/v1/imports/bank-transactions
-GET  /api/v1/imports                                                (VC-X-74, §32.6: specified)
+GET  /api/v1/imports                                                (VC-X-74, §32.6)
 GET  /api/v1/imports/{importBatchId}
 GET  /api/v1/imports/{importBatchId}/review-items
 POST /api/v1/imports/{importBatchId}/review-items/{reviewItemId}/resolve
@@ -1675,9 +1675,9 @@ Version 1 plus the bank's running balance (`data-model.md` §70.6). Select it wi
 - **Stored:** every Transaction created from a row with a balance keeps it (`source_balance_after`, fixed after creation, migration 0034); it is import evidence, never a ledger balance, and not part of the Transaction responses.
 - **Switching from v1:** rows imported under v1 carry no balance; the first v2 file that overlaps them sends the shared rows to review once (§70.4).
 
-## 32.6 List the imports of a Realm (#369, VC-X-74, specified, not implemented)
+## 32.6 List the imports of a Realm (#369, VC-X-74, implemented)
 
-**Status:** specified, not implemented (backlog VC-X-74). One read, `GET /api/v1/imports`; no write. The order follows the owner: this spec, then the backend, then the cockpit's list under the import form.
+**Status:** implemented in #377 (backlog VC-X-74), backend and cockpit in one PR; open questions 5–7 read as proposed until the owner answers them; see "As implemented (VC-X-74)" below. One read, `GET /api/v1/imports`; no write. The order follows the owner: this spec, then the backend, then the cockpit's list under the import form.
 
 **Decided by the owner on 2026-11-16 (chat)** (verbatim; Entscheidung des Projektinhabers, 2026-11-16):
 
@@ -1714,6 +1714,20 @@ GET /api/v1/imports[?financialAccountId=&status=&page=&pageSize=]
 **Inventory and pin:** the route changes `docs/development/api-inventory.md` (`yarn api:inventory`, one more route), so `yarn api:inventory:check` and the cockpit's `backend-pin.test.ts` turn red until both move. The implementation PR regenerates the inventory, and the cockpit pin (`webapps/cockpit/src/gate/backend-pin.ts`: `commit`, `routes`, `inventorySha256`, and `USED_ROUTES` once the UI calls it) follows in it, after checking the routes and DTOs as ui-guide §2 asks.
 
 **Tests the implementation needs:** paging over more than one page with equal `importedAt`; both filters alone and together, a foreign account an empty page, a malformed one and an unknown `status` `400`; `needsReviewCount` and `status` before and after a resolve; another Realm's batches never listed (also with its `financialAccountId` as the filter); `rows` and `continuity` absent; the plan test. **Mutations** (each alone, restored byte for byte): the Realm filter dropped; the order ascending; `status` filter ignored; `total` read outside the page's snapshot; `rows` left in the items.
+
+### As implemented (VC-X-74, #377)
+
+As specified above, with open questions 5–7 read as their proposals until the owner answers them: the index comes with migration 0078 (5); the list shows adapter and version, no preset, and no column is added (6); no booking-date range per item (7). Where the text leaves room, the narrowest reading, each listed in the PR for the owner:
+
+- **Code:** the port `ImportBatchQueries` (`domains/ledger/import-batch-list.ts`), its PostgreSQL store `PostgresImportBatchQueries` (`import-batch-queries.ts`) and the use case `listImportBatches` (`application/bank-import.ts`). `ImportRepository` is unchanged. The single read's mapping `toDto` is now the list's `toSummaryDto` plus `rows` and `continuity`: the same keys in the same order, so `GET /imports/{importBatchId}` and the upload answer byte for byte as before.
+- **Query:** `status` is read as §30.1's comma-separated list of the same helper (`anyOf`): an empty value, an empty element (`COMPLETED,`), another case (`completed`) and a review-item status (`PENDING`) are `400 INVALID_FORMAT`. `financialAccountId` is lower-cased as in §30.1. `cursor` and `accountId` are unknown parameters (`400`). A well-formed `financialAccountId` that is not a UUID of the store matches nothing.
+- **Snapshot and plan:** in one `REPEATABLE READ READ ONLY` transaction the count is the first statement, so the snapshot is fixed before the page is read; then the page's ids from the index in list order with `LIMIT`/`OFFSET`, then only those rows, without `rows` and `continuity`. A test commits a batch from another connection between the count and the page: it is in neither.
+- **Migration 0078:** `import_batch_realm_imported_idx ON import_batch (mre_realm_id, imported_at DESC, id DESC)`, an index only; its down drops it. The tests that take the schema down to an earlier migration (0063–0073) take 0078 down first, as they do 0074–0077.
+- **Plan test** (`import-batch-list-plan.test.ts`, as VC-X-19's): 50 Realms with 400 batches each; page 2 of 20 reads 40 rows of the index in order, no sequential scan, at most the page sorted; the account filter (alone and with `status`) runs on the same index. Counter-check: with the index dropped in a rolled-back transaction the same statement is a sequential scan of `import_batch`.
+- **Goldens:** the records of VC-X-65 and VC-X-66 (`error-answers-golden`, `express-behaviour-golden`) predate the route; their walks leave it out by the explicit list of #375, with its counter-check that the list is exactly the routes the records do not hold. `api/import-batches.test.ts` tests its answers. The §58W walk (`api/query-parameters.test.ts`) covers it: 177 routes, 21 paged.
+- **Realm isolation:** besides the store and the end-to-end test, the slice-1 acceptance checks that Realm B lists none of Realm A's imports, also with A's account as the filter.
+- **Inventory and pin:** 176 → 177 routes. The cockpit's `BACKEND_PIN` names this PR's backend commit (it reaches `main` with the merge), `USED_ROUTES` gains `GET /api/v1/imports`.
+- **Cockpit:** „Bisherige Importe“ under the import form on `…/import`, the first page of 20, the page in the URL (`?page=2`), no filter sent. Each import: file (or „Datei ohne Namen“), time, account, the counters and the status; one link to its result. An import with `status = NEEDS_REVIEW` is highlighted: the badge „Klärfälle offen“, a border, „n offene Klärfälle“ (`needsReviewCount`), and the link reads „Klärfälle bearbeiten“. The list is read again after an import and after a decision. The UI text for ui-guide is proposed in the PR (not in ui-guide yet).
 
 **Open questions for review** (numbered across §32.6, §37.6 and §37.7, as in the spec PR):
 

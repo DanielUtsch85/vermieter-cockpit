@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { DeClient } from '../../api/client';
-import { getImportBatch, importBankTransactions, listReviewItems, resolveReviewItem, type ImportBatchDto } from '../../api/imports';
+import { getImportBatch, importBankTransactions, listImportBatches, listReviewItems, resolveReviewItem, type ImportBatchDto } from '../../api/imports';
 import { listFinancialAccounts } from '../../api/transactions';
 import { formatTimestamp } from '../../format/dates';
 import { navigate } from '../../navigation';
@@ -11,6 +11,7 @@ import { PageTitle } from '../PageTitle';
 import { LoadingState, ReadProblem, secondaryButtonClass } from '../states';
 import { transactionKeys } from '../transactions/TransactionsArea';
 import { ImportForm } from './ImportForm';
+import { historySearch, ImportHistory, readHistoryPage } from './ImportHistory';
 import { ImportResult } from './ImportResult';
 import { ImportSteps } from './ImportSteps';
 import { ReviewItems } from './ReviewItems';
@@ -21,6 +22,9 @@ export const importKeys = {
   batchAll: (realmId: string, epoch: number, importBatchId: string) => realmKey(realmId, epoch, 'imports', importBatchId),
   batch: (realmId: string, epoch: number, importBatchId: string) => realmKey(realmId, epoch, 'imports', importBatchId, 'batch'),
   reviewItems: (realmId: string, epoch: number, importBatchId: string) => realmKey(realmId, epoch, 'imports', importBatchId, 'review-items'),
+  /** Every page of the import list (§32.6): what an import and a decision invalidate (#369). */
+  historyAll: (realmId: string, epoch: number) => realmKey(realmId, epoch, 'import-history'),
+  history: (realmId: string, epoch: number, page: number) => realmKey(realmId, epoch, 'import-history', page),
 };
 
 const importArea = AREAS.find((area) => area.id === 'import');
@@ -28,8 +32,8 @@ const importArea = AREAS.find((area) => area.id === 'import');
 /**
  * The Import area of a Realm (ui-guide.md §3.1, §6.5; step 5 of §10): the upload at `…/import`, one import's result
  * and review items at `…/import/<importBatchId>`, so a known batch is read again after a reload or a lost answer. `search`
- * is the URL's search part: on a batch's page its `zeilen=alle` is the row table's „Alle Zeilen“ (row-view.ts); the
- * upload reads nothing from it.
+ * is the URL's search part: on a batch's page its `zeilen=alle` is the row table's „Alle Zeilen“ (row-view.ts); on
+ * `…/import` its `page` is the page of „Bisherige Importe“ under the form (#369, api-design.md §32.6).
  */
 export function ImportArea(props: {
   readonly client: DeClient;
@@ -43,6 +47,12 @@ export function ImportArea(props: {
     queryKey: transactionKeys.accounts(props.realmId, props.epoch),
     queryFn: ({ signal }) => listFinancialAccounts(props.client, signal),
   });
+  const historyPage = readHistoryPage(props.search);
+  const history = useQuery({
+    queryKey: importKeys.history(props.realmId, props.epoch, historyPage),
+    queryFn: ({ signal }) => listImportBatches(props.client, historyPage, signal),
+    enabled: props.importBatchId === undefined,
+  });
   if (props.importBatchId !== undefined) {
     return <ImportBatchPage key={props.importBatchId} {...props} importBatchId={props.importBatchId} accounts={accounts.data?.items ?? []} />;
   }
@@ -50,8 +60,10 @@ export function ImportArea(props: {
     // The answer is shown at once; the page of the batch reads it again (GET /imports/{id}).
     queryClient.setQueryData(importKeys.batch(props.realmId, props.epoch, batch.importBatchId), batch);
     void queryClient.invalidateQueries({ queryKey: transactionKeys.all(props.realmId, props.epoch) });
+    void queryClient.invalidateQueries({ queryKey: importKeys.historyAll(props.realmId, props.epoch) });
     navigate(importBatchPath(props.realmId, batch.importBatchId));
   };
+  const here = importArea === undefined ? '' : areaPath(props.realmId, importArea);
   return (
     <>
       {accounts.isPending ? (
@@ -61,6 +73,13 @@ export function ImportArea(props: {
       ) : (
         <ImportForm accounts={accounts.data} upload={(upload) => importBankTransactions(props.client, upload)} onImported={onImported} />
       )}
+      <ImportHistory
+        realmId={props.realmId}
+        list={history}
+        accounts={accounts.data?.items ?? []}
+        href={(page) => `${here}${historySearch(page)}`}
+        onRetry={() => void history.refetch()}
+      />
     </>
   );
 }
@@ -89,6 +108,8 @@ function ImportBatchPage(props: {
   const onResolved = () => {
     reread();
     void queryClient.invalidateQueries({ queryKey: transactionKeys.all(props.realmId, props.epoch) });
+    // The list shows the batch's open review items (#369): a decision changes them.
+    void queryClient.invalidateQueries({ queryKey: importKeys.historyAll(props.realmId, props.epoch) });
   };
   const importedAt = shown === undefined ? undefined : formatTimestamp(shown.importedAt);
   return (

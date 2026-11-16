@@ -1,10 +1,18 @@
-import type { ConflictingTransactionDto, ImportBatchDto, ImportRowDto, ResolveInputDto, ReviewItemDto } from '@vermieter-cockpit/de-backend/client-contract';
+import type {
+  ConflictingTransactionDto,
+  ImportBatchDto,
+  ImportBatchSummaryDto,
+  ImportRowDto,
+  PageDto,
+  ResolveInputDto,
+  ReviewItemDto,
+} from '@vermieter-cockpit/de-backend/client-contract';
 import { importForm, type ImportUpload } from '../imports/import-config';
 import { apiPath, type DeClient } from './client';
 import { ApiError, CLIENT_CODES } from './errors';
 import { checkRealm } from './transactions';
 
-export type { ConflictingTransactionDto, ImportBatchDto, ImportRowDto, ResolveInputDto, ReviewItemDto };
+export type { ConflictingTransactionDto, ImportBatchDto, ImportBatchSummaryDto, ImportRowDto, ResolveInputDto, ReviewItemDto };
 
 /**
  * Step 5 of the first slice (ui-guide.md §6.5, §10): the bank import and its review items (api-design.md §32). No
@@ -48,6 +56,28 @@ export async function importBankTransactions(client: DeClient, upload: ImportUpl
 export async function getImportBatch(client: DeClient, importBatchId: string, signal?: AbortSignal): Promise<ImportBatchDto> {
   const { data } = await client.get<ImportBatchDto>(apiPath`/imports/${importBatchId}`, signal === undefined ? {} : { signal });
   return checkBatch(client, data, importBatchId);
+}
+
+/** The page size of the import list under the form (§32.6 allows 1–200, default 50). */
+export const IMPORT_HISTORY_PAGE_SIZE = 20;
+
+/**
+ * `GET /imports?page&pageSize` (api-design.md §32.6; #369): one page of the Realm's imports, newest first, without their
+ * rows (Entscheidung des Projektinhabers, 2026-11-16). No filter is sent. The answer is checked: the page asked, every
+ * batch of this Realm and listed once, newest first; anything else is refused, never shown.
+ */
+export async function listImportBatches(client: DeClient, page: number, signal?: AbortSignal): Promise<PageDto<ImportBatchSummaryDto>> {
+  const { data } = await client.get<PageDto<ImportBatchSummaryDto>>('/imports', {
+    query: { page, pageSize: IMPORT_HISTORY_PAGE_SIZE },
+    ...(signal === undefined ? {} : { signal }),
+  });
+  checkRealm(client.realmId, data.items);
+  const ids = data.items.map((b) => b.importBatchId.toLowerCase());
+  const newestFirst = data.items.every((b, i) => i === 0 || (data.items[i - 1]?.importedAt ?? '') >= b.importedAt);
+  if (data.page !== page || data.pageSize !== IMPORT_HISTORY_PAGE_SIZE || new Set(ids).size !== ids.length || !newestFirst) {
+    throw unexpected('The import list is not the page asked.');
+  }
+  return data;
 }
 
 /**

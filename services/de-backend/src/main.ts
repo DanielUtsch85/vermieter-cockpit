@@ -139,6 +139,7 @@ import {
   createManualTransaction,
   getFinancialCategory,
   getImportBatch,
+  listImportBatches,
   importBankStatement,
   linkPropertyReference,
   listFinancialCategories,
@@ -200,6 +201,7 @@ import {
   PostgresAcquisitionRepository,
   PostgresFinancialCategoryRepository,
   PostgresImportRepository,
+  PostgresImportBatchQueries,
   PostgresPropertyReferenceRepository,
   PostgresCorrectionRepository,
   PostgresTransactionQueries,
@@ -518,6 +520,8 @@ const app = createApp({
   imports: {
     importStatement: importBankStatement({ imports, accounts: financialAccounts, findAdapter: findBankStatementAdapter }),
     getBatch: getImportBatch({ imports }),
+    // §32.6 (#369): the Realm's imports, newest first.
+    listBatches: listImportBatches({ queries: new PostgresImportBatchQueries(db) }),
     listReviewItems: listReviewItems({ imports }),
     resolveReviewItem: resolveReviewItem({ imports }),
   },

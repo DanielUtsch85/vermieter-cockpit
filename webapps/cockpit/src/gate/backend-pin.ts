@@ -5,17 +5,16 @@
  * route the cockpit calls is missing, so a new backend state is checked (routes and DTOs, ui-guide.md §2) before the pin
  * moves. Moving the pin is a change of this file with that check, never a side effect.
  *
- * The pin is the backend commit of #364 (VC-X-72, api-design.md §37.7): its two reads, the Realm's Tenants and a
- * Tenant's terms, are the routes the cockpit adds (174 → 176). Routes and DTOs were checked against that commit; it
- * reaches `main` with the pull request that carries it (a merge, not a squash). Before it the pin was 1d2f37f (VC-X-69,
- * #318), whose inventory was the same as at ff680ba.
+ * The pin is the backend commit of #369 (VC-X-74, api-design.md §32.6): its read, the Realm's imports newest first, is
+ * the route the cockpit adds (176 → 177). Routes and DTOs were checked against that commit; it reaches `main` with the
+ * pull request that carries it (a merge, not a squash). Before it the pin was eefd110 (VC-X-72, #364, 174 → 176).
  */
 export const BACKEND_PIN = {
-  commit: 'eefd11092b3234b793e034073196fb430447977e',
-  /** `Routes: 176.` in the inventory. */
-  routes: 176,
+  commit: 'a4b18bffa0d28cf8f91aafb56e70294c3a2b7ef0',
+  /** `Routes: 177.` in the inventory. */
+  routes: 177,
   /** SHA-256 of `docs/development/api-inventory.md` at the pinned commit. */
-  inventorySha256: 'a66ba6a68334e352d208b64481b7e82243ba98e2cd3f36706fa48b51a796a8ed',
+  inventorySha256: '299363cfd3d74b1a77c2ded89e2b6a6b780d9647fe2b5652a641fc036a889d1d',
 } as const;
 
 /** Every DE route the cockpit calls, as the inventory names it (method, path with `:parameter`). */
@@ -39,6 +38,9 @@ export const USED_ROUTES: readonly (readonly [method: string, path: string])[] =
   // under the owning batch (api-design.md §32.1a–§32.3a).
   ['POST', '/api/v1/imports/bank-transactions'],
   ['GET', '/api/v1/imports/:importBatchId'],
+  // „Bisherige Importe“ under the import form (Issue #369; Entscheidung des Projektinhabers, 2026-11-16): the Realm's
+  // imports newest first, paged, open review items highlighted (api-design.md §32.6). A read; no filter is sent.
+  ['GET', '/api/v1/imports'],
   ['GET', '/api/v1/imports/:importBatchId/review-items'],
   ['POST', '/api/v1/imports/:importBatchId/review-items/:reviewItemId/resolve'],
   // Step 6 (ui-guide.md §6.6, §10): suggest, the list and one reconciliation, confirm and reject (`If-Match`), and as

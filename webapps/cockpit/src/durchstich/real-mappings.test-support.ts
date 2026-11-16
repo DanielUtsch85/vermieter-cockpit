@@ -1,6 +1,6 @@
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { ImportBatchDto, ReviewItemDto } from '../api/imports';
+import type { ImportBatchDto, ImportBatchSummaryDto, ReviewItemDto } from '../api/imports';
 import type {
   RentReconciliationDto,
   RentReconciliationReadDto,
@@ -49,6 +49,8 @@ export interface RealMappings {
   readonly split: (s: unknown) => TransactionSplitDto;
   readonly splits: (t: unknown, s: readonly unknown[]) => TransactionSplitsDto;
   readonly batch: (b: unknown) => ImportBatchDto;
+  /** One item of `GET /imports` (§32.6, #369). */
+  readonly batchSummary: (b: unknown) => ImportBatchSummaryDto;
   readonly reviewItem: (i: unknown, conflicts: ReadonlyMap<string, unknown>) => ReviewItemDto;
   readonly reconciliation: (r: unknown) => RentReconciliationDto;
   readonly reconciliationRead: (read: { reconciliation: unknown; mrePresence: null }) => RentReconciliationReadDto;
@@ -92,9 +94,13 @@ export async function loadRealMappings(): Promise<RealMappings> {
     reverseBody: Schema;
   }>('api/transaction-dto.ts');
   const splits = await load<{ toSplitsDto: RealMappings['splits'] }>('api/transaction-splits.ts');
-  const imports = await load<{ toDto: RealMappings['batch']; toItemDto: RealMappings['reviewItem']; metadataSchema: Schema; resolveBody: Schema }>(
-    'api/imports.ts',
-  );
+  const imports = await load<{
+    toDto: RealMappings['batch'];
+    toSummaryDto: RealMappings['batchSummary'];
+    toItemDto: RealMappings['reviewItem'];
+    metadataSchema: Schema;
+    resolveBody: Schema;
+  }>('api/imports.ts');
   const rent = await load<{
     toDto: RealMappings['reconciliation'];
     toReadDto: RealMappings['reconciliationRead'];
@@ -117,6 +123,7 @@ export async function loadRealMappings(): Promise<RealMappings> {
     split: dto.toSplitDto,
     splits: splits.toSplitsDto,
     batch: imports.toDto,
+    batchSummary: imports.toSummaryDto,
     reviewItem: imports.toItemDto,
     reconciliation: rent.toDto,
     reconciliationRead: rent.toReadDto,

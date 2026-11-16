@@ -63,6 +63,7 @@ export {
   UnsupportedAdapterError,
   getImportBatch,
   importBankStatement,
+  listImportBatches,
   listReviewItems,
   resolveReviewItem,
 } from './bank-import.js';
@@ -71,11 +72,14 @@ export type {
   ImportBankStatement,
   ImportBankStatementDeps,
   ImportBankStatementInput,
+  ListImportBatches,
   ListReviewItems,
   ResolveReviewItem,
   ResolveReviewItemResult,
 } from './bank-import.js';
 export type { ConflictingTransaction, ImportBatch, ReviewItem, ReviewResolution, RowOutcome } from '../domains/ledger/index.js';
+export { IMPORT_BATCH_STATUSES } from '../domains/ledger/index.js';
+export type { ImportBatchFilter, ImportBatchPage, ImportBatchQueries, ImportBatchSummary } from '../domains/ledger/index.js';
 export {
   AssessmentNotActiveError,
   FinancialCategoryNotFoundError,
