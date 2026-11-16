@@ -42,6 +42,24 @@ export function TermText({ term }: { readonly term: string }) {
 }
 
 /**
+ * The term inside a sentence that already says „Termin“: the date with the key in brackets, „01.11.2026 (2026110100)“
+ * (Issue #363 des Projektinhabers, 2026-11-16, point 1: no doubled word). A key that names no date stays visible.
+ */
+export function TermInSentence({ term }: { readonly term: string }) {
+  const date = termDate(term);
+  return date === undefined ? (
+    <>
+      <IdText id={term} /> (Datum nicht lesbar)
+    </>
+  ) : (
+    <>
+      {`${formatBusinessDate(date) ?? date} (`}
+      <IdText id={term} />)
+    </>
+  );
+}
+
+/**
  * The MRE Tenant by its id only. DE never reads a Tenant's name or contact data (api-design.md §37.1, mre-integration
  * §20.1), and no name is guessed from the id (ui-guide.md §6.6); the name is looked up in MRE.
  */

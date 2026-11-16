@@ -15,6 +15,7 @@ import {
 } from '../../imports/import-config';
 import { describeFieldError } from '../error-text';
 import { buttonClass, ErrorState, isRetryable, Notice, secondaryButtonClass } from '../states';
+import { TechnicalDetails } from '../technical';
 import { importRefusalText } from './import-labels';
 import { ImportSteps } from './ImportSteps';
 
@@ -30,7 +31,7 @@ const selectClass = 'min-h-touch rounded-input border border-border bg-surface p
 
 /**
  * Steps 1 and 2 of the import (ui-guide.md §6.5): choose file, account and preset, then run the import. Before it only
- * the file's name and size, the account, adapter, version and preset are shown; the file is never read here (no local
+ * the file's name and size, the account and preset are shown, adapter and version in „Technische Angaben“; the file is never read here (no local
  * view, no duplicate guess: the result after the import is the review). One click is one `POST`; nothing is shown as
  * imported before the server's answer (§7.3). A lost answer never says that nothing was imported: it offers the same
  * upload again, which the server deduplicates.
@@ -222,11 +223,11 @@ export function ImportForm(props: {
             <dd>
               {account === undefined ? 'Noch kein Konto gewählt' : `${account.displayName}${account.iban === null ? ' (ohne IBAN)' : ` · ${account.iban}`}`}
             </dd>
-            <dt className="text-muted">Adapter</dt>
-            <dd>{`${IMPORT_ADAPTER.adapterId}, Version ${IMPORT_ADAPTER.adapterVersion}`}</dd>
             <dt className="text-muted">Vorlage</dt>
             <dd>{preset === undefined ? 'Keine' : `${preset.label} (${preset.preset}); Spalten: ${preset.columns.join(', ')}`}</dd>
           </dl>
+          {/* The adapter is a technical detail (Entscheidung des Projektinhabers, 2026-11-14, zu #356 F2). */}
+          <TechnicalDetails entries={[['Adapter', `${IMPORT_ADAPTER.adapterId}, Version ${IMPORT_ADAPTER.adapterVersion}`]]} />
         </section>
 
         {tooLarge && (

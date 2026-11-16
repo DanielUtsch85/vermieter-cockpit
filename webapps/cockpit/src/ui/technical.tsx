@@ -5,9 +5,6 @@ import type { ReactNode } from 'react';
  * ids and MRE ObjectIds of a card go into one collapsed block „Technische Angaben“ at the card's end. The values stay
  * readable for support, the page shows names, amounts and states.
  */
-/** A version as „Technische Angaben“ show it: the number, with the entity tag when the answer carried one. */
-export const versionText = (version: number, etag: string | undefined): string => `${version}${etag === undefined ? '' : ` (ETag ${etag})`}`;
-
 export function TechnicalDetails({
   entries,
   spacing = 'mt-3',
@@ -30,3 +27,6 @@ export function TechnicalDetails({
     </details>
   );
 }
+
+/** A version as „Technische Angaben“ show it: the number, with the entity tag when the answer carried one. */
+export const versionText = (version: number, etag: string | undefined): string => `${version}${etag === undefined ? '' : ` (ETag ${etag})`}`;

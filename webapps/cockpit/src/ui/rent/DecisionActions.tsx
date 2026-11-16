@@ -7,7 +7,7 @@ import { decimalToInput } from '../../transactions/split-amount';
 import { MoneyText } from '../format';
 import { buttonClass, ErrorState, isRetryable, Notice, secondaryButtonClass } from '../states';
 import { TechnicalDetails, versionText } from '../technical';
-import { rentRefusalText } from './rent-labels';
+import { MANUAL_ONLY, PAIR_NOT_SUGGESTED_AGAIN, rentRefusalText } from './rent-labels';
 import { useCommand } from './use-command';
 
 const AMOUNT_TEXTS: Readonly<Record<Exclude<AmountCheck, { ok: true }>['problem'], string>> = {
@@ -33,7 +33,10 @@ type Action = 'confirm' | 'reject';
  * the user checked (the suggested one or less, never more; strings, no float), or reject with a required reason. Each is
  * its own click and sends one request with the version read as `If-Match`. Confirming writes nothing to MRE: the
  * transfer is the separate action „An MRE übertragen“ (§4.4). A `412` keeps the amount and the reason and reads again
- * only on request; no answer offers the same request again (both commands are no-ops when repeated).
+ * only on request; no answer offers the same request again (both commands are no-ops when repeated). The answer of a
+ * decision stays until a later step changes the reconciliation (`superseded`, or a newer version read): „An MRE wurde
+ * nichts übertragen“ must not stand next to a transfer (Issue #361 des Projektinhabers, 2026-11-16). Rejecting says
+ * beforehand that the pair is not suggested again and a new match is only the manual one (Issue #367, 2026-11-16).
  */
 export function DecisionActions(props: {
   readonly reconciliation: RentReconciliationDto;
@@ -44,6 +47,8 @@ export function DecisionActions(props: {
   readonly reject: (reason: string, ifMatch: string) => Promise<ReconciliationChanged>;
   readonly onChanged: () => void;
   readonly reload: () => void;
+  /** A later step on the same page succeeded (a transfer, a release): the answer of the decision is no longer the news. */
+  readonly superseded?: boolean;
 }) {
   const r = props.reconciliation;
   const [amount, setAmount] = useState(() => decimalToInput(r.matchedAmount.amount) ?? r.matchedAmount.amount);
@@ -63,6 +68,7 @@ export function DecisionActions(props: {
 
   if (stage.kind === 'done') {
     const done = stage.value.reconciliation;
+    if (props.superseded === true || r.version > done.version) return null;
     return (
       <div ref={answer} tabIndex={-1} role="status">
         <Notice tone="success">
@@ -73,7 +79,7 @@ export function DecisionActions(props: {
               {'. An MRE wurde nichts übertragen; das ist ein eigener Schritt.'}
             </>
           ) : (
-            'Vorschlag abgelehnt. Diese Zuordnung wird nicht wieder vorgeschlagen.'
+            `Vorschlag abgelehnt. ${PAIR_NOT_SUGGESTED_AGAIN}`
           )}
         </Notice>
         <TechnicalDetails entries={[['Version', versionText(done.version, stage.value.etag)]]} />
@@ -171,11 +177,16 @@ export function DecisionActions(props: {
               className="rounded-input border border-border px-3 py-2"
               value={reason}
               maxLength={MAX_REASON + 50}
-              aria-describedby="ablehnen-grund-hinweis"
+              aria-describedby={reasonProblem === undefined ? 'ablehnen-grund-hinweis' : 'ablehnen-grund-fehler ablehnen-grund-hinweis'}
               onChange={(event) => setReason(event.target.value)}
             />
+            {reasonProblem !== undefined && (
+              <p id="ablehnen-grund-fehler" className="text-label">
+                {REASON_TEXTS[reasonProblem]}
+              </p>
+            )}
             <p id="ablehnen-grund-hinweis" className="text-label">
-              {reasonProblem === undefined ? 'Abgelehnte Vorschläge werden nicht wieder vorgeschlagen.' : REASON_TEXTS[reasonProblem]}
+              {`Ein abgelehntes Paar aus Buchung, Mieter und Termin wird nicht wieder vorgeschlagen. ${MANUAL_ONLY}`}
             </p>
             <button type="button" className={secondaryButtonClass} disabled={busy || reasonProblem !== undefined || command.waiting} onClick={sendReject}>
               {stage.kind === 'sending' && stage.action === 'reject' ? 'Wird abgelehnt …' : 'Vorschlag ablehnen'}

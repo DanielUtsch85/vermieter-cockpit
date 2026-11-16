@@ -86,7 +86,14 @@ const control = (id: string) => {
 const type = (element: HTMLElement, value: string) => fireEvent.change(element, { target: { value } });
 const open = () => fireEvent.click(screen.getByRole('button', { name: 'Korrektur erfassen' }));
 const sendButton = () => screen.getByRole<HTMLButtonElement>('button', { name: /Korrektur ausführen|Korrektur wird ausgeführt/ });
-const send = () => fireEvent.click(sendButton());
+/** „Korrektur ausführen“ opens the confirmation step (Issue #362 des Projektinhabers, 2026-11-16). */
+const ask = () => fireEvent.click(screen.getByRole('button', { name: 'Korrektur ausführen' }));
+const confirmButton = () => screen.getByRole<HTMLButtonElement>('button', { name: /Jetzt korrigieren|Korrektur wird ausgeführt/ });
+/** The button, then „Jetzt korrigieren“: the user's two clicks of one correction. */
+const send = () => {
+  ask();
+  fireEvent.click(confirmButton());
+};
 const posts = (calls: readonly Call[]) => calls.filter((call) => call.method === 'POST');
 const sent = (call: Call | undefined) => JSON.parse(call?.body ?? 'null') as { reason: string; replacement: Record<string, unknown> };
 
@@ -216,9 +223,10 @@ describe('step 4, the correction form (ui-guide.md §6.3, §8; api-design.md §3
   it('a double click sends one request', async () => {
     const { calls } = setup({ answers: [json(201, correctionAnswer()), json(201, correctionAnswer())] });
     describeAnew();
+    ask();
     await act(() => {
-      send();
-      send();
+      fireEvent.click(confirmButton());
+      fireEvent.click(confirmButton());
       fireEvent.submit(screen.getByRole('form', { name: 'Korrektur erfassen' }));
     });
     await settle();
@@ -371,5 +379,87 @@ describe('step 4, the correction form (ui-guide.md §6.3, §8; api-design.md §3
       await pending;
     });
     expect(onCorrected).not.toHaveBeenCalled();
+  });
+});
+
+describe('the confirmation step before Korrektur ausfuehren (Issue #362 des Projektinhabers, 2026-11-16)', () => {
+  it('the button opens a step that says what the replacement changes; opening sends nothing and the draft is locked', async () => {
+    const { calls } = setup();
+    describeAnew();
+    ask();
+    const dialog = screen.getByRole('dialog', { name: 'Korrektur jetzt ausführen?' });
+    expect(document.activeElement).toBe(within(dialog).getByRole('heading', { name: 'Korrektur jetzt ausführen?' }));
+    expect(dialog.textContent).toContain('Die Ersatzbuchung ändert: Verwendungszweck.');
+    expect(dialog.textContent).toContain('storniert die Buchung und legt eine Ersatzbuchung an');
+    expect(dialog.textContent).toContain('Grund: „Falscher Verwendungszweck“');
+    expect(
+      within(dialog)
+        .getAllByRole('button')
+        .map((b) => b.textContent),
+    ).toEqual(['Jetzt korrigieren', 'Abbrechen']);
+    expect(screen.queryByRole('button', { name: 'Korrektur ausführen' })).toBeNull();
+    expect(control('korrektur-description').matches(':disabled')).toBe(true);
+    expect(control('korrektur-reason').matches(':disabled')).toBe(true);
+    await settle();
+    expect(calls).toHaveLength(0);
+  });
+
+  it('a changed amount and split: the step names Betrag and Aufteilung, derived from the draft', () => {
+    setup();
+    open();
+    type(control('korrektur-reason'), 'Betrag falsch erfasst');
+    type(control('korrektur-amount'), '900,00');
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Aufteilung der Ersatzbuchung ändern' }));
+    type(control('korrektur-split-0-amount'), '750,00');
+    ask();
+    expect(screen.getByRole('dialog').textContent).toContain('Die Ersatzbuchung ändert: Betrag, Aufteilung.');
+  });
+
+  it('Abbrechen and Escape send nothing and give the focus back to Korrektur ausfuehren; the draft stays', async () => {
+    const { calls } = setup();
+    describeAnew();
+    ask();
+    fireEvent.click(screen.getByRole('button', { name: 'Abbrechen' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Korrektur ausführen' }));
+    expect(control('korrektur-description').value).toBe('Korrigierter Verwendungszweck');
+    expect(control('korrektur-description').matches(':disabled')).toBe(false);
+    ask();
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Korrektur ausführen' }));
+    await settle();
+    expect(calls).toHaveLength(0);
+  });
+
+  it('only Jetzt korrigieren sends, once, with If-Match and key; a refusal closes the step, Erneut senden needs no second step', async () => {
+    const { calls } = setup({ answers: [new TypeError('network down'), json(201, correctionAnswer())] });
+    describeAnew();
+    ask();
+    await settle();
+    expect(calls).toHaveLength(0);
+    fireEvent.click(confirmButton());
+    await settle();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Erneut senden' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    await settle();
+    expect(posts(calls).map((c) => [c.headers.get('if-match'), c.headers.get('idempotency-key')])).toEqual([
+      ['"4"', 'absicht-1'],
+      ['"4"', 'absicht-1'],
+    ]);
+    expect(screen.getByRole('heading', { name: 'Korrektur ausgeführt' })).toBeTruthy();
+  });
+
+  it('a state read again while the step is open locks Jetzt korrigieren; Abbrechen stays possible', async () => {
+    const { calls, rerender } = setup();
+    describeAnew();
+    ask();
+    rerender(ORIGINAL, true);
+    expect(confirmButton().disabled).toBe(true);
+    fireEvent.click(confirmButton());
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Abbrechen' }).disabled).toBe(false);
+    await settle();
+    expect(calls).toHaveLength(0);
   });
 });

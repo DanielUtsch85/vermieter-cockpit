@@ -49,6 +49,7 @@ const button = (name: string) => screen.queryByRole<HTMLButtonElement>('button',
 const writeBack = () => screen.getByRole<HTMLButtonElement>('button', { name: 'An MRE übertragen' });
 const writeBackNow = () => screen.getByRole<HTMLButtonElement>('button', { name: /Jetzt an MRE übertragen|Wird übertragen/ });
 const removeNow = () => screen.getByRole<HTMLButtonElement>('button', { name: /Jetzt aus MRE entfernen|Wird entfernt/ });
+const releaseNow = () => screen.getByRole<HTMLButtonElement>('button', { name: /Jetzt aufheben|Wird aufgehoben/ });
 /** The trigger opens the confirmation step; only its confirm button sends (Entscheidung des Projektinhabers, 2026-11-11). */
 const sendWriteBack = () => {
   fireEvent.click(writeBack());
@@ -243,6 +244,10 @@ describe('step 6, Zuordnung aufheben and Aus MRE entfernen are separate (ui-guid
     fireEvent.change(screen.getByLabelText('Grund für das Aufheben (Pflicht)'), { target: { value: ' Falsche Buchung ' } });
     fireEvent.click(screen.getByRole('button', { name: 'Zuordnung aufheben' }));
     await settle();
+    expect(calls).toHaveLength(0);
+    fireEvent.click(releaseNow());
+    fireEvent.click(releaseNow());
+    await settle();
     expect(posts(calls)).toHaveLength(1);
     expect(calls[0]?.url).toBe(`/api/v1/rent-reconciliations/${REC}/release`);
     expect(calls[0]?.body).toBe('{"reason":"Falsche Buchung"}');
@@ -399,12 +404,98 @@ describe('the confirmation steps before An MRE uebertragen and Aus MRE entfernen
     expect(calls).toHaveLength(0);
   });
 
-  it('Zuordnung aufheben keeps its reason field and gets no dialog (DE only, not asked for by the decision)', async () => {
+  it('Zuordnung aufheben keeps its reason field and now gets a dialog too (Issue #362 des Projektinhabers, 2026-11-16)', async () => {
     const { calls } = setup({ r: written(), answers: [json(200, released('REMOVAL_REQUIRED'))] });
     fireEvent.change(screen.getByLabelText('Grund für das Aufheben (Pflicht)'), { target: { value: 'Falsch' } });
     fireEvent.click(screen.getByRole('button', { name: 'Zuordnung aufheben' }));
-    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.getByRole('dialog', { name: 'Zuordnung jetzt aufheben?' })).toBeTruthy();
+    expect(screen.getByLabelText<HTMLInputElement>('Grund für das Aufheben (Pflicht)').value).toBe('Falsch');
+    await settle();
+    expect(calls).toHaveLength(0);
+    fireEvent.click(releaseNow());
     await settle();
     expect(posts(calls)).toHaveLength(1);
+  });
+});
+
+describe('the confirmation step before Zuordnung aufheben (Issue #362 and #367 des Projektinhabers, 2026-11-16)', () => {
+  const reasonInput = () => screen.getByLabelText<HTMLInputElement>('Grund für das Aufheben (Pflicht)');
+  const openRelease = (reason = ' Falsche Buchung ') => {
+    fireEvent.change(reasonInput(), { target: { value: reason } });
+    fireEvent.click(screen.getByRole('button', { name: 'Zuordnung aufheben' }));
+  };
+
+  it('the step says that the pair is not suggested again and that a new match is manual; opening sends nothing', async () => {
+    const { calls } = setup({ r: written() });
+    openRelease();
+    const dialog = screen.getByRole('dialog', { name: 'Zuordnung jetzt aufheben?' });
+    expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Zuordnung jetzt aufheben?' }));
+    expect(dialog.textContent).toContain('in MRE ändert sich dabei nichts');
+    expect(dialog.textContent).toContain('Dieses Paar aus Buchung, Mieter und Termin wird nicht wieder vorgeschlagen.');
+    expect(dialog.textContent).toContain('Eine neue Zuordnung geht nur von Hand mit „Manuell zuordnen“ in der Buchung.');
+    expect(dialog.textContent).toContain('gesondert mit „Aus MRE entfernen“');
+    expect(dialog.textContent).toContain('Grund: „Falsche Buchung“');
+    expect(reasonInput().readOnly).toBe(true);
+    expect(screen.queryByRole('button', { name: 'Zuordnung aufheben' })).toBeNull();
+    await settle();
+    expect(calls).toHaveLength(0);
+    cleanup();
+    // Never written: nothing to remove from MRE afterwards, the step does not mention it.
+    setup({ r: confirmed() });
+    openRelease();
+    expect(screen.getByRole('dialog').textContent).not.toContain('Aus MRE entfernen');
+  });
+
+  it('Abbrechen and Escape send nothing and give the focus back to Zuordnung aufheben; the reason stays editable', async () => {
+    const { calls, reload, onChanged } = setup({ r: written() });
+    openRelease();
+    fireEvent.click(screen.getByRole('button', { name: 'Abbrechen' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Zuordnung aufheben' }));
+    expect(reasonInput().readOnly).toBe(false);
+    fireEvent.click(screen.getByRole('button', { name: 'Zuordnung aufheben' }));
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Zuordnung aufheben' }));
+    await settle();
+    expect(calls).toHaveLength(0);
+    expect(reload).not.toHaveBeenCalled();
+    expect(onChanged).not.toHaveBeenCalled();
+  });
+
+  it('only Jetzt aufheben sends: one POST with the trimmed reason and If-Match, no key; the answer says how to match anew', async () => {
+    const r = written();
+    const { calls, onChanged } = setup({ r, answers: [json(200, released('REMOVAL_REQUIRED'))] });
+    openRelease();
+    fireEvent.click(releaseNow());
+    await settle();
+    expect(posts(calls)).toHaveLength(1);
+    expect(calls[0]?.url).toBe(`/api/v1/rent-reconciliations/${REC}/release`);
+    expect(calls[0]?.body).toBe('{"reason":"Falsche Buchung"}');
+    expect(calls[0]?.headers.get('if-match')).toBe(`"${r.version}"`);
+    expect(calls[0]?.headers.has('idempotency-key')).toBe(false);
+    expect(onChanged).toHaveBeenCalledTimes(1);
+    const status = screen.getByRole('status');
+    expect(status.textContent).toContain(
+      'Zuordnung aufgehoben. In MRE wurde dabei nichts geändert. Dieses Paar aus Buchung, Mieter und Termin wird nicht wieder vorgeschlagen.',
+    );
+    expect(status.querySelector('a')?.getAttribute('href')).toBe(`/cockpit/r/${REALM_A}/buchungen/${r.transactionId}`);
+    expect(document.activeElement).toBe(status.parentElement);
+  });
+
+  it('a stale state locks Jetzt aufheben; a release no longer offered closes the step without sending', async () => {
+    const { calls, rerender } = setup({ r: written() });
+    openRelease();
+    rerender(written(), true);
+    expect(releaseNow().disabled).toBe(true);
+    fireEvent.click(releaseNow());
+    rerender(released('REMOVAL_REQUIRED'));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    // Offered again by a later read: the step does not come back by itself.
+    rerender(written());
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Zuordnung aufheben' })).toBeTruthy();
+    await settle();
+    expect(calls).toHaveLength(0);
   });
 });

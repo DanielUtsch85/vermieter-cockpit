@@ -11,7 +11,8 @@ import { MoneyText } from '../format';
 import { buttonClass, ErrorState, isRetryable, Notice, secondaryButtonClass } from '../states';
 import { inputClass } from '../transactions/SplitRows';
 import { rentRefusalText } from './rent-labels';
-import { ReconciliationBadges, ReconciliationLink, TenantText, TermLink, TermText } from './RentParts';
+import { IdText } from '../IdText';
+import { ReconciliationBadges, ReconciliationLink, TenantText, TermInSentence, TermLink, TermText } from './RentParts';
 
 const AMOUNT_TEXTS: Readonly<Record<MatchAmountProblem, string>> = {
   EMPTY: 'Bitte einen Betrag angeben.',
@@ -293,9 +294,9 @@ export function ManualMatch(props: {
                   <p>
                     <MoneyText money={sent.matchedAmount} />
                     {' dieser Buchung werden in DE dem Termin '}
-                    <TermText term={sent.mreRentTerm} />
+                    <TermInSentence term={sent.mreRentTerm} />
                     {' des Mieters '}
-                    <TenantText id={sent.mreTenantId} />
+                    <IdText id={sent.mreTenantId} />
                     {' zugeordnet (Status „Zuordnung bestätigt“). DE prüft den Termin dabei in MRE.'}
                   </p>
                   <p>An MRE wird nichts übertragen; das ist danach ein eigener Schritt. Eine falsche Zuordnung wird aufgehoben, nicht geändert.</p>

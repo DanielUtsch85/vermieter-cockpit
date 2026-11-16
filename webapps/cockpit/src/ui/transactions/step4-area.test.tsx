@@ -9,6 +9,7 @@ import {
   category,
   correctionAnswer,
   detail,
+  reversalAnswer,
   page,
   property,
   REALM_A,
@@ -61,9 +62,47 @@ async function correctDescription(text = 'Korrigierter Verwendungszweck') {
   fireEvent.change(document.getElementById('korrektur-reason') as HTMLTextAreaElement, { target: { value: 'Falscher Verwendungszweck' } });
   fireEvent.change(document.getElementById('korrektur-description') as HTMLInputElement, { target: { value: text } });
   fireEvent.click(screen.getByRole('button', { name: 'Korrektur ausführen' }));
+  // The confirmation step (Issue #362 des Projektinhabers, 2026-11-16): only „Jetzt korrigieren“ sends.
+  fireEvent.click(screen.getByRole('button', { name: 'Jetzt korrigieren' }));
 }
 
 afterEach(cleanup);
+
+describe('an outdated answer goes (Issue #361 des Projektinhabers, 2026-11-16)', () => {
+  const never = () => new Promise<Response>(() => undefined) as unknown as Response;
+
+  for (const step of ['correct', 'reverse'] as const) {
+    const name =
+      step === 'correct'
+        ? 'confirm, then correct on the same page: no sentence names the status Bestaetigt, even before the detail is read again'
+        : 'confirm, then reverse on the same page: no sentence names the status Bestaetigt, even before the detail is read again';
+    it(name, async () => {
+      const { calls } = area({
+        // The third read of the detail never answers: only the page's own record of the later step removes the answer.
+        [at(TX)]: [CLASSIFIED, CONFIRMED, never],
+        [CONFIRM]: [() => json(200, transaction({ status: 'CONFIRMED', version: 5 }), { etag: '"5"' })],
+        [CORRECT(TX)]: [() => json(201, correctionAnswer({ description: 'Korrigierter Verwendungszweck' }))],
+        [`POST /api/v1/transactions/${TX}/reverse`]: [() => json(201, reversalAnswer())],
+      });
+      fireEvent.click(await screen.findByRole('button', { name: 'Buchung bestätigen' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Jetzt bestätigen' }));
+      await findSaved(/Buchung bestätigt \(Status „Bestätigt“\)/, 5);
+      if (step === 'correct') {
+        await correctDescription();
+        await screen.findByRole('heading', { name: 'Korrektur ausgeführt' });
+      } else {
+        fireEvent.click(await screen.findByRole('button', { name: 'Stornieren' }));
+        fireEvent.change(document.getElementById('storno-reason') as HTMLTextAreaElement, { target: { value: 'Doppelt erfasst' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Storno ausführen' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Jetzt stornieren' }));
+        await screen.findByRole('heading', { name: 'Storno ausgeführt' });
+      }
+      expect(calls.filter((call) => routeOf(call) === at(TX))).toHaveLength(3);
+      expect(screen.queryByText(/Buchung bestätigt/)).toBeNull();
+      expect(document.body.textContent).not.toMatch(/Status „Bestätigt“/);
+    });
+  }
+});
 
 describe('step 4 in the Buchungen area', () => {
   it('confirm: If-Match of the detail, Realm A only, the badge turns green only with the re-read; the editor goes', async () => {

@@ -6,6 +6,7 @@ import { checkSuggestWindow, MAX_SUGGEST_MONTHS, suggestBookingRange, type Windo
 import { describeFieldError } from '../error-text';
 import { MoneyText } from '../format';
 import { buttonClass, ErrorState, isRetryable, Notice } from '../states';
+import { MANUAL_ONLY } from './rent-labels';
 import { ReconciliationLink, TenantText, TermText } from './RentParts';
 import { Link } from '../Link';
 import { useCommand } from './use-command';
@@ -27,7 +28,10 @@ function bookingsHref(realmId: string, window: SuggestInputDto, status: string):
 
 /**
  * What a suggest run says (ui-guide.md §6.6, api-design.md §37.3, §37.6): the suggestions it wrote, and the inflows of
- * the window no rule could see, with a link to them in Buchungen. An empty run is never "alle Mieten bezahlt".
+ * the window no rule could see, with a link to them in Buchungen. An empty run is never "alle Mieten bezahlt". Every run
+ * says that pairs with an earlier rejected or released reconciliation are left out and how to match them again: the
+ * answer has no count of them (`skipped` counts only `unconfirmed` and `noRentCash`), so the hint has no number (Issue
+ * #367 des Projektinhabers, 2026-11-16).
  */
 function SuggestOutcome({ realmId, result }: { readonly realmId: string; readonly result: SuggestResultDto }) {
   const { unconfirmed, noRentCash } = result.skipped;
@@ -70,7 +74,10 @@ function SuggestOutcome({ realmId, result }: { readonly realmId: string; readonl
           <Link href={bookingsHref(realmId, window, 'CONFIRMED,RECONCILED')}>Bestätigte Buchungen des Zeitraums</Link>
         </Notice>
       )}
-      {unconfirmed === 0 && noRentCash === 0 && <p className="text-muted">Im Zeitraum wurde kein Zahlungseingang übersprungen.</p>}
+      {unconfirmed === 0 && noRentCash === 0 && (
+        <p className="text-muted">Im Zeitraum wurde kein Zahlungseingang übersprungen, weil er unbestätigt war oder keinen Mietanteil hat.</p>
+      )}
+      <p>{`Ausgelassen werden Paare aus Buchung, Mieter und Termin, deren Zuordnung früher abgelehnt oder aufgehoben wurde: sie werden nie wieder vorgeschlagen. ${MANUAL_ONLY}`}</p>
     </div>
   );
 }

@@ -182,3 +182,11 @@ export function rentRefusalText(error: unknown): string | undefined {
       return `Grund ${reason}.`;
   }
 }
+
+/**
+ * A pair of Transaction, Tenant and term with a rejected, released or confirmed reconciliation is never suggested again
+ * (api-design.md §37.3); a new match of it is the manual one in the booking (Issue #367 des Projektinhabers,
+ * 2026-11-16). Said before rejecting and releasing, after both, and with every suggest run.
+ */
+export const MANUAL_ONLY = 'Eine neue Zuordnung geht nur von Hand mit „Manuell zuordnen“ in der Buchung.';
+export const PAIR_NOT_SUGGESTED_AGAIN = `Dieses Paar aus Buchung, Mieter und Termin wird nicht wieder vorgeschlagen. ${MANUAL_ONLY}`;

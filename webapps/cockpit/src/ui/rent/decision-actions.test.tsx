@@ -7,7 +7,7 @@ import { confirmReconciliation, rejectReconciliation, type RentReconciliationDto
 import { confirmed, reconciliation, REC } from '../../rent/fixtures.test-support';
 import { REALM_A } from '../../transactions/fixtures.test-support';
 import { DecisionActions } from './DecisionActions';
-import { expectSaved } from '../technical.test-support';
+import { expectSaved, technicalBlocks } from '../technical.test-support';
 
 /**
  * Step 6, the decisions on a suggestion (jsdom, `fireEvent` only, the real client to a scripted fetch): „Zuordnung
@@ -26,7 +26,7 @@ function setup(options: { r?: RentReconciliationDto; answers?: Parameters<typeof
   const de = createDeClient({ tokens: countingTokens(), realmId: REALM_A, fetch });
   const onChanged = vi.fn<() => void>();
   const reload = vi.fn<() => void>();
-  const view = (r: RentReconciliationDto, etag: string, stale: boolean) => (
+  const view = (r: RentReconciliationDto, etag: string, stale: boolean, superseded?: boolean) => (
     <DecisionActions
       reconciliation={r}
       etag={etag}
@@ -35,10 +35,17 @@ function setup(options: { r?: RentReconciliationDto; answers?: Parameters<typeof
       reject={(reason, ifMatch) => rejectReconciliation(de, REC, reason, ifMatch)}
       onChanged={onChanged}
       reload={reload}
+      {...(superseded === undefined ? {} : { superseded })}
     />
   );
   const rendered = render(view(options.r ?? reconciliation(), '"1"', options.stale ?? false));
-  return { calls, onChanged, reload, unmount: rendered.unmount, rerender: (r: RentReconciliationDto, etag: string) => rendered.rerender(view(r, etag, false)) };
+  return {
+    calls,
+    onChanged,
+    reload,
+    unmount: rendered.unmount,
+    rerender: (r: RentReconciliationDto, etag: string, superseded?: boolean) => rendered.rerender(view(r, etag, false, superseded)),
+  };
 }
 
 const amountInput = () => screen.getByLabelText<HTMLInputElement>('Zu bestätigender Betrag (€)');
@@ -74,6 +81,8 @@ describe('step 6, Zuordnung bestaetigen (ui-guide.md §6.6 step 6; api-design.md
     await settle();
     expect(screen.getByRole('status').textContent).toContain(`Zuordnung bestätigt über 850,00${NBSP}€. An MRE wurde nichts übertragen`);
     expectSaved(screen.getByRole('status').firstElementChild as HTMLElement, 2);
+    // #356 H2: the block holds exactly the version and the entity tag of the answer.
+    expect(technicalBlocks(screen.getByRole('status'))[0]?.querySelector('dd')?.textContent).toBe('2 (ETag "2")');
     expect(onChanged).toHaveBeenCalledTimes(1);
     expect(calls.map((call) => call.url).filter((url) => /write-back|remove-from-mre|release/.test(url))).toEqual([]);
   });
@@ -209,7 +218,9 @@ describe('step 6, Vorschlag ablehnen (§37.3: with a required reason)', () => {
     expect(calls[0]?.url).toBe(`/api/v1/rent-reconciliations/${REC}/reject`);
     expect(calls[0]?.body).toBe('{"reason":"Andere Miete"}');
     expect(calls[0]?.headers.get('if-match')).toBe('"1"');
-    expect(screen.getByRole('status').textContent).toContain('Vorschlag abgelehnt. Diese Zuordnung wird nicht wieder vorgeschlagen.');
+    expect(screen.getByRole('status').textContent).toContain(
+      'Vorschlag abgelehnt. Dieses Paar aus Buchung, Mieter und Termin wird nicht wieder vorgeschlagen. Eine neue Zuordnung geht nur von Hand mit „Manuell zuordnen“ in der Buchung.',
+    );
     expectSaved(screen.getByRole('status').firstElementChild as HTMLElement, 2);
     expect(onChanged).toHaveBeenCalledTimes(1);
   });
@@ -220,5 +231,39 @@ describe('step 6, Vorschlag ablehnen (§37.3: with a required reason)', () => {
       expect(screen.queryByRole('button')).toBeNull();
       unmount();
     }
+  });
+});
+
+describe('an outdated answer goes (Issue #361 des Projektinhabers, 2026-11-16)', () => {
+  it('the confirm answer stays with the same version and goes once a later step superseded it', async () => {
+    const { rerender } = setup({ answers: [json(200, confirmed('850.00'), { etag: '"2"' })] });
+    fireEvent.click(confirmButton());
+    await settle();
+    rerender(confirmed('850.00'), '"2"');
+    expect(screen.getByRole('status').textContent).toContain('An MRE wurde nichts übertragen');
+    rerender(confirmed('850.00'), '"2"', true);
+    expect(screen.queryByRole('status')).toBeNull();
+    expect(document.body.textContent).not.toMatch(/nichts übertragen/);
+  });
+
+  it('the confirm answer goes once a newer version of the reconciliation is read (a transfer from elsewhere)', async () => {
+    const { rerender } = setup({ answers: [json(200, confirmed('850.00'), { etag: '"2"' })] });
+    fireEvent.click(confirmButton());
+    await settle();
+    // Read again before the page knew of a later step: the version of the answer, the answer stays.
+    rerender(confirmed('850.00'), '"2"');
+    expect(screen.getByRole('status')).toBeTruthy();
+    rerender(confirmed('850.00', { version: 3, mreWriteBackState: 'WRITTEN' }), '"3"');
+    expect(screen.queryByRole('status')).toBeNull();
+    expect(document.body.textContent).not.toMatch(/nichts übertragen/);
+  });
+
+  it('rejecting says beforehand that the pair is not suggested again and that a new match is manual', () => {
+    setup();
+    expect(
+      screen.getByText(
+        'Ein abgelehntes Paar aus Buchung, Mieter und Termin wird nicht wieder vorgeschlagen. Eine neue Zuordnung geht nur von Hand mit „Manuell zuordnen“ in der Buchung.',
+      ),
+    ).toBeTruthy();
   });
 });

@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ImportBatchDto } from '../../api/imports';
 import { batch, BATCH, ITEM, mixedBatch } from '../../imports/fixtures.test-support';
+import { noContinuityText, rowErrorText } from './import-labels';
 import { useLocationSearch } from '../../navigation';
 import { REALM_A, TX } from '../../transactions/fixtures.test-support';
 import { technicalBlocks, visibleText } from '../technical.test-support';
@@ -249,7 +250,9 @@ describe('the import id in Technische Angaben (Entscheidung des Projektinhabers,
     const blocks = technicalBlocks(card);
     expect(blocks).toHaveLength(1);
     expect(blocks[0]?.open).toBe(false);
-    expect(blocks[0]?.textContent).toBe(`Technische AngabenImport-ID${BATCH}`);
+    // The adapter is there too (Entscheidung des Projektinhabers, 2026-11-14, zu #356 F2).
+    expect(blocks[0]?.textContent).toBe(`Technische AngabenImport-ID${BATCH}Adaptergeneric-csv, Version 2`);
+    expect(visibleText(card)).not.toMatch(/Adapter|generic-csv/);
     expect(visibleText(card)).toContain('Dateiumsaetze-oktober.csv');
   });
 
@@ -259,5 +262,75 @@ describe('the import id in Technische Angaben (Entscheidung des Projektinhabers,
     expect(visibleText(card)).toContain('DateiNicht verfügbar');
     expect(visibleText(card)).not.toContain(BATCH);
     expect(technicalBlocks(card)[0]?.textContent).toContain(BATCH);
+  });
+});
+
+describe('row errors in German (Issue #363 des Projektinhabers, 2026-11-16, point 2)', () => {
+  it('every field the adapter names is shown with its German label; an unknown name with its code', () => {
+    const fields: [string, string][] = [
+      ['(row)', 'Zeile'],
+      ['bookingDate', 'Buchungstag'],
+      ['valueDate', 'Wertstellung'],
+      ['amount', 'Betrag'],
+      ['currency', 'Währung'],
+      ['balanceAfter', 'Saldo nach Buchung'],
+      ['counterpartyNameRaw', 'Gegenseite'],
+      ['description', 'Verwendungszweck'],
+      ['externalTransactionId', 'Bankreferenz'],
+      ['brandNewField', 'Unbekanntes Feld (brandNewField)'],
+    ];
+    for (const [field, name] of fields) expect(rowErrorText({ field, code: 'INVALID_FORMAT' }).name, field).toBe(name);
+    expect(rowErrorText({ field: 'amount', code: 'ZERO_AMOUNT' })).toEqual({ name: 'Betrag', text: 'Betrag 0' });
+  });
+
+  it('the error rows of the table name no English field', () => {
+    show(
+      batch({
+        errorCount: 1,
+        rows: [
+          {
+            outcome: 'error',
+            position: 1,
+            errors: [
+              { field: 'bookingDate', code: 'INVALID_FORMAT' },
+              { field: 'valueDate', code: 'INVALID_FORMAT' },
+              { field: 'amount', code: 'REQUIRED' },
+            ],
+          },
+        ],
+      }),
+    );
+    const items = screen.getAllByRole('listitem').map((li) => li.textContent ?? '');
+    expect(items.map((text) => text.split(':')[0])).toEqual(['Buchungstag', 'Wertstellung', 'Betrag']);
+    expect(items.join(' ')).not.toMatch(/bookingDate|valueDate|amount/);
+  });
+});
+
+describe('no continuity report (Issue #363 des Projektinhabers, 2026-11-16, point 3)', () => {
+  const saldo = () => screen.getByRole('region', { name: 'Lückenlosigkeit (Saldo)' }).textContent ?? '';
+
+  it('a file whose rows are only errors and zero lines: no evaluable balance, never a missing column', () => {
+    show(
+      batch({
+        transactionCount: 0,
+        errorCount: 1,
+        skippedCount: 1,
+        rows: [
+          { outcome: 'error', position: 1, errors: [{ field: 'bookingDate', code: 'INVALID_FORMAT' }] },
+          { outcome: 'skipped', position: 2, reason: 'ZERO_AMOUNT' },
+        ],
+      }),
+    );
+    expect(saldo()).toContain('Keine Zeile der Datei hat einen auswertbaren Saldo: keine Zeile wurde zu einer Buchung');
+    expect(saldo()).toContain('Die Lückenlosigkeit wurde nicht geprüft.');
+    expect(saldo()).not.toMatch(/keine Saldo-Spalte/i);
+  });
+
+  it('a file with booking rows but no balance names both possibilities; a file without rows says that', () => {
+    expect(noContinuityText([{ outcome: 'created' }])).toBe(
+      'Keine gültige Zeile der Datei hat einen Saldo nach Buchung (keine Saldo-Spalte, oder sie ist leer); die Lückenlosigkeit wurde nicht geprüft.',
+    );
+    for (const outcome of ['duplicate', 'needs_review'] as const) expect(noContinuityText([{ outcome }, { outcome: 'error' }])).toMatch(/^Keine gültige Zeile/);
+    expect(noContinuityText([])).toBe('Die Datei enthielt keine Datenzeile; die Lückenlosigkeit wurde nicht geprüft.');
   });
 });

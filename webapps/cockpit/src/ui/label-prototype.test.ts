@@ -1,7 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { ApiError } from '../api/errors';
 import { describeFieldError } from './error-text';
-import { ambiguityText, batchStatusText, importRefusalText, orderText, previousExportText, resolutionText, rowErrorText } from './imports/import-labels';
+import {
+  ambiguityText,
+  batchStatusText,
+  importRefusalText,
+  orderText,
+  previousExportText,
+  resolutionText,
+  rowErrorText,
+  rowFieldText,
+} from './imports/import-labels';
 import {
   confidenceText,
   mrePaymentTypeText,
@@ -37,7 +46,8 @@ const TABLES: readonly (readonly [table: string, actual: (key: string) => unknow
   ['import RESOLUTION', (k) => resolutionText(k), (k) => `Unbekannte Entscheidung (${k})`],
   ['import ORDER', (k) => orderText(k), (k) => `unbekannte Reihenfolge (${k})`],
   ['import PREVIOUS_EXPORT', (k) => previousExportText(k), (k) => `Unbekanntes Ergebnis (${k})`],
-  ['import ROW_CODES', (k) => rowErrorText({ field: 'betrag', code: k }), (k) => ({ name: 'betrag', text: `Code ${k}` })],
+  ['import ROW_CODES', (k) => rowErrorText({ field: 'betrag', code: k }), (k) => ({ name: 'Unbekanntes Feld (betrag)', text: `Code ${k}` })],
+  ['import ROW_FIELDS', (k) => rowFieldText(k), (k) => `Unbekanntes Feld (${k})`],
   ['import IMPORT_ERROR', (k) => importRefusalText(new ApiError(422, 'IMPORT_ERROR', 'x', { reason: k }))[0], (k) => `Grund ${k}.`],
   ['import IBAN_REASONS', (k) => importRefusalText(new ApiError(422, 'ACCOUNT_IBAN_MISMATCH', 'x', { reason: k }))[0], (k) => `Grund ${k}.`],
   ['error-text SPECIAL_FIELD_NAMES and FIELD_CODE_TEXTS', (k) => describeFieldError({ field: k, code: k }), (k) => ({ name: k, text: `Code ${k}` })],

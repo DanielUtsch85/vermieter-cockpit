@@ -17,6 +17,7 @@ import {
   type CorrectionProblem,
 } from '../../transactions/correction-draft';
 import { addRow, firstBoundControl, MAX_SPLITS, removeRow, type DraftRow } from '../../transactions/split-draft';
+import { ConfirmStep, useConfirmStep } from '../ConfirmStep';
 import { buttonClass, ErrorState, isRetryable, Notice, secondaryButtonClass } from '../states';
 import { CorrectionRefusal, CorrectionResult } from './CorrectionResult';
 import { directionLabel, statusLabel } from './labels';
@@ -62,6 +63,13 @@ const CHANGE_LABELS: Readonly<Record<CorrectionField | 'splits', string>> = {
   splits: 'Aufteilung',
 };
 
+/** What the replacement changes, from the draft's diff to the original (`checkCorrection`). */
+function changesText(check: ReturnType<typeof checkCorrection>): string {
+  return check.changed.length === 0
+    ? 'Noch keine Änderung: die Ersatzbuchung muss sich vom Original unterscheiden.'
+    : `Die Ersatzbuchung ändert: ${check.changed.map((c) => CHANGE_LABELS[c]).join(', ')}. Alles andere übernimmt sie aus dem Original.`;
+}
+
 export interface CorrectionFormProps {
   readonly realmId: string;
   /** The original as last read, with its `ETag` (`If-Match` of `correct` is the original's version, §16.1). */
@@ -83,7 +91,9 @@ export interface CorrectionFormProps {
  * changed fields are sent; a changed amount needs the replacement's own splits (step 3's rows, exact sum, no floating
  * point). `If-Match` is the original's `ETag`; the `Idempotency-Key` belongs to the intent (`intentFor`): the same body
  * keeps it across a lost answer, a changed one gets a new one. The answer is the chain, shown with links; the original
- * is `CORRECTED` from then on and never offered for editing again.
+ * is `CORRECTED` from then on and never offered for editing again. „Korrektur ausführen“ opens a confirmation step that
+ * says what the replacement changes; only „Jetzt korrigieren“ sends, and the draft cannot change while it is open
+ * (Issue #362 des Projektinhabers, 2026-11-16). „Erneut senden“ after a lost answer sends without a second step.
  */
 export function CorrectionForm(props: CorrectionFormProps) {
   const keys = useRef(0);
@@ -97,6 +107,7 @@ export function CorrectionForm(props: CorrectionFormProps) {
   const inFlight = useRef(false);
   const mounted = useRef(true);
   const heading = useRef<HTMLHeadingElement>(null);
+  const step = useConfirmStep<'correct'>();
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -140,6 +151,7 @@ export function CorrectionForm(props: CorrectionFormProps) {
         },
         (error: unknown) => {
           if (!mounted.current) return;
+          step.close();
           const fields = error instanceof ApiError ? error.fields : [];
           setRefusal({ error, retry: isRetryable(error) ? sent : undefined, bound: bindCorrectionFieldErrors(fields, rowCount) });
         },
@@ -150,8 +162,11 @@ export function CorrectionForm(props: CorrectionFormProps) {
       });
   };
 
-  const submit = (event: FormEvent<HTMLFormElement>) => {
+  const ask = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (canSend) step.ask('correct');
+  };
+  const confirm = () => {
     if (!canSend) return;
     const body = toCorrectRequest(draft, t);
     intent.current = intentFor(intent.current, body, props.newKey ?? newIdempotencyKey);
@@ -211,28 +226,49 @@ export function CorrectionForm(props: CorrectionFormProps) {
               )}
             </ErrorState>
           )}
-          <form aria-label="Korrektur erfassen" noValidate onSubmit={submit} className="flex flex-col gap-4">
-            <CorrectionFields
-              draft={draft}
-              transaction={t}
-              check={check}
-              bound={bound}
-              references={props.references}
-              change={change}
-              restructure={restructure}
-              newRowKey={newRowKey}
-            />
+          <form aria-label="Korrektur erfassen" noValidate onSubmit={ask} className="flex flex-col gap-4">
+            {/* While the step is open the draft stays as asked: what „Jetzt korrigieren“ sends is what the step says. */}
+            <fieldset disabled={step.asking !== undefined} className="min-w-0">
+              <CorrectionFields
+                draft={draft}
+                transaction={t}
+                check={check}
+                bound={bound}
+                references={props.references}
+                change={change}
+                restructure={restructure}
+                newRowKey={newRowKey}
+              />
+            </fieldset>
             <p id="korrektur-aenderungen" role="status" aria-live="polite">
-              {check.changed.length === 0
-                ? 'Noch keine Änderung: die Ersatzbuchung muss sich vom Original unterscheiden.'
-                : `Die Ersatzbuchung ändert: ${check.changed.map((c) => CHANGE_LABELS[c]).join(', ')}. Alles andere übernimmt sie aus dem Original.`}
+              {changesText(check)}
               {check.splitsRequired ? ' Bei geändertem Betrag braucht die Ersatzbuchung eine eigene Aufteilung über den neuen Betrag.' : ''}
             </p>
-            <div className="flex flex-wrap items-center gap-4">
-              <button type="submit" className={buttonClass} disabled={!canSend} aria-describedby="korrektur-aenderungen">
-                {sending ? 'Korrektur wird ausgeführt …' : 'Korrektur ausführen'}
-              </button>
-            </div>
+            {step.asking === 'correct' ? (
+              <ConfirmStep
+                id="korrektur-frage"
+                title="Korrektur jetzt ausführen?"
+                confirmLabel="Jetzt korrigieren"
+                sendingLabel="Korrektur wird ausgeführt …"
+                sending={sending}
+                disabled={!canSend}
+                onConfirm={confirm}
+                onCancel={step.cancel}
+              >
+                <p>
+                  Die Korrektur ist endgültig: DE storniert die Buchung und legt eine Ersatzbuchung an, beide sofort bestätigt. Die Buchung wird
+                  „Korrigiert/storniert“ und zählt nicht mehr.
+                </p>
+                <p>{changesText(check)}</p>
+                <p>{`Grund: „${draft.reason.trim()}“`}</p>
+              </ConfirmStep>
+            ) : (
+              <div className="flex flex-wrap items-center gap-4">
+                <button ref={step.trigger('correct')} type="submit" className={buttonClass} disabled={!canSend} aria-describedby="korrektur-aenderungen">
+                  Korrektur ausführen
+                </button>
+              </div>
+            )}
           </form>
         </>
       )}

@@ -27,7 +27,7 @@ function setup(options: { transaction?: TransactionDetailDto; etag?: string | un
   const de = createDeClient({ tokens: countingTokens(), realmId: REALM_A, fetch });
   const onConfirmed = vi.fn<(confirmed: Confirmed) => void>();
   const reload = vi.fn<() => void>();
-  const props = (t: TransactionDetailDto, stale: boolean) => (
+  const props = (t: TransactionDetailDto, stale: boolean, superseded?: boolean) => (
     <ConfirmAction
       transaction={t}
       etag={'etag' in options ? options.etag : '"4"'}
@@ -35,10 +35,17 @@ function setup(options: { transaction?: TransactionDetailDto; etag?: string | un
       confirm={(ifMatch) => confirmTransaction(de, TX, ifMatch)}
       onConfirmed={onConfirmed}
       reload={reload}
+      {...(superseded === undefined ? {} : { superseded })}
     />
   );
   const view = render(props(options.transaction ?? CLASSIFIED, options.stale ?? false));
-  return { calls, onConfirmed, reload, unmount: view.unmount, rerender: (t: TransactionDetailDto, stale = false) => view.rerender(props(t, stale)) };
+  return {
+    calls,
+    onConfirmed,
+    reload,
+    unmount: view.unmount,
+    rerender: (t: TransactionDetailDto, stale = false, superseded?: boolean) => view.rerender(props(t, stale, superseded)),
+  };
 }
 
 const trigger = () => screen.getByRole<HTMLButtonElement>('button', { name: 'Buchung bestätigen' });
@@ -269,5 +276,34 @@ describe('the card Bestaetigen (Issue #352 des Projektinhabers, 2026-11-12, poin
     cleanup();
     setup({ transaction: detail({ status: 'CONFIRMED', splits: [split()] }) });
     expect(screen.queryByRole('region', { name: 'Bestätigen' })).toBeNull();
+  });
+});
+
+describe('an outdated answer goes (Issue #361 des Projektinhabers, 2026-11-16)', () => {
+  const CONFIRMED_READ = detail({ status: 'CONFIRMED', version: 5, splits: [split({ amount: { amount: '850.00', currency: 'EUR' } })] });
+
+  it('the answer stays with the read of the same version and goes once a later step on the page superseded it', async () => {
+    const { rerender } = setup({ answers: [confirmedAnswer()] });
+    fireEvent.click(trigger());
+    fireEvent.click(confirmNow());
+    await settle();
+    rerender(CONFIRMED_READ);
+    expect(screen.getByText(/Status „Bestätigt“/)).toBeTruthy();
+    rerender(CONFIRMED_READ, false, true);
+    expect(document.body.textContent).not.toMatch(/Bestätigt“/);
+    expect(screen.queryByRole('status')).toBeNull();
+  });
+
+  it('the answer goes once a newer version is read: a corrected or reversed booking never shows the status Bestaetigt', async () => {
+    for (const status of ['CORRECTED', 'CONFIRMED'] as const) {
+      const { rerender } = setup({ answers: [confirmedAnswer()] });
+      fireEvent.click(trigger());
+      fireEvent.click(confirmNow());
+      await settle();
+      expect(screen.getByRole('status').textContent).toContain('Status „Bestätigt“');
+      rerender({ ...CONFIRMED_READ, status, version: 6 });
+      expect(document.body.textContent, status).not.toMatch(/Bestätigt“/);
+      cleanup();
+    }
   });
 });

@@ -134,6 +134,9 @@ export async function resolveCreate(press: (name: string) => unknown = click) {
 /** The confirm buttons of the confirmation steps before the two MRE writes (Entscheidung des Projektinhabers, 2026-11-11). */
 export const WRITE_BACK_NOW = 'Jetzt an MRE übertragen';
 export const REMOVE_NOW = 'Jetzt aus MRE entfernen';
+/** The confirm buttons of the steps before „Zuordnung aufheben“ and „Korrektur ausführen“ (Issue #362 des Projektinhabers, 2026-11-16). */
+export const RELEASE_NOW = 'Jetzt aufheben';
+export const CORRECT_NOW = 'Jetzt korrigieren';
 
 /** Opens the step of an MRE write with its button and sends it with the step's confirm button. */
 export async function mreWrite(action: 'An MRE übertragen' | 'Aus MRE entfernen', press: (name: string) => unknown = click) {
@@ -172,9 +175,11 @@ export async function suggestOctober(press: (name: string) => unknown = click) {
   await press('Vorschläge ermitteln');
 }
 
+/** „Zuordnung aufheben“ with its reason, then its confirmation step (Issue #362 des Projektinhabers, 2026-11-16). */
 export async function release(reason = 'Falsche Buchung zugeordnet', press: (name: string) => unknown = click) {
   type(await screen.findByLabelText('Grund für das Aufheben (Pflicht)'), reason);
   await press('Zuordnung aufheben');
+  await press(RELEASE_NOW);
 }
 
 export async function correctDescription(text = 'Miete Oktober Testwohnung (korrigiert)', press: (name: string) => unknown = click) {
@@ -182,6 +187,7 @@ export async function correctDescription(text = 'Miete Oktober Testwohnung (korr
   type(control('korrektur-reason'), 'Verwendungszweck falsch erfasst');
   type(control('korrektur-description'), text);
   await press('Korrektur ausführen');
+  await press(CORRECT_NOW);
 }
 
 /** „Stornieren“ (Entscheidung des Projektinhabers, 2026-11-11): the button, the reason, „Storno ausführen“, „Jetzt stornieren“. */
