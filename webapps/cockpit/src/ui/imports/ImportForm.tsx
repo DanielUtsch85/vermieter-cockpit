@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { ApiError, partitionFieldErrors } from '../../api/errors';
 import type { ImportBatchDto } from '../../api/imports';
 import type { FinancialAccountDto, PageDto } from '../../api/transactions';
+import { SetupLink } from '../setup/setup-links';
 import {
   formatFileSize,
   IMPORT_ADAPTER,
@@ -15,7 +16,6 @@ import {
 } from '../../imports/import-config';
 import { describeFieldError } from '../error-text';
 import { buttonClass, ErrorState, isRetryable, Notice, secondaryButtonClass } from '../states';
-import { SetupLink } from '../setup/setup-links';
 import { importRefusalText } from './import-labels';
 import { ImportSteps } from './ImportSteps';
 
