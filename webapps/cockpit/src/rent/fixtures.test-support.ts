@@ -208,11 +208,11 @@ export function rentTenant(overrides: Partial<RentTenantDto> = {}): RentTenantDt
   return { mreTenantId: TENANT, latestMreRentTerm: TERM, reconciliationCount: 2, latestCreatedAt: '2026-03-05T10:00:00.000Z', ...overrides };
 }
 
-/** #364 (§37.7 (b)): a Tenant's terms from February to April 2026, March in MRE with 850,00 € due and 300,00 € matched. */
+/** #364 (§37.7 (b)): a Tenant's terms from January to April 2026 (the window around a booking in March), March in MRE with 850,00 € due and 300,00 € matched. */
 export function tenantTerms(overrides: Partial<TenantTermsDto> = {}): TenantTermsDto {
   return {
     mreTenantId: TENANT,
-    from: '2026-02',
+    from: '2026-01',
     to: '2026-04',
     mreStatus: 'AVAILABLE',
     items: [

@@ -293,7 +293,7 @@ function AccountForm(props: {
         <p id="konto-iban-info" className="text-label text-muted">
           {required
             ? 'Pflicht für ein Bankkonto: der Import mit der Vorlage „VR-Banking“ prüft die IBAN der Datei gegen das Konto. Eine IBAN lässt sich später nicht nachtragen.'
-            : 'Für eine Kasse oder ein Verrechnungskonto optional. Ohne IBAN ist kein Import mit der Vorlage „VR-Banking“ möglich, und eine IBAN lässt sich später nicht nachtragen.'}
+            : 'Für eine Kasse, ein Verrechnungskonto oder ein sonstiges Konto (etwa einen Zahlungsdienst) optional. Ohne IBAN ist kein Import mit der Vorlage „VR-Banking“ möglich, und eine IBAN lässt sich später nicht nachtragen.'}
         </p>
         {errorText('iban', ibanHint)}
       </div>

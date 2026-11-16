@@ -298,6 +298,8 @@ Bei Timeout nicht einfach behaupten, dass nichts importiert wurde. Bekannte Batc
 1. Unbestätigte Buchung öffnen.
 2. GET /rent-reconciliations/split-proposal?transactionId=…&mreTenantId=…&mreRentTerm=… lesen.
 
+   Mieter und Miettermin werden aus Listen gewählt (#364, api-design §37.7): „Mieter aus bisherigen Zuordnungen“ nennt die MRE-IDs der Mieter aus den Zuordnungen des Bestands, die zuletzt zugeordneten zuerst, ohne Namen; „Miettermin aus MRE“ nennt die Termine des gewählten Mieters vom zweiten Monat vor bis zum Monat nach dem Buchungsdatum, je mit Datum, Schlüssel, Sollbetrag aus MRE und offenem Betrag. Die Wahl füllt die Felder „Mieter in MRE (ID)“ und „Miettermin“, die eingebbar bleiben: für einen Mieter ohne bisherige Zuordnung, einen Termin außerhalb des Fensters oder wenn MRE nicht erreichbar ist (dann nennt die Liste nur die Zuordnungen in DE und sagt das). Wählen sendet nichts.
+
    „Vorschlag in Aufteilung übernehmen“ setzt als Bezug jedes Teilbetrags das Objekt des Mietvertrags, wenn genau ein in DE verknüpftes Objekt den Termin umfasst; weitere, nicht verknüpfte Objekte desselben Vertrags werden genannt (api-design §37.6). Sonst bleibt „Kein Bezug“, und der Termin nennt den Grund (kein Objekt, mehrere verknüpfte Objekte, nicht verknüpft). Vor dem Speichern weist der Split-Editor auf Teilbeträge in einer Mietkategorie ohne Objekt hin; gespeichert wird trotzdem (kein Blocker).
 
 3. Aufteilung prüfen; vollständig zuordnen; PUT /transactions/{id}/splits.
@@ -402,6 +404,8 @@ Am Referenzstand hat nur administrator DE-Zugriff. renter und unbekannte Rollen 
 **Entscheidung (30.10.2026):** gemeinsame Origin hinter einem Reverse-Proxy, kein CORS. Der verbindliche Sitzungsvertrag für Clients (Anmeldung und Refresh über den MRE-Authenticator, Proxy-Schnitt, Realm-Auswahl, Bedeutung von 401/403/503, was DE nie tut) steht in docs/architecture/mre-integration.md **§47.2**; dieser Leitfaden wiederholt ihn nicht. Die Token-Prüfung im Backend ist pro Token und Realm höchstens 30 s gecacht (§47.1, #163).
 
 Kein Refresh-Token in URLs oder Logs. Persistenz und Cookies nur gemäß geprüfter MRE-Sitzungsintegration; keine spontane Langzeitablage von Tokens in localStorage.
+
+**Erneuerung im Hintergrund (#366; Entscheidung des Projektinhabers, 2026-11-16):** Das Refresh-Token von MRE lebt im Produktivmodus 600 s. Das Cockpit erneuert die Sitzung über denselben Refresh wie bei Bedarf (§47.2, ein Refresh zur Zeit), alle 240 s nach der letzten Erneuerung (zwei Fünftel der 600 s: ein Versuch ohne Antwort wird nach weiteren 240 s wiederholt, noch vor Ablauf), aber nur solange der Tab sichtbar ist **und** die letzte Eingabe höchstens 30 Minuten zurückliegt. Als Eingabe zählen Taste, Zeiger-Druck, Klick, geänderte Felder und Mausrad, nicht Mausbewegung und Scrollen. Ein verborgener Tab erneuert nicht; wird er innerhalb der 30 Minuten wieder sichtbar, wird eine fällige Erneuerung sofort nachgeholt. Ohne Eingabe läuft die Sitzung aus wie zuvor; ein `403` des Refresh führt wie bisher zur Anmeldeseite mit derselben URL, ohne erneuten Versuch. Ein ungespeicherter Entwurf (Aufteilung, Korrektur) lebt nur in der Seite und übersteht den Ablauf nicht: Nach der erneuten Anmeldung ist das Formular leer. Die Erneuerung verhindert genau das, solange gearbeitet wird (Tests in `webapps/cockpit/src/durchstich/durchstich-sitzung-erneuerung.test.tsx`).
 
 ### 7.3 Cache, Konflikte und Wiederholungen
 

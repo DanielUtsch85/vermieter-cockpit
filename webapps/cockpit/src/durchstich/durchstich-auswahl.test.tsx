@@ -16,6 +16,8 @@ import { click, commands, confirmTransaction, openApp, requests, useDurchstich }
 const backend = useDurchstich();
 const SEP = '2026090100';
 const OCT = '2026100100';
+/** The window's edges for a booking of 1 October 2026: July and December lie outside, August and November inside. */
+const EDGES = ['2026070100', '2026080100', '2026110100', '2026120100'];
 const EUR = (amount: string) => ({ amount, currency: 'EUR' });
 const NBSP = '\u00a0';
 const select = (label: string) => screen.getByLabelText<HTMLSelectElement>(label);
@@ -35,6 +37,7 @@ describe('#364 in the Durchstich: Tenant and term chosen, never typed', () => {
   it('October split from the proposal and matched by hand, the Tenant from the earlier match of September', async () => {
     backend().addMreTerm(TENANT_2, SEP, { rent: '700.00', charges: '150.00' });
     backend().addMreTerm(TENANT_2, OCT, { rent: '700.00', charges: '150.00' });
+    for (const term of EDGES) backend().addMreTerm(TENANT_2, term, { rent: '700.00', charges: '150.00' });
     const september = backend().seedInflow('Miete September Testwohnung 2', '850.00', '2026-09-01', true);
     backend().seedReconciliation(september, { status: 'CONFIRMED', mreTenantId: TENANT_2, mreRentTerm: SEP, confidence: null, suggestionReason: null });
     const t = backend().seedInflow('Miete Oktober Testwohnung 2', '850.00', '2026-10-01');
@@ -45,13 +48,15 @@ describe('#364 in the Durchstich: Tenant and term chosen, never typed', () => {
     await chooseFromLists();
     expect(within(proposal).getByLabelText<HTMLInputElement>('Mieter in MRE (ID)').value).toBe(TENANT_2);
     expect(within(proposal).getByLabelText<HTMLInputElement>('Miettermin (MRE-Schlüssel JJJJMMTTHH)').value).toBe(OCT);
-    // September is listed as matched, October as open; the window is the month before to the month after the booking.
+    // September is listed as matched, October as open; the window is the second month before to the month after the booking.
     expect(Array.from(select('Miettermin aus MRE').options).map((o) => o.textContent)).toEqual([
       'Bitte wählen',
+      `Termin 01.11.2026 (2026110100) · Soll 850,00${NBSP}€ · offen 850,00${NBSP}€`,
       `Termin 01.10.2026 (2026100100) · Soll 850,00${NBSP}€ · offen 850,00${NBSP}€`,
       `Termin 01.09.2026 (2026090100) · Soll 850,00${NBSP}€ · offen 0,00${NBSP}€`,
+      `Termin 01.08.2026 (2026080100) · Soll 850,00${NBSP}€ · offen 850,00${NBSP}€`,
     ]);
-    expect(requests(backend(), 'GET', `/api/v1/rent-reconciliations/terms/${TENANT_2}`).map((s) => s.search)).toEqual(['?from=2026-09&to=2026-11']);
+    expect(requests(backend(), 'GET', `/api/v1/rent-reconciliations/terms/${TENANT_2}`).map((s) => s.search)).toEqual(['?from=2026-08&to=2026-11']);
     click('Vorschlag laden');
     await screen.findByText('Sollbetrag des Termins (MRE)');
     click('Vorschlag in Aufteilung übernehmen');

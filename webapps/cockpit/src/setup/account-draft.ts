@@ -6,8 +6,10 @@ import type { CreateFinancialAccountInputDto } from '@vermieter-cockpit/de-backe
  * input before anything is sent; the server checks it again and its refusal is shown as well.
  *
  * Which account needs an IBAN (Entscheidung des Projektinhabers, 2026-11-16): „Im Formular „Konto anlegen“ ist die
- * IBAN für Bankkonten ein Pflichtfeld, nur für Kassen oder Verrechnungskonten optional.“ So it is optional for `CASH`
- * (Kasse) and `LOAN_SETTLEMENT` (Verrechnungskonto) only, and required for every other type. The backend itself keeps
+ * IBAN für Bankkonten ein Pflichtfeld, nur für Kassen oder Verrechnungskonten optional.“ and, on #372, „`OTHER` ohne
+ * IBAN-Pflicht: ja, Zahlungsdienste haben keine. `SECURITY_DEPOSIT` bleibt Pflicht, ein Kautionskonto ist ein
+ * Bankkonto.“ So it is required for `BANK` and `SECURITY_DEPOSIT` only, and optional for `CASH` (Kasse),
+ * `LOAN_SETTLEMENT` (Verrechnungskonto) and `OTHER` (Sonstiges Konto, e.g. a payment service). The backend itself keeps
  * it optional for all types; the rule is the form's, so an account without IBAN that the import refuses
  * (`ACCOUNT_HAS_NO_IBAN`) does not come from the cockpit, and no endpoint to add an IBAN later is needed.
  */
@@ -18,7 +20,7 @@ export type AccountType = CreateFinancialAccountInputDto['accountType'];
 export const ACCOUNT_TYPES: readonly { readonly code: AccountType; readonly label: string; readonly ibanRequired: boolean }[] = [
   { code: 'BANK', label: 'Bankkonto', ibanRequired: true },
   { code: 'SECURITY_DEPOSIT', label: 'Kautionskonto', ibanRequired: true },
-  { code: 'OTHER', label: 'Sonstiges Konto', ibanRequired: true },
+  { code: 'OTHER', label: 'Sonstiges Konto', ibanRequired: false },
   { code: 'CASH', label: 'Kasse', ibanRequired: false },
   { code: 'LOAN_SETTLEMENT', label: 'Verrechnungskonto (Darlehen)', ibanRequired: false },
 ];

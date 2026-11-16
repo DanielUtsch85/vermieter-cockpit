@@ -165,7 +165,7 @@ test('import, review items, split from the MRE proposal, confirm, rent suggestio
   await proposal.getByLabel('Mieter in MRE (ID)').fill(s.tenantId);
   const termList = proposal.getByLabel('Miettermin aus MRE');
   await expect(termList).toBeEnabled();
-  await expect(proposal.getByText(/Termine von 09\.2026 bis 11\.2026, um das Buchungsdatum\./)).toBeVisible();
+  await expect(proposal.getByText(/Termine von 08\.2026 bis 11\.2026, um das Buchungsdatum\./)).toBeVisible();
   await termList.selectOption(TERM_OCT);
   await expect(proposal.getByLabel('Miettermin (MRE-Schlüssel JJJJMMTTHH)')).toHaveValue(TERM_OCT);
   await proposal.getByRole('button', { name: 'Vorschlag laden' }).click();

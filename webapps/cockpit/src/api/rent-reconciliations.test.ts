@@ -309,7 +309,7 @@ describe('integration gate: step 6 calls only routes of the pinned inventory', (
     await createReconciliation(de, { transactionId: TX, mreTenantId: TENANT, mreRentTerm: TERM, matchedAmount: EUR('850.00') }, 'key-1');
     // #364 (§37.7): the Tenants and a Tenant's terms; `…/tenants` is the literal route, never `…/:reconciliationId`.
     await listRentTenants(de);
-    await getTenantTerms(de, TENANT, { from: '2026-02', to: '2026-04' });
+    await getTenantTerms(de, TENANT, { from: '2026-01', to: '2026-04' });
     const reached = calls.map(routeOf);
     expect(reached).not.toContain(undefined);
     const rent = USED_ROUTES.filter(([, path]) => path.includes('rent-reconciliations')).map(([method, path]) => `${method} ${path}`);
