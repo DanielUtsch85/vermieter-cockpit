@@ -33,7 +33,13 @@ type Golden = { express: string; routes: Record<string, Hashed> } & Record<strin
 const { calls, origin, start, stop } = countedApp();
 beforeAll(start);
 afterAll(stop);
-const routes = listRoutes(appForInventory());
+/**
+ * Paths added after the record (api-design.md §37.7, #364): they did not exist on Express 4, so the record cannot hold
+ * them; their answers are tested in `api/rent-reconciliations.test.ts`. The counter-check below keeps the list exact.
+ */
+const ADDED_SINCE_RECORD = ['/api/v1/rent-reconciliations/tenants', '/api/v1/rent-reconciliations/terms/:mreTenantId'];
+const inventory = listRoutes(appForInventory());
+const routes = inventory.filter((r) => !ADDED_SINCE_RECORD.includes(r.path));
 const AUTH = { authorization: 'Bearer a.b.c', organizationid: REALM };
 
 type Probe = { method: string; path: string; headers?: Record<string, string>; body?: Buffer | string; auth?: boolean };
@@ -298,6 +304,8 @@ describe('what Express decides answers as before Express 5 (VC-X-66)', () => {
 
   it('counter-check: the record holds the answers the probes are about', () => {
     const recorded = JSON.parse(readFileSync(golden, 'utf8')) as Golden;
+    // The paths left out are exactly those of the inventory the record does not hold.
+    expect([...new Set(inventory.map((r) => r.path))].filter((path) => recorded.routes[path] === undefined)).toEqual(ADDED_SINCE_RECORD);
     const all = SECTIONS.flatMap((name) => (recorded[name] ?? []) as string[]);
     expect(all.length).toBeGreaterThan(400);
     expect(Object.values(recorded.routes).reduce((n, r) => n + r.requests, 0)).toBeGreaterThan(3000);

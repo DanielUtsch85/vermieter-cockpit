@@ -101,6 +101,8 @@ export const unusedCommands: AppCommands = {
     getWithPresence: unused,
     removeFromMre: unused,
     splitProposal: unused,
+    tenants: unused,
+    tenantTerms: unused,
   },
   loanTerms: { create: unused, void: unused, list: unused, schedule: unused, proposal: unused },
   loanDebt: { remainingDebt: unused, payments: unused, createStatement: unused, voidStatement: unused, listStatements: unused },
