@@ -6,7 +6,7 @@ import { createDeClient } from '../../api/client';
 import { countingTokens, envelope, json, routedFetch, type Call } from '../../api/fetch.test-support';
 import type { TransactionDetailDto } from '../../api/transactions';
 import { createQueryClient } from '../../query';
-import { splitProposal, TENANT, TENANT_2, TERM, TERM_2 } from '../../rent/fixtures.test-support';
+import { MRE_FLAT, MRE_GARAGE, splitProposal, TENANT, TENANT_2, TERM, TERM_2 } from '../../rent/fixtures.test-support';
 import { category, detail, page, property, PROPERTY, REALM_A, split, TX } from '../../transactions/fixtures.test-support';
 import { TransactionsArea } from '../transactions/TransactionsArea';
 import { findSaved } from '../technical.test-support';
@@ -339,12 +339,50 @@ describe('#368: the lease object in the proposal (Entscheidung des Projektinhabe
       ['property', PROPERTY],
     ]);
     expect(screen.queryByText(/ohne Objekt/)).toBeNull();
+    expect(screen.queryByRole('list', { name: 'Hinweise zum Termin' })).toBeNull();
     expect(commands(calls)).toEqual([]);
   });
 
   it.each([
+    ['LINKED_WITH_UNLINKED', 'Der Mietvertrag umfasst außerdem 1 nicht verknüpftes Objekt; der ganze Betrag wird dem verknüpften Objekt zugeordnet.'],
+    ['LINKED_WITH_TWO_UNLINKED', 'Der Mietvertrag umfasst außerdem 2 nicht verknüpfte Objekte; der ganze Betrag wird dem verknüpften Objekt zugeordnet.'],
+  ] as const)('%s (2026-11-16): the linked object on every split, the term names the unlinked ones; no hint before saving', async (object, note) => {
+    const calls = area({ [DETAIL]: [() => imported('850.00')], [PROPOSAL]: [() => json(200, splitProposal({ object }))] });
+    await choose(TENANT, TERM);
+    const cards = await screen.findByRole('list', { name: 'Hinweise zum Termin' });
+    expect(cards.textContent).toBe(note);
+    const table = screen.getByRole('table', { name: 'Vorgeschlagene Aufteilung' });
+    expect(within(table).getAllByText('Testhaus Wohnung 1')).toHaveLength(2);
+    expect(within(table).queryByText('Kein Bezug')).toBeNull();
+    click('Vorschlag in Aufteilung übernehmen');
+    expect(references()).toEqual([
+      ['property', PROPERTY],
+      ['property', PROPERTY],
+    ]);
+    expect(screen.queryByText(/ohne Objekt/)).toBeNull();
+    expect(commands(calls)).toEqual([]);
+  });
+
+  it('PROPERTY_NOT_LINKED with several objects of the lease: none of them is linked, said in the plural', async () => {
+    const ids = [MRE_FLAT, MRE_GARAGE];
+    const none = splitProposal(
+      { object: 'PROPERTY_NOT_LINKED' },
+      {
+        property: { mrePropertyIds: ids, propertyReferenceId: null, unlinkedMrePropertyIds: ids },
+        flags: [{ code: 'NO_PROPERTY_REFERENCE', details: { reason: 'PROPERTY_NOT_LINKED', mrePropertyIds: ids, unlinkedMrePropertyIds: ids } }],
+      },
+    );
+    area({ [DETAIL]: [() => imported('850.00')], [PROPOSAL]: [() => json(200, none)] });
+    await choose(TENANT, TERM);
+    const cards = await screen.findByRole('list', { name: 'Hinweise zum Termin' });
+    expect(cards.textContent).toBe(
+      'Keines der Objekte des Mietvertrags ist in DE verknüpft. Der Bezug bleibt leer; bitte das Objekt in der Aufteilung selbst wählen.',
+    );
+  });
+
+  it.each([
     ['NO_PROPERTY_FOR_TERM', 'Der Mietvertrag in MRE nennt für diesen Termin kein Objekt.'],
-    ['SEVERAL_PROPERTIES', 'Der Mietvertrag in MRE umfasst für diesen Termin mehrere Objekte.'],
+    ['SEVERAL_PROPERTIES', 'Der Mietvertrag in MRE umfasst für diesen Termin mehrere verknüpfte Objekte.'],
     ['PROPERTY_NOT_LINKED', 'Das Objekt des Mietvertrags ist in DE nicht verknüpft.'],
   ] as const)('%s: the reference stays empty with the reason; before saving a hint, no blocker', async (object, reason) => {
     const saved = [

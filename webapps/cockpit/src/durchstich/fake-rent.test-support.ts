@@ -423,13 +423,17 @@ export function createRentFake(ctx: RentContext) {
     if (!t.amount.equals(known.amountDue)) flags.push({ code: 'AMOUNT_DIFFERS_FROM_TERM', details: { difference: t.amount.subtract(known.amountDue) } });
     if (!known.adjustments.isZero()) flags.push({ code: 'TERM_HAS_ADJUSTMENTS', details: { adjustments: known.adjustments } });
     if (t.splits.length > 0) flags.push({ code: 'ALREADY_SPLIT' });
-    // #368: exactly one enclosing MRE property, linked in this Realm, is the object of every split.
+    // #368: exactly one of the enclosing MRE properties linked in this Realm is the object of every split; the others
+    // are named as unlinked (the link checked per id: Entscheidung des Projektinhabers, 2026-11-16).
     const { mrePropertyIds } = known;
-    const [sole] = mrePropertyIds;
-    const linked = mrePropertyIds.length === 1 && sole !== undefined ? linkedProperty(realm, sole) : undefined;
-    const reason = mrePropertyIds.length === 0 ? 'NO_PROPERTY_FOR_TERM' : mrePropertyIds.length > 1 ? 'SEVERAL_PROPERTIES' : 'PROPERTY_NOT_LINKED';
-    const propertyReferenceId = linked ?? null;
-    if (linked === undefined) flags.push({ code: 'NO_PROPERTY_REFERENCE', details: { reason, mrePropertyIds } });
+    const links = mrePropertyIds.flatMap((id) => {
+      const linked = linkedProperty(realm, id);
+      return linked === undefined ? [] : [linked];
+    });
+    const unlinkedMrePropertyIds = mrePropertyIds.filter((id) => linkedProperty(realm, id) === undefined);
+    const reason = mrePropertyIds.length === 0 ? 'NO_PROPERTY_FOR_TERM' : links.length > 1 ? 'SEVERAL_PROPERTIES' : 'PROPERTY_NOT_LINKED';
+    const propertyReferenceId = links.length === 1 ? (links[0] ?? null) : null;
+    if (propertyReferenceId === null) flags.push({ code: 'NO_PROPERTY_REFERENCE', details: { reason, mrePropertyIds, unlinkedMrePropertyIds } });
     return json(
       200,
       real.splitProposal({
@@ -438,7 +442,7 @@ export function createRentFake(ctx: RentContext) {
         mreRentTerm: term,
         amount: t.amount,
         term: { rent: known.rent, charges: known.charges, adjustments: known.adjustments, due: known.amountDue },
-        property: { mrePropertyIds, propertyReferenceId },
+        property: { mrePropertyIds, propertyReferenceId, unlinkedMrePropertyIds },
         splits: [
           { financialCategoryCode: 'RENT_BASE', amount: base, propertyReferenceId },
           { financialCategoryCode: 'RENT_OPERATING_COST_ADVANCE', amount: advance, propertyReferenceId },
