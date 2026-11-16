@@ -121,7 +121,7 @@ export const unusedCommands: AppCommands = {
     ignore: unused,
     restore: unused,
   },
-  imports: { importStatement: unused, getBatch: unused, listReviewItems: unused, resolveReviewItem: unused },
+  imports: { importStatement: unused, getBatch: unused, listBatches: unused, listReviewItems: unused, resolveReviewItem: unused },
   financialCategories: { list: unused, get: unused },
   exports: { transactions: unused, property: unused },
 };

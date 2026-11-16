@@ -8,7 +8,7 @@
  */
 import type { createBody as createAccountBody, toDto as toFinancialAccountDto } from './financial-accounts.js';
 import type { toDto as toFinancialCategoryDto } from './financial-categories.js';
-import type { metadataSchema, resolveBody, toConflictDto, toDto as toImportBatchDto, toItemDto } from './imports.js';
+import type { metadataSchema, resolveBody, toConflictDto, toDto as toImportBatchDto, toItemDto, toSummaryDto as toImportBatchSummaryDto } from './imports.js';
 import type { linkBody, toDto as toPropertyReferenceDto } from './property-references.js';
 import type {
   confirmBody,
@@ -90,6 +90,8 @@ export interface CorrectionResultDto {
 export type ImportBatchDto = Wire<ReturnType<typeof toImportBatchDto>>;
 /** One row result of a batch (`created`, `duplicate`, `needs_review`, `error`, `skipped`; api-design.md §32.1, §32.1a). */
 export type ImportRowDto = ImportBatchDto['rows'][number];
+/** One item of `GET /imports` (api-design.md §32.6, #369): the batch without `rows` and `continuity`, newest first, paged as `PageDto`. */
+export type ImportBatchSummaryDto = Wire<ReturnType<typeof toImportBatchSummaryDto>>;
 /** A review item as `GET /imports/{id}/review-items` lists it and `…/resolve` answers it (api-design.md §32.3a). */
 export type ReviewItemDto = Wire<ReturnType<typeof toItemDto>>;
 /** A Transaction a review item may duplicate, listed next to the row (api-design.md §32.3a). */

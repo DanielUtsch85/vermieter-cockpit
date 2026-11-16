@@ -4,6 +4,7 @@ import type {
   FinancialAccount,
   FinancialAccountRepository,
   ImportBatch,
+  ImportBatchQueries,
   ImportOutcome,
   ImportRepository,
   NewImport,
@@ -22,6 +23,7 @@ import {
   UnsupportedAdapterError,
   getImportBatch,
   importBankStatement,
+  listImportBatches,
   listReviewItems,
   resolveReviewItem,
 } from './bank-import.js';
@@ -152,5 +154,21 @@ describe('listReviewItems / resolveReviewItem', () => {
     await expect(run(resolveInput)).rejects.toBeInstanceOf(ReviewResolutionConflictError);
     resolveOutcome = { kind: 'ACCOUNT_CLOSED', item };
     await expect(run(resolveInput)).rejects.toBeInstanceOf(FinancialAccountClosedError);
+  });
+});
+
+describe('listImportBatches (§32.6)', () => {
+  it('reads the caller s Realm with the filter and page as given, and answers the page unchanged', async () => {
+    const calls: unknown[] = [];
+    const page = { items: [], page: 2, pageSize: 10, total: 11 };
+    const queries: ImportBatchQueries = {
+      list: async (...args) => {
+        calls.push(args);
+        return page;
+      },
+    };
+    const filter = { financialAccountId: ACCOUNT, statuses: ['NEEDS_REVIEW'] } as const;
+    expect(await listImportBatches({ queries })({ principal, filter, page: { page: 2, pageSize: 10 } })).toBe(page);
+    expect(calls).toEqual([[REALM, filter, { page: 2, pageSize: 10 }]]);
   });
 });

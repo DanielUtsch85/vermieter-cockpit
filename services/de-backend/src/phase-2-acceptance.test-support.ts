@@ -144,6 +144,7 @@ import {
   createManualTransaction,
   getFinancialCategory,
   getImportBatch,
+  listImportBatches,
   importBankStatement,
   linkPropertyReference,
   listFinancialCategories,
@@ -189,6 +190,7 @@ import {
   PostgresAcquisitionRepository,
   PostgresFinancialCategoryRepository,
   PostgresImportRepository,
+  PostgresImportBatchQueries,
   PostgresPropertyReferenceRepository,
   PostgresCorrectionRepository,
   PostgresTransactionQueries,
@@ -533,6 +535,7 @@ export function usePhase2App(name: `${string}_e2e`, options: { readonly taxState
       imports: {
         importStatement: importBankStatement({ imports, accounts, findAdapter: findBankStatementAdapter }),
         getBatch: getImportBatch({ imports }),
+        listBatches: listImportBatches({ queries: new PostgresImportBatchQueries(db) }),
         listReviewItems: listReviewItems({ imports }),
         resolveReviewItem: resolveReviewItem({ imports }),
       },

@@ -8,7 +8,7 @@ Implemented routes only: a route in `docs/architecture/api-design.md` that is no
 Contracts, payloads and error codes are in `api-design.md`; the business routes need `Authorization: Bearer <MRE token>` and
 `organizationid: <mreRealmId>` (`mre-integration.md` §47.2).
 
-Routes: 176.
+Routes: 177.
 
 | Method | Path |
 |---|---|
@@ -54,6 +54,7 @@ Routes: 176.
 | GET | `/api/v1/financial-categories` |
 | GET | `/api/v1/financial-categories/:code` |
 | GET | `/api/v1/health` |
+| GET | `/api/v1/imports` |
 | GET | `/api/v1/imports/:importBatchId` |
 | GET | `/api/v1/imports/:importBatchId/review-items` |
 | POST | `/api/v1/imports/:importBatchId/review-items/:reviewItemId/resolve` |
@@ -258,6 +259,7 @@ Routes: 176.
 
 ### `imports`
 
+- GET `/api/v1/imports`
 - GET `/api/v1/imports/:importBatchId`
 - GET `/api/v1/imports/:importBatchId/review-items`
 - POST `/api/v1/imports/:importBatchId/review-items/:reviewItemId/resolve`

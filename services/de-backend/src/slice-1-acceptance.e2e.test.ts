@@ -143,6 +143,7 @@ import {
   createManualTransaction,
   getFinancialCategory,
   getImportBatch,
+  listImportBatches,
   importBankStatement,
   linkPropertyReference,
   listFinancialCategories,
@@ -182,6 +183,7 @@ import {
   PostgresAcquisitionRepository,
   PostgresFinancialCategoryRepository,
   PostgresImportRepository,
+  PostgresImportBatchQueries,
   PostgresPropertyReferenceRepository,
   PostgresCorrectionRepository,
   PostgresTransactionQueries,
@@ -482,6 +484,7 @@ describe.skipIf(databaseUrl === undefined)('Slice 1 acceptance (definition of do
       imports: {
         importStatement: importBankStatement({ imports, accounts, findAdapter: findBankStatementAdapter }),
         getBatch: getImportBatch({ imports }),
+        listBatches: listImportBatches({ queries: new PostgresImportBatchQueries(db) }),
         listReviewItems: listReviewItems({ imports }),
         resolveReviewItem: resolveReviewItem({ imports }),
       },
@@ -763,6 +766,9 @@ describe.skipIf(databaseUrl === undefined)('Slice 1 acceptance (definition of do
     });
     expect(await json(await call(REALM_B, 'GET', '/parties'), 200)).toMatchObject({ items: [], total: 0 });
     expect(await json(await call(REALM_B, 'GET', '/acquisitions'), 200)).toMatchObject({ items: [], total: 0 });
+    // §32.6 (#369): B lists none of A's imports, also with A's account as the filter.
+    expect(await json(await call(REALM_B, 'GET', '/imports'), 200)).toEqual({ items: [], page: 1, pageSize: 50, total: 0 });
+    expect(await json(await call(REALM_B, 'GET', `/imports?financialAccountId=${account.financialAccountId}`), 200)).toMatchObject({ items: [], total: 0 });
     expect(await json(await call(REALM_A, 'GET', '/parties?name=schmidt'), 200)).toMatchObject({ items: [{ partyId: owner.partyId }], total: 1 });
     // The MRE Tenant resolves to Realm A's Party there, and to nothing in Realm B.
     const byTenant = `/parties?externalSystem=MRE&externalId=${TENANT}`;

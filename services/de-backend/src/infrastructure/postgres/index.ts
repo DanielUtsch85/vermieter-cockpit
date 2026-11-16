@@ -35,6 +35,7 @@ export { PostgresTransactionExport } from './transaction-export-repository.js';
 export { PostgresPropertyExportSnapshots } from './property-export-snapshot.js';
 export { PostgresRentReconciliationRepository } from './rent-reconciliation-repository.js';
 export { PostgresRentTenantTermQueries } from './rent-tenant-terms-store.js';
+export { PostgresImportBatchQueries } from './import-batch-queries.js';
 export { PostgresWegAnnualStatementRepository } from './weg-annual-statement-repository.js';
 export { PostgresWegEconomicPlanRepository } from './weg-economic-plan-repository.js';
 export { PostgresWegSpecialAssessmentRepository } from './weg-special-assessment-repository.js';

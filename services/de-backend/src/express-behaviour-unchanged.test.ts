@@ -34,10 +34,11 @@ const { calls, origin, start, stop } = countedApp();
 beforeAll(start);
 afterAll(stop);
 /**
- * Paths added after the record (api-design.md §37.7, #364): they did not exist on Express 4, so the record cannot hold
- * them; their answers are tested in `api/rent-reconciliations.test.ts`. The counter-check below keeps the list exact.
+ * Paths added after the record (api-design.md §32.6, #369; §37.7, #364): they did not exist on Express 4, so the record
+ * cannot hold them; their answers are tested in `api/imports.test.ts` and `api/rent-reconciliations.test.ts`. The
+ * counter-check below keeps the list exact.
  */
-const ADDED_SINCE_RECORD = ['/api/v1/rent-reconciliations/tenants', '/api/v1/rent-reconciliations/terms/:mreTenantId'];
+const ADDED_SINCE_RECORD = ['/api/v1/imports', '/api/v1/rent-reconciliations/tenants', '/api/v1/rent-reconciliations/terms/:mreTenantId'];
 const inventory = listRoutes(appForInventory());
 const routes = inventory.filter((r) => !ADDED_SINCE_RECORD.includes(r.path));
 const AUTH = { authorization: 'Bearer a.b.c', organizationid: REALM };

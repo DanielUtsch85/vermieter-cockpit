@@ -4,8 +4,14 @@ import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from './api/index.js';
 import { commandsWith } from './api/app.test-support.js';
-import { createFinancialAccount, getImportBatch, importBankStatement, listReviewItems, resolveReviewItem } from './application/index.js';
-import { PostgresFinancialAccountRepository, PostgresImportRepository, createDatabase, migrateToLatest } from './infrastructure/postgres/index.js';
+import { createFinancialAccount, getImportBatch, importBankStatement, listImportBatches, listReviewItems, resolveReviewItem } from './application/index.js';
+import {
+  PostgresFinancialAccountRepository,
+  PostgresImportBatchQueries,
+  PostgresImportRepository,
+  createDatabase,
+  migrateToLatest,
+} from './infrastructure/postgres/index.js';
 import { findBankStatementAdapter } from './integrations/bank-import/index.js';
 import { HttpMreClient } from './integrations/mre/index.js';
 import { signJwt, startFakeMre, type FakeMre } from './integrations/mre/fake-mre.test-support.js';
@@ -64,6 +70,7 @@ describe.skipIf(databaseUrl === undefined)('bank import end to end', () => {
         imports: {
           importStatement: importBankStatement({ imports, accounts, findAdapter: findBankStatementAdapter }),
           getBatch: getImportBatch({ imports }),
+          listBatches: listImportBatches({ queries: new PostgresImportBatchQueries(db) }),
           listReviewItems: listReviewItems({ imports }),
           resolveReviewItem: resolveReviewItem({ imports }),
         },
@@ -170,6 +177,56 @@ describe.skipIf(databaseUrl === undefined)('bank import end to end', () => {
     ]);
     const count = await pool.query('SELECT count(*) FROM ledger_transaction WHERE financial_account_id = $1', [accountId]);
     expect(Number(count.rows[0].count)).toBe(3);
+  });
+
+  it('GET /imports (§32.6): the spec example; newest first, open review items while pending, then COMPLETED; only the caller s Realm; no write', async () => {
+    const accountId = await newAccount();
+    const other = await newAccount();
+    const list = async (query: string, realm = REALM_A) => {
+      const answer = await fetch(`${base}/api/v1/imports${query}`, { headers: headers(realm) });
+      expect(answer.status).toBe(200);
+      return (await answer.json()) as { items: Record<string, unknown>[]; page: number; pageSize: number; total: number };
+    };
+    const first = (await (await upload(REALM_A, accountId, csv)).json()) as Record<string, unknown>;
+    const second = (await (await upload(REALM_A, accountId, reordered)).json()) as { importBatchId: string } & Record<string, unknown>;
+    await upload(REALM_A, other, csv);
+
+    const before = (await pool.query(`SELECT (SELECT count(*) FROM audit_record) AS audits, (SELECT count(*) FROM import_batch) AS batches`)).rows;
+    const byAccount = await list(`?financialAccountId=${accountId.toUpperCase()}`);
+    expect(byAccount).toMatchObject({ page: 1, pageSize: 50, total: 2 });
+    expect(byAccount.items.map((i) => [i['importBatchId'], i['status'], i['needsReviewCount']])).toEqual([
+      [second.importBatchId, 'NEEDS_REVIEW', 2],
+      [first['importBatchId'], 'COMPLETED', 0],
+    ]);
+    // Each item is the single read without rows and continuity, field for field.
+    const { rows: _rows, continuity: _continuity, ...summary } = first;
+    expect(byAccount.items[1]).toEqual(summary);
+    expect(Object.keys(byAccount.items[0] ?? {})).not.toContain('rows');
+    expect(Object.keys(byAccount.items[0] ?? {})).not.toContain('continuity');
+    expect((await list(`?status=NEEDS_REVIEW&financialAccountId=${accountId}`)).items.map((i) => i['importBatchId'])).toEqual([second.importBatchId]);
+    expect((await list(`?financialAccountId=${accountId}&pageSize=1&page=2`)).items.map((i) => i['importBatchId'])).toEqual([first['importBatchId']]);
+    // Another Realm: nothing of A, also with A's account; A's list unchanged by B's call.
+    expect(await list('', REALM_B)).toMatchObject({ total: 0, items: [] });
+    expect(await list(`?financialAccountId=${accountId}`, REALM_B)).toMatchObject({ total: 0, items: [] });
+    expect((await pool.query(`SELECT (SELECT count(*) FROM audit_record) AS audits, (SELECT count(*) FROM import_batch) AS batches`)).rows).toEqual(before);
+
+    const items = (await (await fetch(`${base}/api/v1/imports/${second.importBatchId}/review-items`, { headers: headers(REALM_A) })).json()) as {
+      items: { reviewItemId: string }[];
+    };
+    for (const item of items.items) {
+      const resolved = await fetch(`${base}/api/v1/imports/${second.importBatchId}/review-items/${item.reviewItemId}/resolve`, {
+        method: 'POST',
+        headers: { ...headers(REALM_A), 'content-type': 'application/json' },
+        body: JSON.stringify({ resolution: 'SKIP' }),
+      });
+      expect(resolved.status).toBe(200);
+    }
+    expect((await list(`?financialAccountId=${accountId}`)).items[0]).toMatchObject({
+      importBatchId: second.importBatchId,
+      status: 'COMPLETED',
+      needsReviewCount: 0,
+    });
+    expect(await list(`?financialAccountId=${accountId}&status=NEEDS_REVIEW`)).toEqual({ items: [], page: 1, pageSize: 50, total: 0 });
   });
 
   it('generic-csv v2 (ADR-043): overlapping exports with a balance column dedupe without review; the batch reports continuity', async () => {

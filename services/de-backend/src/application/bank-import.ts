@@ -3,7 +3,11 @@ import type {
   ConflictingTransaction,
   FinancialAccountRepository,
   ImportBatch,
+  ImportBatchFilter,
+  ImportBatchPage,
+  ImportBatchQueries,
   ImportRepository,
+  PageRequest,
   ReviewItem,
   ReviewResolution,
   StatementAccountMismatch,
@@ -118,6 +122,20 @@ export function getImportBatch(deps: { readonly imports: ImportRepository }): Ge
     if (batch === undefined) throw new ImportBatchNotFoundError(importBatchId);
     return batch;
   };
+}
+
+export type ListImportBatches = (input: {
+  readonly principal: RealmPrincipal;
+  readonly filter: ImportBatchFilter;
+  readonly page: PageRequest;
+}) => Promise<ImportBatchPage>;
+
+/**
+ * List the Realm's imports (api-design.md §32.6, #369, VC-X-74): newest first, paged, filtered by account and status.
+ * A read only: nothing is written, no AuditRecord, no MRE call. An unknown or foreign account is an empty page.
+ */
+export function listImportBatches(deps: { readonly queries: ImportBatchQueries }): ListImportBatches {
+  return ({ principal, filter, page }) => deps.queries.list(principal.mreRealmId, filter, page);
 }
 
 export type ListReviewItems = (input: {

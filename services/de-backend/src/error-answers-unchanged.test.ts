@@ -63,8 +63,11 @@ const RECORD_SCHEMA = process.env['VC_X66_RECORD_BEFORE'] === '1';
 const DUMP = process.env['VC_X65_DUMP'];
 
 const TENANT = '6512f0c2a1b2c3d4e5f60a61';
-/** GET routes added after both records (api-design.md §37.7, #364): tested in `api/rent-reconciliations.test.ts`. */
-const ADDED_SINCE_RECORD = ['/api/v1/rent-reconciliations/tenants', '/api/v1/rent-reconciliations/terms/:mreTenantId'];
+/**
+ * GET routes added after both records: §32.6 (#369), tested in `api/imports.test.ts` and `bank-import.e2e.test.ts`; §37.7
+ * (#364), tested in `api/rent-reconciliations.test.ts`. In inventory order.
+ */
+const ADDED_SINCE_RECORD = ['/api/v1/imports', '/api/v1/rent-reconciliations/tenants', '/api/v1/rent-reconciliations/terms/:mreTenantId'];
 const EXEMPT_BODY = ['/api/v1/imports/bank-transactions'];
 const EXEMPT_QUERY = ['/health/live', '/health/ready'];
 
@@ -559,7 +562,7 @@ describe('every answer of every route is unchanged by Zod 4 (VC-X-65)', () => {
   it('the walk covers the 91 JSON commands and the 80 GET routes of the inventory', () => {
     expect(bodyRoutes).toHaveLength(91);
     expect(queryRoutes).toHaveLength(80);
-    // The GET routes left out (§37.7, #364) are exactly those the records do not hold.
+    // The GET routes left out (§32.6, #369; §37.7, #364) are exactly those the records do not hold.
     const recorded = Object.keys(before?.queries ?? {});
     expect(getRoutes.filter((r) => !recorded.includes(key(r))).map((r) => r.path)).toEqual(ADDED_SINCE_RECORD);
   });

@@ -84,8 +84,8 @@ const UNKNOWN = [
 ];
 
 describe('every route refuses an unknown query parameter by its name (§58W rules 1–3)', () => {
-  it('the inventory has 176 routes and exactly the two probes outside /api/v1, exempted by a literal', () => {
-    expect(routes).toHaveLength(176);
+  it('the inventory has 177 routes and exactly the two probes outside /api/v1, exempted by a literal', () => {
+    expect(routes).toHaveLength(177);
     expect(routes.filter((r) => !r.path.startsWith('/api/v1/')).map((r) => r.path)).toEqual(EXEMPT);
     // Counter-check: every path parameter of the inventory has a value, so the walk below reaches every handler.
     for (const r of routes) for (const name of paramsOf(r.path)) expect(PATH_VALUES, `${key(r)}: ${name}`).toHaveProperty(name);
@@ -100,7 +100,7 @@ describe('every route refuses an unknown query parameter by its name (§58W rule
       if (!ok) wrong.push(`${key(r)}: ${answer.status} ${JSON.stringify(answer.fields)} calls=${calls.length}`);
     }
     expect(wrong).toEqual([]);
-    expect(apiRoutes).toHaveLength(174);
+    expect(apiRoutes).toHaveLength(175);
   });
 
   it('without a query the same requests reach their command (the refusal above is the query, not the path or the body)', async () => {
@@ -196,8 +196,8 @@ describe('one paging on every paged route (§58W "Pagination consistent across r
     for (const r of getRoutes) if ((await send('GET', url(r, 'page=1000000&pageSize=200'))).status === 500) paged.push(r);
   });
 
-  it('20 routes take page and pageSize at their maxima; every other read refuses both by name', async () => {
-    expect(paged).toHaveLength(20);
+  it('21 routes take page and pageSize at their maxima; every other read refuses both by name', async () => {
+    expect(paged).toHaveLength(21);
     for (const r of getRoutes.filter((x) => !paged.includes(x) && x.path !== '/api/v1/health')) {
       const answer = await send('GET', url(r, 'page=1&pageSize=200'));
       expect(answer.fields?.slice(-2), key(r)).toEqual([

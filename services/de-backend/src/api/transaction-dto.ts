@@ -130,7 +130,7 @@ export const correctBody = z
   .strict();
 
 /** A comma-separated list of known values, any of them (`status`, `provenance`). */
-const anyOf = <T extends string>(values: readonly T[]) =>
+export const anyOf = <T extends string>(values: readonly T[]) =>
   zod3.transform(z.string(), (value, ctx) => {
     const items = value.split(',').map((s) => s.trim());
     if (items.some((s) => !(values as readonly string[]).includes(s))) {
