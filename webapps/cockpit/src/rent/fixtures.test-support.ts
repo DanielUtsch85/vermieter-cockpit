@@ -139,11 +139,13 @@ const eur = (amount: string) => ({ amount, currency: 'EUR' });
 /** Synthetic MRE properties of the lease (#368). */
 export const MRE_FLAT = '6a0000000000000000000001';
 export const MRE_GARAGE = '6a0000000000000000000002';
+export const MRE_PARKING = '6a0000000000000000000003';
 
 /**
  * A split proposal as `GET …/split-proposal` answers it (api-design.md §37.6): rent 700,00 and charges 150,00 by
  * default; the splits, `unallocated` and the flags follow the server's rule for the amount given. The lease's object
- * (#368) is the linked `PROPERTY` by default; `object` sets the reason the server gives none instead.
+ * (#368) is the linked `PROPERTY` by default, with one or two unlinked objects beside it on request; `object` sets the
+ * reason the server gives none instead.
  */
 export function splitProposal(
   options: {
@@ -154,7 +156,7 @@ export function splitProposal(
     tenant?: string;
     term?: string;
     transactionId?: string;
-    object?: 'NO_PROPERTY_FOR_TERM' | 'SEVERAL_PROPERTIES' | 'PROPERTY_NOT_LINKED';
+    object?: 'LINKED' | 'LINKED_WITH_UNLINKED' | 'LINKED_WITH_TWO_UNLINKED' | 'NO_PROPERTY_FOR_TERM' | 'SEVERAL_PROPERTIES' | 'PROPERTY_NOT_LINKED';
   } = {},
   overrides: Partial<RentSplitProposalDto> = {},
 ): RentSplitProposalDto {
@@ -174,16 +176,26 @@ export function splitProposal(
   const flags: RentSplitProposalDto['flags'][number][] = [];
   if (amount !== due) flags.push({ code: 'AMOUNT_DIFFERS_FROM_TERM', details: { difference: eur(text(amount - due)) } });
   if (adjustments !== 0n) flags.push({ code: 'TERM_HAS_ADJUSTMENTS', details: { adjustments: eur(text(adjustments)) } });
-  const mrePropertyIds = options.object === 'NO_PROPERTY_FOR_TERM' ? [] : options.object === 'SEVERAL_PROPERTIES' ? [MRE_FLAT, MRE_GARAGE] : [MRE_FLAT];
-  const propertyReferenceId = options.object === undefined ? PROPERTY : null;
-  if (options.object !== undefined) flags.push({ code: 'NO_PROPERTY_REFERENCE', details: { reason: options.object, mrePropertyIds } });
+  const object = options.object ?? 'LINKED';
+  const mrePropertyIds = {
+    LINKED: [MRE_FLAT],
+    LINKED_WITH_UNLINKED: [MRE_FLAT, MRE_GARAGE],
+    LINKED_WITH_TWO_UNLINKED: [MRE_FLAT, MRE_GARAGE, MRE_PARKING],
+    NO_PROPERTY_FOR_TERM: [],
+    SEVERAL_PROPERTIES: [MRE_FLAT, MRE_GARAGE],
+    PROPERTY_NOT_LINKED: [MRE_FLAT],
+  }[object];
+  const unlinkedMrePropertyIds = object === 'SEVERAL_PROPERTIES' ? [] : object === 'PROPERTY_NOT_LINKED' ? mrePropertyIds : mrePropertyIds.slice(1);
+  const linked = object === 'LINKED' || object === 'LINKED_WITH_UNLINKED' || object === 'LINKED_WITH_TWO_UNLINKED';
+  const propertyReferenceId = linked ? PROPERTY : null;
+  if (!linked) flags.push({ code: 'NO_PROPERTY_REFERENCE', details: { reason: object, mrePropertyIds, unlinkedMrePropertyIds } });
   return {
     transactionId: options.transactionId ?? TX,
     mreTenantId: options.tenant ?? TENANT,
     mreRentTerm: options.term ?? TERM,
     amount: eur(text(amount)),
     term: { rent: eur(text(rent)), charges: eur(text(charges)), adjustments: eur(text(adjustments)), due: eur(text(due)) },
-    property: { mrePropertyIds, propertyReferenceId },
+    property: { mrePropertyIds, propertyReferenceId, unlinkedMrePropertyIds },
     splits: splits.filter(([, c]) => c > 0n).map(([financialCategoryCode, c]) => ({ financialCategoryCode, amount: eur(text(c)), propertyReferenceId })),
     unallocated: eur(text(amount - base - advance)),
     flags,

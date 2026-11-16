@@ -492,7 +492,11 @@ export function splitProposalDto(p: RentSplitProposalView) {
     mreRentTerm: p.mreRentTerm,
     amount: p.amount.toJSON(),
     term: { rent: p.term.rent.toJSON(), charges: p.term.charges.toJSON(), adjustments: p.term.adjustments.toJSON(), due: p.term.due.toJSON() },
-    property: { mrePropertyIds: [...p.property.mrePropertyIds], propertyReferenceId: p.property.propertyReferenceId },
+    property: {
+      mrePropertyIds: [...p.property.mrePropertyIds],
+      propertyReferenceId: p.property.propertyReferenceId,
+      unlinkedMrePropertyIds: [...p.property.unlinkedMrePropertyIds],
+    },
     splits: p.splits.map((s) => ({ financialCategoryCode: s.financialCategoryCode, amount: s.amount.toJSON(), propertyReferenceId: s.propertyReferenceId })),
     unallocated: p.unallocated.toJSON(),
     flags: p.flags.map(toSplitProposalFlagDto),
@@ -506,7 +510,10 @@ function toSplitProposalFlagDto(f: RentSplitProposalView['flags'][number]) {
     case 'TERM_HAS_ADJUSTMENTS':
       return { code: f.code, details: { adjustments: f.details.adjustments.toJSON() } };
     case 'NO_PROPERTY_REFERENCE':
-      return { code: f.code, details: { reason: f.details.reason, mrePropertyIds: [...f.details.mrePropertyIds] } };
+      return {
+        code: f.code,
+        details: { reason: f.details.reason, mrePropertyIds: [...f.details.mrePropertyIds], unlinkedMrePropertyIds: [...f.details.unlinkedMrePropertyIds] },
+      };
     default:
       return { code: f.code };
   }

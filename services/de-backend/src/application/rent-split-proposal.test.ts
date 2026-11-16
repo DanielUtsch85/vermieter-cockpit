@@ -12,6 +12,7 @@ const eur = (amount: string) => Money.of(amount, 'EUR');
 const principal: RealmPrincipal = { email: 'anna@example.com', mreRealmId: 'r', mreRole: 'administrator' };
 const FLAT = '6a0000000000000000000001';
 const GARAGE = '6a0000000000000000000002';
+const PARKING = '6a0000000000000000000003';
 const totals: RentTermBreakdown = { rent: eur('650.00'), charges: eur('150.00'), due: eur('800.00'), mrePropertyIds: [FLAT] };
 const tx = (overrides: Partial<Transaction> = {}) =>
   ({ id: 't1', amount: eur('800.00'), direction: 'INFLOW', status: 'IMPORTED', ...overrides }) as unknown as Transaction;
@@ -31,9 +32,10 @@ function setup(
       asked.push(args);
       return breakdown === 'none' ? undefined : breakdown;
     },
-    findLinkedPropertyReference: async (mreRealmId, mrePropertyId) => {
-      linkReads.push([mreRealmId, mrePropertyId]);
-      return links[mreRealmId]?.[mrePropertyId];
+    findLinkedPropertyReference: async (mreRealmId, mrePropertyIds) => {
+      linkReads.push([mreRealmId, [...mrePropertyIds]]);
+      const realmLinks = links[mreRealmId] ?? {};
+      return new Map(mrePropertyIds.flatMap((id) => (realmLinks[id] === undefined ? [] : [[id, realmLinks[id]] as const])));
     },
   });
   return { propose, asked, linkReads };
@@ -75,33 +77,39 @@ describe('getRentSplitProposal (§37.6)', () => {
   it('#368: the one linked property of the term, read in the caller Realm after MRE, on the proposal and every split', async () => {
     const { propose, linkReads } = setup({ transaction: tx(), splits: [] });
     const p = await propose(input);
-    expect(p.property).toEqual({ mrePropertyIds: [FLAT], propertyReferenceId: 'p-1' });
+    expect(p.property).toEqual({ mrePropertyIds: [FLAT], propertyReferenceId: 'p-1', unlinkedMrePropertyIds: [] });
     expect(p.splits.map((s) => s.propertyReferenceId)).toEqual(['p-1', 'p-1']);
     expect(p.flags).toEqual([]);
-    expect(linkReads).toEqual([['r', FLAT]]);
+    expect(linkReads).toEqual([['r', [FLAT]]]);
   });
 
   it.each([
-    ['NO_PROPERTY_FOR_TERM', [], 0],
-    ['SEVERAL_PROPERTIES', [FLAT, GARAGE], 0],
-    ['PROPERTY_NOT_LINKED', [GARAGE], 1],
-  ] as const)('#368: %s, no property on any split and the flag with its details', async (reason, mrePropertyIds, reads) => {
-    const { propose, linkReads } = setup({ transaction: tx(), splits: [] }, { ...totals, mrePropertyIds });
+    ['NO_PROPERTY_FOR_TERM', [], { [FLAT]: 'p-1' }, [], 0],
+    ['SEVERAL_PROPERTIES', [FLAT, GARAGE, PARKING], { [FLAT]: 'p-1', [PARKING]: 'p-3' }, [GARAGE], 1],
+    ['PROPERTY_NOT_LINKED', [GARAGE, PARKING], { [FLAT]: 'p-1' }, [GARAGE, PARKING], 1],
+  ] as const)('#368: %s, no property on any split and the flag with its details', async (reason, mrePropertyIds, realmLinks, unlinkedMrePropertyIds, reads) => {
+    const { propose, linkReads } = setup({ transaction: tx(), splits: [] }, { ...totals, mrePropertyIds }, { r: realmLinks });
     const p = await propose(input);
-    expect(p.property).toEqual({ mrePropertyIds, propertyReferenceId: null });
+    expect(p.property).toEqual({ mrePropertyIds, propertyReferenceId: null, unlinkedMrePropertyIds });
     expect(p.splits.map((s) => s.propertyReferenceId)).toEqual([null, null]);
-    expect(p.flags).toEqual([{ code: 'NO_PROPERTY_REFERENCE', details: { reason, mrePropertyIds } }]);
+    expect(p.flags).toEqual([{ code: 'NO_PROPERTY_REFERENCE', details: { reason, mrePropertyIds, unlinkedMrePropertyIds } }]);
     expect(linkReads).toHaveLength(reads);
   });
 
-  it('#368: two properties are SEVERAL_PROPERTIES even when only the first is linked', async () => {
-    const p = await setup({ transaction: tx(), splits: [] }, { ...totals, mrePropertyIds: [FLAT, GARAGE] }).propose(input);
-    expect(p.flags).toEqual([{ code: 'NO_PROPERTY_REFERENCE', details: { reason: 'SEVERAL_PROPERTIES', mrePropertyIds: [FLAT, GARAGE] } }]);
+  it('#368 (Entscheidung des Projektinhabers, 2026-11-16): flat and garage with only the flat linked take the flat, the garage named, in one link read', async () => {
+    const { propose, linkReads } = setup({ transaction: tx(), splits: [] }, { ...totals, mrePropertyIds: [FLAT, GARAGE] });
+    const p = await propose(input);
+    expect(p.property).toEqual({ mrePropertyIds: [FLAT, GARAGE], propertyReferenceId: 'p-1', unlinkedMrePropertyIds: [GARAGE] });
+    expect(p.splits.map((s) => s.propertyReferenceId)).toEqual(['p-1', 'p-1']);
+    expect(p.flags).toEqual([]);
+    expect(linkReads).toEqual([['r', [FLAT, GARAGE]]]);
   });
 
   it('#368: another Realm link of the same MRE property is not taken', async () => {
     const p = await setup({ transaction: tx(), splits: [] }, totals, { other: { [FLAT]: 'p-other' } }).propose(input);
     expect(p.property.propertyReferenceId).toBeNull();
-    expect(p.flags).toEqual([{ code: 'NO_PROPERTY_REFERENCE', details: { reason: 'PROPERTY_NOT_LINKED', mrePropertyIds: [FLAT] } }]);
+    expect(p.flags).toEqual([
+      { code: 'NO_PROPERTY_REFERENCE', details: { reason: 'PROPERTY_NOT_LINKED', mrePropertyIds: [FLAT], unlinkedMrePropertyIds: [FLAT] } },
+    ]);
   });
 });

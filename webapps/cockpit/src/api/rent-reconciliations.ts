@@ -246,6 +246,13 @@ export async function getSplitProposal(client: DeClient, transactionId: string, 
   const property = data.property.propertyReferenceId;
   if (data.splits.some((s) => s.propertyReferenceId !== property)) throw unexpected('The proposal names different objects.');
   if ((property === null) !== data.flags.some((f) => f.code === 'NO_PROPERTY_REFERENCE')) throw unexpected('The proposal object and its flag disagree.');
+  // The link checked per id (Entscheidung des Projektinhabers, 2026-11-16): the unlinked ids are the term's own, each
+  // once; with an object exactly one of the term's ids is linked, so all others are unlinked.
+  const { mrePropertyIds, unlinkedMrePropertyIds } = data.property;
+  if (new Set(unlinkedMrePropertyIds).size !== unlinkedMrePropertyIds.length || unlinkedMrePropertyIds.some((id) => !mrePropertyIds.includes(id))) {
+    throw unexpected('The proposal names unlinked objects that are not the term ones.');
+  }
+  if (property !== null && unlinkedMrePropertyIds.length !== mrePropertyIds.length - 1) throw unexpected('The proposal object is not the one linked object.');
   return data;
 }
 

@@ -6,6 +6,7 @@ import { rentTermPath, transactionPath } from '../routing';
 import { PROPERTY, REALM_A } from '../transactions/fixtures.test-support';
 import { click, commands, confirmTransaction, go, MIETABGLEICH, openApp, requests, twice, type, useDurchstich } from './walk.test-support';
 import { findSaved } from '../ui/technical.test-support';
+import { MRE_LINKED, MRE_UNLINKED } from './fake-setup.test-support';
 
 /**
  * Step 8 in the Durchstich (Entscheidung des Projektinhabers, 2026-11-11; ui-guide.md §6.6 steps 2 and 3): against the
@@ -47,7 +48,9 @@ async function confirmSuggestion(amount: string | undefined, press: (name: strin
 async function collective(press: (name: string) => unknown) {
   backend().suggestRule = 'EXACT';
   backend().addMreTerm(TENANT_2, OCT, { rent: '700.00', charges: '150.00' });
-  backend().addMreTerm(TENANT_2, NOV, { rent: '700.00', charges: '150.00' });
+  // November's lease also has an object not linked in DE (a garage, say): the linked flat stays the object of every split
+  // (the link checked per id, Entscheidung des Projektinhabers, 2026-11-16).
+  backend().addMreTerm(TENANT_2, NOV, { rent: '700.00', charges: '150.00', mrePropertyIds: [MRE_LINKED, MRE_UNLINKED] });
   // Paid on 2 November: within November's booking range (from 15 October), outside October's (to 31 October).
   const t = backend().seedInflow('Miete Oktober und November Testwohnung 2', '1700.00', '2026-11-02');
   await openApp(backend(), transactionPath(REALM_A, t.id));
@@ -56,6 +59,8 @@ async function collective(press: (name: string) => unknown) {
   await chooseTerm(OCT, press);
   await chooseTerm(NOV, press);
   await waitFor(() => expect(screen.getAllByText('Sollbetrag des Termins (MRE)')).toHaveLength(2));
+  const unlinkedNote = 'Der Mietvertrag umfasst außerdem 1 nicht verknüpftes Objekt; der ganze Betrag wird dem verknüpften Objekt zugeordnet.';
+  expect(screen.getAllByRole('list', { name: 'Hinweise zum Termin' }).map((list) => list.textContent?.endsWith(unlinkedNote))).toEqual([false, true]);
   expect(requests(backend(), 'GET', '/api/v1/rent-reconciliations/split-proposal').map((s) => new URLSearchParams(s.search).get('mreRentTerm'))).toEqual([
     OCT,
     NOV,

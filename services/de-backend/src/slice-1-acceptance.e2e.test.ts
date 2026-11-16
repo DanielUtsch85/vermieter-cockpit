@@ -425,7 +425,7 @@ describe.skipIf(databaseUrl === undefined)('Slice 1 acceptance (definition of do
         splitProposal: getRentSplitProposal({
           queries: new PostgresTransactionQueries(db),
           readBreakdown: mreRentBreakdownReader(client),
-          findLinkedPropertyReference: (realm, id) => propertyReferences.repository.findLinkedId(realm, id),
+          findLinkedPropertyReference: (realm, ids) => propertyReferences.repository.findLinkedIds(realm, ids),
         }),
         removeFromMre: removeFromMre({
           repository: new PostgresRentReconciliationRepository(db),

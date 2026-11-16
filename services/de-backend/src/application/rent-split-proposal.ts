@@ -2,7 +2,6 @@ import type { TransactionQueries } from '../domains/ledger/index.js';
 import {
   proposeRentSplit,
   soleTermProperty,
-  type ProposalProperty,
   type RENT_CATEGORIES,
   type RentSplitProposal,
   type RentTermBreakdown,
@@ -30,10 +29,11 @@ export type MreRentBreakdownReader = (
 ) => Promise<RentTermBreakdown | undefined>;
 
 /**
- * The id of the Realm's PropertyReference with this `mrePropertyId` (§23.1's natural key), whatever its state, in a
- * short read of its own after the MRE read (§37.6, #368); undefined when the Realm has none.
+ * The Realm's PropertyReferences of these `mrePropertyId`s (§23.1's natural key, so at most one each), whatever their
+ * state, in one short read of its own after the MRE read (§37.6, #368): MRE property id → PropertyReference id; an id
+ * without a link in the Realm is absent.
  */
-export type LinkedPropertyReferenceReader = (mreRealmId: string, mrePropertyId: string) => Promise<string | undefined>;
+export type LinkedPropertyReferenceReader = (mreRealmId: string, mrePropertyIds: readonly string[]) => Promise<ReadonlyMap<string, string>>;
 
 /** The Transaction is not an unconfirmed `INFLOW` (→ 409 NOT_PROPOSABLE, §37.6). */
 export class RentNotProposableError extends Error {
@@ -83,14 +83,9 @@ export function getRentSplitProposal(deps: {
     const totals = await deps.readBreakdown(authorizationHeader, principal.mreRealmId, mreTenantId, mreRentTerm);
     if (totals === undefined) throw new MreRentTermNotFoundError(mreTenantId, mreRentTerm);
     const { mrePropertyIds } = totals;
-    const sole = soleTermProperty(mrePropertyIds);
-    let property: ProposalProperty;
-    if ('reason' in sole) {
-      property = { mrePropertyIds, reason: sole.reason };
-    } else {
-      const propertyReferenceId = await deps.findLinkedPropertyReference(principal.mreRealmId, sole.mrePropertyId);
-      property = propertyReferenceId === undefined ? { mrePropertyIds, reason: 'PROPERTY_NOT_LINKED' } : { mrePropertyIds, propertyReferenceId };
-    }
+    // The link per id (Entscheidung des Projektinhabers, 2026-11-16); no DE read when MRE names no property.
+    const links = mrePropertyIds.length === 0 ? new Map<string, string>() : await deps.findLinkedPropertyReference(principal.mreRealmId, mrePropertyIds);
+    const property = soleTermProperty(mrePropertyIds, links);
     return {
       transactionId: transaction.id,
       mreTenantId,

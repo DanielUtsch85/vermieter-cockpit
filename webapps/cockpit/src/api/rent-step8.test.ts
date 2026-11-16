@@ -86,6 +86,29 @@ describe('step 8: GET /rent-reconciliations/split-proposal (api-design.md §37.6
     ]);
   });
 
+  it('#368 (Entscheidung des Projektinhabers, 2026-11-16): the unlinked objects are the term ones, and an object leaves exactly one linked', async () => {
+    const withGarage = splitProposal({ object: 'LINKED_WITH_UNLINKED' });
+    const several = splitProposal({ object: 'SEVERAL_PROPERTIES' });
+    const { mrePropertyIds } = withGarage.property;
+    for (const property of [
+      // A linked object with no unlinked one beside it although the term has two objects.
+      { ...withGarage.property, unlinkedMrePropertyIds: [] },
+      // A linked object although every object of the term is unlinked.
+      { ...withGarage.property, unlinkedMrePropertyIds: mrePropertyIds },
+      // An unlinked id that is not the term one, or one named twice.
+      { ...withGarage.property, unlinkedMrePropertyIds: ['6a00000000000000000000ff'] },
+      { ...several.property, unlinkedMrePropertyIds: [several.property.mrePropertyIds[1] ?? '', several.property.mrePropertyIds[1] ?? ''] },
+    ]) {
+      const base = property.propertyReferenceId === null ? several : withGarage;
+      const { client: de } = client(json(200, { ...base, property }));
+      expect((await refused(getSplitProposal(de, TX, TERM_REF))).code, JSON.stringify(property)).toBe(CLIENT_CODES.unexpected);
+    }
+    const { client: ok } = client(json(200, withGarage), json(200, several), json(200, splitProposal({ object: 'LINKED_WITH_TWO_UNLINKED' })));
+    expect((await getSplitProposal(ok, TX, TERM_REF)).property).toEqual(withGarage.property);
+    expect((await getSplitProposal(ok, TX, TERM_REF)).property.unlinkedMrePropertyIds).toEqual([]);
+    expect((await getSplitProposal(ok, TX, TERM_REF)).property.unlinkedMrePropertyIds).toHaveLength(2);
+  });
+
   it('refusals reach the caller with code and details: NOT_PROPOSABLE, MRE_RENT_TERM_NOT_FOUND, 503, 404', async () => {
     const { client: de } = client(
       envelope(409, 'CONFLICT', { reason: 'NOT_PROPOSABLE', direction: 'INFLOW', status: 'CONFIRMED' }),

@@ -251,7 +251,11 @@ export function ManualMatch(props: {
                 readOnly={step.asking !== undefined}
                 aria-invalid={invalid(['mreTenantId'], tenantProblem)}
                 aria-describedby={tenantHint === null ? undefined : 'zuordnen-mieter-hinweis'}
-                onChange={(event) => change(setTenant)(event.target.value)}
+                onChange={(event) => {
+                  // Another Tenant: a term key chosen or typed for the previous one goes, as a choice from the list does (#375 review).
+                  if (event.target.value.trim() !== tenant.trim()) setTerm('');
+                  change(setTenant)(event.target.value);
+                }}
               />
               {tenantHint}
             </div>
