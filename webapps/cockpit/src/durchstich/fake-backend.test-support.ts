@@ -497,17 +497,30 @@ export function createBackend(real: RealMappings): Backend {
 
   /* ---------------------------------------------------------------- rent reconciliation (§37): fake-rent.test-support.ts */
 
-  const { rentCash, marker, suggest, newRec, recCommand, termCoverage, transactionRent, splitProposal, createMatch, termKey, tenantList, tenantTerms } =
-    createRentFake({
-      real,
-      transactions,
-      reconciliations,
-      mreTerm,
-      mreTerms,
-      counters,
-      state: () => backend,
-      linkedProperty: (realm, mrePropertyId) => setup.references.find((r) => r.mreRealmId === realm && r.mrePropertyId === mrePropertyId)?.propertyReferenceId,
-    });
+  const {
+    rentCash,
+    rentAllocation,
+    marker,
+    suggest,
+    newRec,
+    recCommand,
+    termCoverage,
+    transactionRent,
+    splitProposal,
+    createMatch,
+    termKey,
+    tenantList,
+    tenantTerms,
+  } = createRentFake({
+    real,
+    transactions,
+    reconciliations,
+    mreTerm,
+    mreTerms,
+    counters,
+    state: () => backend,
+    linkedProperty: (realm, mrePropertyId) => setup.references.find((r) => r.mreRealmId === realm && r.mrePropertyId === mrePropertyId)?.propertyReferenceId,
+  });
 
   /* ---------------------------------------------------------------- routing */
 
@@ -530,8 +543,14 @@ export function createBackend(real: RealMappings): Backend {
         return json(200, { items: [category(), category({ code: 'RENT_OPERATING_COST_ADVANCE', name: 'Nebenkosten' })] });
       case 'GET transactions': {
         const statuses = search.get('status')?.split(',');
-        const list = [...transactions.values()].filter((t) => t.mreRealmId === realm && (statuses === undefined || statuses.includes(t.status)));
-        return json(200, page(list.map(real.transaction)));
+        // §30.1A: each item with its rentAllocation; the filter keeps the items whose state is in the list (never a null one).
+        const states = search.get('rentAllocation')?.split(',');
+        if (states !== undefined && !states.every((state) => ['NONE', 'PARTIAL', 'FULL'].includes(state))) return invalid('rentAllocation');
+        const list = [...transactions.values()]
+          .filter((t) => t.mreRealmId === realm && (statuses === undefined || statuses.includes(t.status)))
+          .map((t) => ({ ...real.transaction(t), rentAllocation: rentAllocation(t) }))
+          .filter((item) => states === undefined || (item.rentAllocation !== null && states.includes(item.rentAllocation.state)));
+        return json(200, page(list));
       }
       case 'GET imports':
         return listBatches(realm, search);

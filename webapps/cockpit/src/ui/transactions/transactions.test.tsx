@@ -1,19 +1,19 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { ApiError, CLIENT_CODES } from '../../api/errors';
-import type { PageDto, TransactionDto, TransactionRead } from '../../api/transactions';
+import type { PageDto, TransactionListItemDto, TransactionRead } from '../../api/transactions';
 import { readListParams } from '../../transactions/list-params';
 import {
   account,
   ACCOUNT,
   category,
   detail,
+  listItem,
   page,
   property,
   PROPERTY,
   REALM_A,
   split,
-  transaction,
   TX,
   TX_REPLACEMENT,
   TX_REVERSAL,
@@ -37,7 +37,7 @@ const loaded: References = {
   categories: { status: 'success', data: [category(), category({ code: 'OLD_FEE', name: 'Alte Gebühr', active: false })] },
 };
 
-function list(state: Loadable<PageDto<TransactionDto>>, search = '', references: References = loaded): string {
+function list(state: Loadable<PageDto<TransactionListItemDto>>, search = '', references: References = loaded): string {
   return renderToStaticMarkup(
     <TransactionListView realmId={REALM_A} params={readListParams(search)} list={state} references={references} onFilter={nothing} onRetry={nothing} />,
   );
@@ -94,8 +94,8 @@ describe('step 2, the transaction list in its states (ui-guide.md §6.3, §7.4, 
 
   it('success: each row with date, signed amount, direction, counterparty, status, origin and account name', () => {
     const items = [
-      transaction(),
-      transaction({
+      listItem(),
+      listItem({
         transactionId: TX_REVERSAL,
         amount: { amount: '1234567.5', currency: 'EUR' },
         direction: 'OUTFLOW',
@@ -131,7 +131,7 @@ describe('step 2, the transaction list in its states (ui-guide.md §6.3, §7.4, 
   });
 
   it('pagination from total keeps the filters in its links; no link before the first or after the last page', () => {
-    const items = [transaction()];
+    const items = [listItem()];
     const middle = list({ status: 'success', data: page(items, { page: 2, total: 120 }) }, '?reviewable=true&page=2');
     expect(text(middle)).toContain('Seite 2 von 3 · 120 Buchungen');
     expect(middle).toContain(`href="${LIST}?reviewable=true" rel="prev"`);
@@ -148,7 +148,7 @@ describe('step 2, the transaction list in its states (ui-guide.md §6.3, §7.4, 
     const html = text(
       list({
         status: 'success',
-        data: page([transaction({ status: unknownCode('DISPUTED'), provenance: unknownCode('FAX'), direction: unknownCode('SIDEWAYS') })]),
+        data: page([listItem({ status: unknownCode('DISPUTED'), provenance: unknownCode('FAX'), direction: unknownCode('SIDEWAYS') })]),
       }),
     );
     expect(html).toContain('Unbekannter Status (DISPUTED)');
@@ -159,7 +159,7 @@ describe('step 2, the transaction list in its states (ui-guide.md §6.3, §7.4, 
 
   it('an account name missing from the list shows the id, an unreadable amount says so', () => {
     const references: References = { ...loaded, accounts: { status: 'success', data: page([]) } };
-    const html = list({ status: 'success', data: page([transaction({ amount: { amount: '1,50', currency: 'EUR' } })]) }, '', references);
+    const html = list({ status: 'success', data: page([listItem({ amount: { amount: '1,50', currency: 'EUR' } })]) }, '', references);
     expect(html).toContain(`<code class="font-mono text-label">${ACCOUNT}</code>`);
     expect(html).toContain('Betrag nicht lesbar (1,50 EUR)');
   });
@@ -183,7 +183,7 @@ describe('Herkunft in the table and the filter (Entscheidung des Projektinhabers
   const filterChoices = (html: string) => [...html.matchAll(/name="provenance" value="([^"]*)"[^>]*\/>([^<]*)</g)].map((m) => [m[1], m[2]]);
 
   it('every kind shows the same short text without Aus in the table and in the filter', () => {
-    const items = SHORT.map(([code], i) => transaction({ transactionId: TX.replace(/.$/, String(i)), provenance: code }));
+    const items = SHORT.map(([code], i) => listItem({ transactionId: TX.replace(/.$/, String(i)), provenance: code }));
     const html = list({ status: 'success', data: page(items) });
     expect(provenanceCells(html)).toEqual(SHORT.map(([, label]) => label));
     expect(filterChoices(html)).toEqual(SHORT.map(([code, label]) => [code, label]));
@@ -191,7 +191,7 @@ describe('Herkunft in the table and the filter (Entscheidung des Projektinhabers
   });
 
   it('an unknown kind keeps its code in the table and is no filter choice', () => {
-    const html = list({ status: 'success', data: page([transaction({ provenance: unknownCode('FAX_IMPORT') })]) });
+    const html = list({ status: 'success', data: page([listItem({ provenance: unknownCode('FAX_IMPORT') })]) });
     expect(provenanceCells(html)).toEqual(['Unbekannte Herkunft (FAX_IMPORT)']);
     expect(filterChoices(html).map(([code]) => code)).not.toContain('FAX_IMPORT');
   });
@@ -202,7 +202,7 @@ describe('the table at 1280 px (Issue #353 des Projektinhabers, 2026-11-12, poin
   const cells = (html: string) => [...html.matchAll(/<td[^>]*>(.*?)<\/td>/gs)].map((match) => match[0]);
 
   it('the purpose wraps to two lines with the whole text as title; the counterparty keeps one line with its title', () => {
-    const html = list({ status: 'success', data: page([transaction({ description: LONG, counterpartyNameRaw: 'Erika Beispiel' })]) });
+    const html = list({ status: 'success', data: page([listItem({ description: LONG, counterpartyNameRaw: 'Erika Beispiel' })]) });
     expect(html).toContain('<th scope="col" class="min-w-[14rem] p-3">Gegenpartei und Verwendungszweck</th>');
     const purpose = cells(html)[3] ?? '';
     expect(purpose).toContain(`<p class="line-clamp-2 text-label text-muted" title="${LONG}">${LONG}</p>`);
@@ -213,21 +213,21 @@ describe('the table at 1280 px (Issue #353 des Projektinhabers, 2026-11-12, poin
 
   it('the account wraps to at most two lines with its whole name as title; without a name the id', () => {
     // Entscheidung des Projektinhabers, 2026-11-13: the account column on two lines with line-clamp-2, not cut off.
-    const named = list({ status: 'success', data: page([transaction()]) });
+    const named = list({ status: 'success', data: page([listItem()]) });
     expect(cells(named)[6]).toBe('<td class="p-3"><p class="line-clamp-2 max-w-[12rem]" title="Girokonto Testbank">Girokonto Testbank</p></td>');
     expect(cells(named)[6]).not.toContain('truncate');
     const longName = 'Gemeinschaftskonto Hausverwaltung Musterstraße 12 Rücklage und Instandhaltung';
-    const long = list({ status: 'success', data: page([transaction()]) }, '', {
+    const long = list({ status: 'success', data: page([listItem()]) }, '', {
       ...loaded,
       accounts: { status: 'success', data: page([account({ displayName: longName })]) },
     });
     expect(cells(long)[6]).toBe(`<td class="p-3"><p class="line-clamp-2 max-w-[12rem]" title="${longName}">${longName}</p></td>`);
-    const unnamed = list({ status: 'success', data: page([transaction()]) }, '', { ...loaded, accounts: { status: 'pending' } });
+    const unnamed = list({ status: 'success', data: page([listItem()]) }, '', { ...loaded, accounts: { status: 'pending' } });
     expect(cells(unnamed)[6]).toBe(`<td class="p-3"><code class="font-mono text-label">${ACCOUNT}</code></td>`);
   });
 
   it('no title where there is nothing to cut: no counterparty, no purpose', () => {
-    const html = list({ status: 'success', data: page([transaction({ description: null, counterpartyNameRaw: null })]) });
+    const html = list({ status: 'success', data: page([listItem({ description: null, counterpartyNameRaw: null })]) });
     const purpose = cells(html)[3] ?? '';
     expect(purpose).not.toContain('title=');
     expect(text(purpose)).toContain('Keine Gegenpartei angegeben');
@@ -238,7 +238,7 @@ describe('the table at 1280 px (Issue #353 des Projektinhabers, 2026-11-12, poin
 describe('one word for the statuses to check (Issue #353 des Projektinhabers, 2026-11-12, point 9)', () => {
   it('the badge and the filter both say „zu prüfen“; „prüfbar“ is gone', () => {
     expect(statusLabel('IMPORTED').text).toBe('Importiert · zu prüfen');
-    const html = list({ status: 'success', data: page([transaction()]) });
+    const html = list({ status: 'success', data: page([listItem()]) });
     expect(text(html)).toContain('Nur zu prüfende (Importiert oder Ungeprüft)');
     expect(html).not.toMatch(/prüfbar/i);
   });
@@ -336,6 +336,7 @@ describe('step 2, the filter bar (ui-guide.md §6.3: only the existing filters)'
         'financialCategoryCode',
         'status',
         'provenance',
+        'rentAllocation',
         'reviewable',
         'current',
         'bookingDateFrom',

@@ -5,15 +5,15 @@
  * route the cockpit calls is missing, so a new backend state is checked (routes and DTOs, ui-guide.md §2) before the pin
  * moves. Moving the pin is a change of this file with that check, never a side effect.
  *
- * The pin is the backend commit of „Import und Vorschlag, Nachträge“ (VC-X-75, VC-X-77, VC-X-78; api-design.md §32.1a,
- * §32.6, §37.6): no route changes (177, the inventory and its hash as at a4b18bf), but the DTOs the cockpit reads do —
- * `firstBookingDate` / `lastBookingDate` per import, `continuityMissing` on the single read, `skipped.decidedBefore` of
- * a suggest run — so the pin moves with them, as it did for VC-X-69. DTOs were checked against that commit; it reaches
- * `main` with the pull request that carries it (a merge, not a squash). Before it the pin was a4b18bf (VC-X-74, #369,
- * 176 → 177).
+ * The pin is the backend commit of „Mietzuordnung in der Buchungsliste“ (#381 part 2, VC-X-81; api-design.md §30.1A):
+ * no route changes (177, the inventory and its hash as at a4b18bf), but the DTO the cockpit reads does — each item of
+ * `GET /transactions` carries `rentAllocation`, and the list takes the filter `rentAllocation` — so the pin moves with
+ * it, as it did for VC-X-69 and VC-X-75..78. The DTO was checked against that commit; it reaches `main` with the pull
+ * request that carries it (a merge, not a squash). Before it the pin was 215f447 („Import und Vorschlag, Nachträge“,
+ * VC-X-75, VC-X-77, VC-X-78; DTOs only).
  */
 export const BACKEND_PIN = {
-  commit: '215f447f1084616f6c73d4766af1f98dc0e50e34',
+  commit: 'c644974b68e387546526c0aed372686d17c0d092',
   /** `Routes: 177.` in the inventory. */
   routes: 177,
   /** SHA-256 of `docs/development/api-inventory.md` at the pinned commit. */

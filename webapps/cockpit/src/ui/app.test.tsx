@@ -14,7 +14,7 @@ import { RealmList } from './RealmChoice';
 import { importKeys } from './imports/ImportArea';
 import { transactionKeys } from './transactions/TransactionsArea';
 import { batch, BATCH } from '../imports/fixtures.test-support';
-import { detail, page, transaction, TX } from '../transactions/fixtures.test-support';
+import { detail, listItem, page, TX } from '../transactions/fixtures.test-support';
 
 const A = '64b7f0c2a1b2c3d4e5f60718';
 const B = '64b7f0c2a1b2c3d4e5f60719';
@@ -222,7 +222,7 @@ describe('step 2, the Buchungen area in the app (ui-guide.md §6.3, §7.3, §10)
 
   it('the list of the Realm of the URL, its filters read from the URL', async () => {
     const queryClient = seeded(A);
-    queryClient.setQueryData(transactionKeys.list(A, 0, { status: 'IMPORTED', ...firstPage }), page([transaction({ mreRealmId: A })]));
+    queryClient.setQueryData(transactionKeys.list(A, 0, { status: 'IMPORTED', ...firstPage }), page([listItem({ mreRealmId: A })]));
     const html = render(await signedIn(), `/cockpit/r/${A}/buchungen?status=IMPORTED&q=frei`, { queryClient });
     expect(html).toContain('<h1 tabindex="-1" class="text-title font-semibold">Buchungen</h1>');
     expect(html).toContain('Miete Maerz Testwohnung');
@@ -232,8 +232,8 @@ describe('step 2, the Buchungen area in the app (ui-guide.md §6.3, §7.3, §10)
 
   it('loading until the list of this Realm and session answered: a list of another Realm or session is never shown', async () => {
     const queryClient = seeded(A);
-    queryClient.setQueryData(transactionKeys.list(B, 0, firstPage), page([transaction({ mreRealmId: B, description: 'Fremder Bestand' })]));
-    queryClient.setQueryData(transactionKeys.list(A, 1, firstPage), page([transaction({ mreRealmId: A, description: 'Andere Sitzung' })]));
+    queryClient.setQueryData(transactionKeys.list(B, 0, firstPage), page([listItem({ mreRealmId: B, description: 'Fremder Bestand' })]));
+    queryClient.setQueryData(transactionKeys.list(A, 1, firstPage), page([listItem({ mreRealmId: A, description: 'Andere Sitzung' })]));
     const html = render(await signedIn(), `/cockpit/r/${A}/buchungen`, { queryClient });
     expect(html).toContain('Buchungen werden geladen');
     expect(html).not.toContain('Fremder Bestand');

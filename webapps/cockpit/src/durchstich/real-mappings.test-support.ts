@@ -11,7 +11,14 @@ import type {
   TermCoverageDto,
   TransactionRentCoverageDto,
 } from '../api/rent-reconciliations';
-import type { FinancialAccountDto, PropertyReferenceDto, TransactionDto, TransactionSplitDto, TransactionSplitsDto } from '../api/transactions';
+import type {
+  FinancialAccountDto,
+  PropertyReferenceDto,
+  RentAllocationDto,
+  TransactionDto,
+  TransactionSplitDto,
+  TransactionSplitsDto,
+} from '../api/transactions';
 
 /**
  * The backend's own DTO mappings and request schemas, loaded in the test only (ui-guide.md §12: API mocks derived only
@@ -46,6 +53,17 @@ export interface Schema {
 export interface RealMappings {
   readonly Money: MoneyClass;
   readonly transaction: (t: unknown) => TransactionDto;
+  /**
+   * A list item's `rentAllocation` (§30.1A): the backend's rule (`isCounted`, `rentAllocationOf`) and its DTO mapping
+   * (`toRentAllocationDto`), from a Transaction's status, direction, rent cash and confirmed total.
+   */
+  readonly rentAllocation: (input: {
+    status: string;
+    correctionRole: string | null;
+    direction: string;
+    rentCash: Money | null;
+    matchedTotal: Money;
+  }) => RentAllocationDto | null;
   readonly split: (s: unknown) => TransactionSplitDto;
   readonly splits: (t: unknown, s: readonly unknown[]) => TransactionSplitsDto;
   readonly batch: (b: unknown) => ImportBatchDto;
@@ -93,12 +111,17 @@ export async function loadRealMappings(): Promise<RealMappings> {
   const shared = await load<{ Money: MoneyClass }>('shared/index.ts');
   const dto = await load<{
     toDto: RealMappings['transaction'];
+    toRentAllocationDto: (allocation: unknown) => RentAllocationDto | null;
     toSplitDto: RealMappings['split'];
     split: Schema;
     correctBody: Schema;
     reverseBody: Schema;
   }>('api/transaction-dto.ts');
   const splits = await load<{ toSplitsDto: RealMappings['splits'] }>('api/transaction-splits.ts');
+  const rule = await load<{
+    isCounted: (status: string, correctionRole: string | null) => boolean;
+    rentAllocationOf: (input: { counted: boolean; direction: string; rentCash: Money | null; matchedTotal: Money }) => unknown;
+  }>('domains/rent-reconciliation/index.ts');
   const imports = await load<{
     toDto: RealMappings['batch'];
     toSummaryDto: RealMappings['batchSummary'];
@@ -125,6 +148,8 @@ export async function loadRealMappings(): Promise<RealMappings> {
   return {
     Money: shared.Money,
     transaction: dto.toDto,
+    rentAllocation: ({ status, correctionRole, ...rest }) =>
+      dto.toRentAllocationDto(rule.rentAllocationOf({ counted: rule.isCounted(status, correctionRole), ...rest })),
     split: dto.toSplitDto,
     splits: splits.toSplitsDto,
     batch: imports.toDto,

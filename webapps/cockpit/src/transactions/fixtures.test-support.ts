@@ -3,8 +3,10 @@ import type {
   FinancialCategoryDto,
   PageDto,
   PropertyReferenceDto,
+  RentAllocationDto,
   TransactionDetailDto,
   TransactionDto,
+  TransactionListItemDto,
   TransactionSplitDto,
 } from '../api/transactions';
 
@@ -42,6 +44,18 @@ export function transaction(overrides: Partial<TransactionDto> = {}): Transactio
     counterpartyIbanRaw: 'DE00 0000 0000 0000 0000 00',
     ...overrides,
   };
+}
+
+/** An item of the list (§30.1A): the Transaction and `rentAllocation`, `null` unless given. */
+export function listItem(overrides: Partial<TransactionListItemDto> = {}): TransactionListItemDto {
+  return { ...transaction(), rentAllocation: null, ...overrides };
+}
+
+/** A `rentAllocation` from rent share and allocated amount (decimal strings with two places, EUR); the state follows. */
+export function allocation(rent: string, allocated: string, free: string): RentAllocationDto {
+  const eur = (amount: string) => ({ amount, currency: 'EUR' });
+  const state = /^0+\.00$/.test(allocated) ? 'NONE' : /^0+\.00$/.test(free) ? 'FULL' : 'PARTIAL';
+  return { state, rentAmount: eur(rent), allocatedAmount: eur(allocated), freeAmount: eur(free) };
 }
 
 export function split(overrides: Partial<TransactionSplitDto> = {}): TransactionSplitDto {
