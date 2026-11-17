@@ -239,6 +239,10 @@ Statusbeschriftung:
 
 Keine Status-Selectbox, die beliebige Zustände schreibt. Buttons lösen Fachbefehle aus. Backend bleibt letzte Instanz, auch wenn UI-Aktionen passend deaktiviert werden.
 
+Der Statusfilter der Buchungsliste bietet RECONCILED nicht an, solange kein Schritt den Status vergibt; die Kurzwahl current=true heißt „Nur aktuelle (bestätigt, ohne Storno und Korrigierte)“. Ein Status RECONCILED aus der Adresse gilt für deren Liste weiter, wird unter der Auswahl genannt und entfällt mit „Filter anwenden“ (#381; Entscheidung des Projektinhabers, 2026-11-16).
+
+„Stornieren“ ist eine eigene Aktion neben „Korrigieren“, mit Rückfrage („Jetzt stornieren“) und Pflichtgrund, nur für bestätigte Buchungen, die nicht selbst ein Storno sind. Danach gibt es weder Korrigieren noch Stornieren: beide Abschnitte verschwinden sofort wie nach dem Neuladen (an der Stelle von „Stornieren“ steht bis zum Verlassen der Seite die Rückmeldung „Storno ausgeführt“ mit der Kette Original → Storno); sichtbar bleibt die Kette „Korrekturen“ mit dem Link auf das Storno (#383; Entscheidung des Projektinhabers, 2026-11-17).
+
 ### 6.4 Split-Editor
 
 Zeilen: Kategorie, Betrag, Bezug, optionale Beschreibung. Referenztyp steuert passende Felder.

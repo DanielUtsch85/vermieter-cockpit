@@ -79,6 +79,41 @@ describe('step 6: the rent reconciliations of a Transaction (ui-guide.md §6.6, 
     expect(await screen.findByText(/Nicht zuordenbar, solange die Buchung nicht bestätigt ist/)).toBeTruthy();
   });
 
+  it('an OUTFLOW with a rent split is not allocatable: no free amount, no match action, as the list shows no rentAllocation (#381)', async () => {
+    const zero = { amount: '0.00', currency: 'EUR' };
+    const outflow = { direction: 'OUTFLOW', matchedTotal: zero, available: { amount: '850.00', currency: 'EUR' }, reconciliations: [] };
+    area([() => json(200, transactionCoverage(outflow))]);
+    const section = await screen.findByRole('region', { name: 'Mietabgleich dieser Buchung' });
+    await within(section).findByText('Mietanteil der Buchung');
+    expect(section.textContent).toContain('Mietanteil der Buchung850,00 €');
+    expect(section.textContent).toContain('Noch freiNicht zuordenbar (Ausgang)Keine Mietzuordnung.');
+    expect(section.textContent).not.toContain('Noch frei850,00 €');
+    expect(within(section).queryByRole('button', { name: 'Manuell zuordnen' })).toBeNull();
+    cleanup();
+    // Counter-check: the same read as an INFLOW shows the free amount and offers the match.
+    area([() => json(200, transactionCoverage({ ...outflow, direction: 'INFLOW' }))]);
+    const inflow = await screen.findByRole('region', { name: 'Mietabgleich dieser Buchung' });
+    await within(inflow).findByText('Mietanteil der Buchung');
+    expect(inflow.textContent).toContain('Noch frei850,00 €');
+    expect(within(inflow).getByRole('button', { name: 'Manuell zuordnen' })).toBeTruthy();
+    cleanup();
+    // An unconfirmed OUTFLOW and an OUTFLOW reversal: confirming would not make them allocatable either.
+    for (const other of [
+      { counted: false, status: 'CLASSIFIED' },
+      { counted: false, correctionRole: 'REVERSAL' },
+    ]) {
+      area([() => json(200, transactionCoverage({ ...outflow, ...other, available: null }))]);
+      const section2 = await screen.findByRole('region', { name: 'Mietabgleich dieser Buchung' });
+      await within(section2).findByText('Mietanteil der Buchung');
+      expect(section2.textContent).toContain('Noch freiNicht zuordenbar (Ausgang)');
+      cleanup();
+    }
+    // An INFLOW reversal (of a repaid rent) keeps the reversal text; nothing free either.
+    area([() => json(200, transactionCoverage({ counted: false, correctionRole: 'REVERSAL', matchedTotal: zero, available: null, reconciliations: [] }))]);
+    expect(await screen.findByText(/Nicht zuordenbar, solange die Buchung nicht bestätigt ist \(oder ein Storno ist\)/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Manuell zuordnen' })).toBeNull();
+  });
+
   it('a reconciliation of another Realm is not shown; a refused read is said', async () => {
     area([() => json(200, transactionCoverage({ reconciliations: [confirmed('800.00', { mreRealmId: REALM_B })] }))]);
     const section = await screen.findByRole('region', { name: 'Mietabgleich dieser Buchung' });
