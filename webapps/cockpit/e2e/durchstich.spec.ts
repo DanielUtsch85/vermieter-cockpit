@@ -75,6 +75,26 @@ test('import, review items, split from the MRE proposal, confirm, rent suggestio
   await setup.getByRole('link', { name: 'Objekte verknüpfen' }).click();
   const mreList = page.getByRole('list', { name: 'Objekte in MicroRealEstate' });
   await expect(mreList.getByRole('listitem').filter({ hasText: PROPERTY_NAME })).toContainText('Verknüpft');
+  // Objects are created in MRE: its landlord interface at /landlord of the same origin, in a new tab (Entscheidungen des
+  // Projektinhabers, 2026-11-16, #372, und 2026-11-17, VC-X-80). The link is followed: the new tab loads the landlord UI
+  // of the stack (service landlord-frontend behind the gateway), the cockpit tab stays where it is. Only the page load is
+  // checked, not MRE's own pages after it (the curl checks of /landlord are in .github/scripts/compose-cockpit-gate.sh).
+  const mreLink = page.getByRole('link', { name: 'MicroRealEstate öffnen' });
+  await expect(mreLink).toHaveAttribute('href', '/landlord');
+  await expect(mreLink).toHaveAttribute('target', '_blank');
+  await expect(mreLink).toHaveAttribute('rel', 'noopener noreferrer');
+  // The new tab's page load, as the browser itself records it (Navigation Timing): MRE may first redirect /landlord to the
+  // browser's language (307 to /landlord/de-DE); the page it ends on is a 200 HTML document under /landlord.
+  const [landlordTab] = await Promise.all([page.context().waitForEvent('page'), mreLink.click()]);
+  await landlordTab.waitForLoadState('load');
+  const loaded = await landlordTab.evaluate(() => {
+    const [entry] = performance.getEntriesByType('navigation') as PerformanceNavigationTiming[];
+    return { path: new URL(entry?.name ?? 'about:blank').pathname, status: entry?.responseStatus, type: document.contentType };
+  });
+  expect(loaded.path).toMatch(/^\/landlord(\/|$)/);
+  expect([loaded.status, loaded.type]).toEqual([200, 'text/html']);
+  await landlordTab.close();
+  expect(new URL(page.url()).pathname).toMatch(/\/einrichtung\/objekte$/);
   const link = page.waitForResponse((r) => r.url().endsWith('/api/v1/property-references/link'));
   await page.getByRole('button', { name: `${SECOND_PROPERTY_NAME} verknüpfen` }).click();
   expect((await link).status()).toBe(201);

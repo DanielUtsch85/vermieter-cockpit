@@ -19,6 +19,17 @@ echo "$rendered" | jq -e '.services.authenticator.environment.SIGNUP == "false"'
   exit 1
 }
 
+# The MRE landlord UI (VC-X-80): reached only through the gateway, so no published port; its sign-up page follows
+# MRE_SIGNUP like the authenticator and is hidden by default; the gateway serves it under /landlord.
+echo "$rendered" | jq -e '.services["landlord-frontend"] | (.ports // []) == [] and .environment.SIGNUP == "false"' > /dev/null || {
+  echo "landlord-frontend publishes a port or shows sign-up by default in the proxy override" >&2
+  exit 1
+}
+echo "$rendered" | jq -e '.services.gateway.environment | .EXPOSE_FRONTENDS == "true" and .LANDLORD_BASE_PATH == "/landlord" and .LANDLORD_FRONTEND_URL == "http://landlord-frontend:8180"' > /dev/null || {
+  echo "the gateway does not serve landlord-frontend under /landlord" >&2
+  exit 1
+}
+
 image=$(echo "$rendered" | jq -r '.services.caddy.image')
 docker run --rm -e COCKPIT_HOSTNAME=cockpit.internal -e COCKPIT_UI_UPSTREAM=cockpit-ui:80 \
   -v "$PWD/deploy/caddy:/etc/caddy:ro" "$image" caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile

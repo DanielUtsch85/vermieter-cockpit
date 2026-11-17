@@ -134,7 +134,8 @@ updates:
         patterns: ['*']
     ignore:
       # MRE images: the pinned baseline of ADR-036, changed only by the upgrade procedure of mre-integration.md §55
-      # (commit and six digests together in the ${MRE_VERSION:-…} default, betrieb.md §11.4).
+      # (commit and seven digests together in the ${MRE_VERSION:-…} default, betrieb.md §11.4); the pattern also covers
+      # landlord-frontend (VC-X-80).
       - dependency-name: ghcr.io/microrealestate/microrealestate/*
       # A new Postgres or MongoDB major is a data migration (dump and restore), not a pin update (betrieb.md §11.4).
       - dependency-name: postgres

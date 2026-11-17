@@ -1,6 +1,6 @@
 # Optional override for the productive installation (issue #281, item 4): Caddy as the single origin in front of
-# the MRE gateway, the DE backend and the cockpit UI (mre-integration.md §47.2), and the cockpit UI itself as the
-# service cockpit-ui. Reachable only over the VPN.
+# the MRE gateway (with the MRE landlord UI under /landlord, VC-X-80), the DE backend and the cockpit UI
+# (mre-integration.md §47.2), and the cockpit UI itself as the service cockpit-ui. Reachable only over the VPN.
 #
 #   docker compose -f docker-compose.yml -f docker-compose.proxy.yml up -d --build --wait
 #
@@ -63,6 +63,17 @@ services:
       # One origin: no CORS (§47.2).
       CORS_ENABLED: 'false'
 
+  # The MRE landlord UI under /landlord of the same origin (backlog VC-X-80): the browser calls /api/v2 on the cockpit's
+  # hostname through Caddy, so no CORS; the sign-up page is shown only while sign-up is open for the first account
+  # (MRE_SIGNUP, betrieb.md §9.4), like the authenticator's SIGNUP above.
+  landlord-frontend:
+    environment:
+      GATEWAY_URL: https://${COCKPIT_HOSTNAME:-cockpit.internal}
+      CORS_ENABLED: 'false'
+      SIGNUP: ${MRE_SIGNUP:-false}
+
+  # Links in MRE's e-mails; /landlord is served since VC-X-80. /tenant is not (no tenant frontend in this stack), and
+  # e-mail sending is off (ALLOW_SENDING_EMAILS 'false' in docker-compose.yml).
   emailer:
     environment:
       LANDLORD_APP_URL: https://${COCKPIT_HOSTNAME:-cockpit.internal}/landlord
