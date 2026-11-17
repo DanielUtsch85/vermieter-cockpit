@@ -243,6 +243,8 @@ Der Statusfilter der Buchungsliste bietet RECONCILED nicht an, solange kein Schr
 
 „Stornieren“ ist eine eigene Aktion neben „Korrigieren“, mit Rückfrage („Jetzt stornieren“) und Pflichtgrund, nur für bestätigte Buchungen, die nicht selbst ein Storno sind. Danach gibt es weder Korrigieren noch Stornieren: beide Abschnitte verschwinden sofort wie nach dem Neuladen (an der Stelle von „Stornieren“ steht bis zum Verlassen der Seite die Rückmeldung „Storno ausgeführt“ mit der Kette Original → Storno); sichtbar bleibt die Kette „Korrekturen“ mit dem Link auf das Storno (#383; Entscheidung des Projektinhabers, 2026-11-17).
 
+Bei einer bestätigten Buchung mit Mietanteil steht unter dem Status, wie weit ihr Mietanteil Mietterminen zugeordnet ist: „Miete zugeordnet“, „Miete teilweise zugeordnet · noch frei 250,00 €“ oder „Miete nicht zugeordnet“; es zählen nur bestätigte Zuordnungen (api-design §30.1A). Die Kurzwahl „Mietanteil noch frei“ (URL-Parameter `rentAllocation=NONE,PARTIAL`) zeigt nur Buchungen, deren Mietanteil noch nicht oder nur teilweise zugeordnet ist; sie ist nicht mit dem Statusfilter gekoppelt (#381, #385; Entscheidung des Projektinhabers, 2026-11-17).
+
 ### 6.4 Split-Editor
 
 Zeilen: Kategorie, Betrag, Bezug, optionale Beschreibung. Referenztyp steuert passende Felder.
