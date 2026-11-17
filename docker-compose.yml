@@ -6,10 +6,12 @@
 # - MRE gateway: http://localhost:8080 (landlord API under /api/v2)
 #
 # MRE runs from the published images of the pinned baseline commit (ADR-036,
-# mre-integration.md §55). Of the two MRE frontends only the landlord UI runs (landlord-frontend, behind the gateway
+# mre-integration.md §55); the pdfgenerator is that image with one backported fix on top (deploy/mre-pdfgenerator,
+# issue #396). Of the two MRE frontends only the landlord UI runs (landlord-frontend, behind the gateway
 # under /landlord; backlog VC-X-80); the tenant frontend is not started.
 # Every image is pinned by digest (VC-X-09): `tag@sha256:…`; for MRE the digest sits in the default of
-# ${MRE_VERSION:-…}, so a set MRE_VERSION is tag-only (docs/development/betrieb.md §11).
+# ${MRE_VERSION:-…}, so a set MRE_VERSION is tag-only (docs/development/betrieb.md §11); the pdfgenerator's base digest
+# sits in deploy/mre-pdfgenerator/Dockerfile (§11.7).
 # All secrets below are development defaults — override them via .env, never use
 # them in production. Published ports bind to 127.0.0.1 only: with the known
 # default ACCESS_TOKEN_SECRET anyone who can reach the gateway could forge MRE
@@ -189,8 +191,14 @@ services:
     depends_on: [mongo]
     networks: [net]
 
+  # The pinned MRE pdfgenerator with the realm fix of issue #396 backported (backlog VC-X-82; Entscheidung des
+  # Projektinhabers, 2026-11-17: „Overlay-Backport … Gebaut im Compose wie de-backend, ohne fremde Registry.“):
+  # deploy/mre-pdfgenerator/Dockerfile starts FROM the pinned image (commit 479d0ad, digest sha256:05e614a8…) and replaces
+  # only the two patched files. It follows no MRE_VERSION: the patch fits only that commit. Rollback point and upgrade
+  # path (VC-X-06): docs/development/betrieb.md §11.7.
   pdfgenerator:
-    image: ghcr.io/microrealestate/microrealestate/pdfgenerator:${MRE_VERSION:-479d0ad703436071b64dfdf4e48321c121d8efb5@sha256:05e614a8b5c534cae360e20df59e93a99a80afb0fb6afef127db388c08ef1c15}
+    build:
+      context: deploy/mre-pdfgenerator
     environment:
       NODE_ENV: production
       PORT: 8300

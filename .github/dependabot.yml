@@ -134,8 +134,10 @@ updates:
         patterns: ['*']
     ignore:
       # MRE images: the pinned baseline of ADR-036, changed only by the upgrade procedure of mre-integration.md §55
-      # (commit and seven digests together in the ${MRE_VERSION:-…} default, betrieb.md §11.4); the pattern also covers
-      # landlord-frontend (VC-X-80).
+      # (commit and six digests together in the ${MRE_VERSION:-…} default, betrieb.md §11.4); the pattern also covers
+      # landlord-frontend (VC-X-80). The seventh, pdfgenerator, is the base of the overlay deploy/mre-pdfgenerator/Dockerfile
+      # (issue #396, betrieb.md §11.7); that directory is deliberately in no `docker` entry above, so its base image is
+      # not proposed either and moves only with the MRE upgrade (VC-X-06), when the overlay goes.
       - dependency-name: ghcr.io/microrealestate/microrealestate/*
       # A new Postgres or MongoDB major is a data migration (dump and restore), not a pin update (betrieb.md §11.4).
       - dependency-name: postgres

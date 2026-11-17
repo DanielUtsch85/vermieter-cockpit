@@ -35,6 +35,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Images pinned by digest, actions by commit SHA (VC-X-09; betrieb.md §11)
         run: .github/scripts/image-pin-check.sh
+      - name: MRE pdfgenerator overlay = originals of 479d0ad + realm-396.patch, nothing else (issue 396; betrieb.md §11.7)
+        run: .github/scripts/mre-overlay-check.sh
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
@@ -93,6 +95,11 @@ jobs:
         run: yarn workspace @vermieter-cockpit/de-backend vitest run src/integrations/mre/mre.contract.test.ts
       - name: Build the cockpit-ui image (webapps/cockpit/Dockerfile, the productive UI service of docker-compose.proxy.yml)
         run: docker compose -f docker-compose.yml -f docker-compose.proxy.yml build cockpit-ui
+      # Issue 396 (betrieb.md §11.7): it adds docker-compose.proxy.yml with sign-up open, exactly as the cockpit gate
+      # does (that gate's own `up` then changes nothing), so it stands after the steps that do not expect the proxy
+      # settings and right before the gate, which closes sign-up again at its end.
+      - name: PDF route Realm isolation through Caddy and the MRE gateway (two Realms; tenant of another Realm 404 and never a PDF, in every document type; red on the plain pinned pdfgenerator; issue 396)
+        run: .github/scripts/compose-pdf-realm-gate.sh
       # Last on purpose: it adds docker-compose.proxy.yml and recreates authenticator, gateway, emailer and de-backend
       # (all four are overridden there) with the proxy settings (https, the cockpit hostname), which the steps above do
       # not expect. At its end it recreates the authenticator once more with MRE_SIGNUP unset (sign-up closed).
