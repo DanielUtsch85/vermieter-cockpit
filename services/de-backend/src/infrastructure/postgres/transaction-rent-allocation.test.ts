@@ -141,6 +141,12 @@ describe.skipIf(databaseUrl === undefined)('the list s rent allocation (api-desi
       if (outcome.kind !== 'CORRECTED') throw new Error(outcome.kind);
       ids['corrected'] = reversed;
       ids['reversal'] = outcome.result.reversal.id;
+      // A reversal that is an INFLOW with a rent split (of a repaid rent): counted status, INFLOW, rent share, but a reversal.
+      const repaid = await transaction([split('850.00')], { ...on('2030-05-10'), direction: 'OUTFLOW' });
+      const back = await ctx.corrections.correct(repaid, REALM, { reason: 'Doppelt', replacement: null }, actor);
+      if (back.kind !== 'CORRECTED') throw new Error(back.kind);
+      ids['repaid'] = repaid;
+      ids['inflowReversal'] = back.result.reversal.id;
     });
     const name = (id: string) => Object.entries(ids).find(([, v]) => v === id)?.[0];
     const listed = async (filter: TransactionFilter) => {
@@ -205,6 +211,40 @@ describe.skipIf(databaseUrl === undefined)('the list s rent allocation (api-desi
     it('another Realm: its request with this Realm s filter is an empty page', async () => {
       expect((await queries.list(OTHER_REALM, { ...month('2030-05'), rentAllocation: ['NONE', 'PARTIAL', 'FULL'] }, all)).total).toBe(0);
     });
+  });
+
+  it('the sums are read in the list s snapshot: a match committed after the count is not in this page, it is in the next read', async () => {
+    const t = await transaction([split('800.00')], on('2030-08-02'));
+    // A pool whose client, before it sends the page aggregate, lets another connection commit a match of the Transaction.
+    let hook: (() => Promise<unknown>) | undefined = () => created(match(t, '300.00'));
+    const pool = {
+      connect: async () => {
+        const client = await ctx.pool.connect();
+        return new Proxy(client, {
+          get(target, key, receiver) {
+            if (key !== 'query') return Reflect.get(target, key, receiver) as unknown;
+            return async (...args: Parameters<typeof target.query>) => {
+              const next = hook;
+              if (typeof args[0] === 'string' && args[0].includes('CROSS JOIN LATERAL') && next !== undefined) {
+                hook = undefined;
+                await next();
+              }
+              return (target.query as (...a: unknown[]) => unknown)(...args);
+            };
+          },
+        });
+      },
+      end: async () => undefined,
+    };
+    const snapshotQueries = new PostgresTransactionQueries(createDatabase(pool as unknown as typeof ctx.pool));
+    const filter = { ...month('2030-08'), rentAllocation: ['NONE'] } as TransactionFilter;
+    const page = await snapshotQueries.list(REALM, filter, all);
+    expect(hook).toBeUndefined();
+    expect(page.total).toBe(1);
+    expect(statesOf(page)).toEqual({ [t]: 'NONE 800.00/0.00/800.00' });
+    // Counter-check: the match is committed, and the next read sees it.
+    expect(statesOf(await queries.list(REALM, month('2030-08'), all))).toEqual({ [t]: 'PARTIAL 800.00/300.00/500.00' });
+    expect((await queries.list(REALM, filter, all)).total).toBe(0);
   });
 
   it('a list read writes nothing: no AuditRecord, no version', async () => {
