@@ -336,6 +336,8 @@ Bei konkurrierender Übertragung Retry-After respektieren, Detail neu laden; kei
 
 Da ein passives DE-Objekt-GET fehlt, vollständige Objektliste und Rehydration als Integrationspunkt behandeln. Keine Objekt-Stammdaten in DE neu editieren. Bilder, Zimmerzahl und Vermietungsstatus nur anzeigen, wenn der konkrete MRE-Datenweg geprüft ist.
 
+**Zu MRE:** Objekte, Mieter und Mietverhältnisse entstehen in MRE. Der Link „MicroRealEstate öffnen“ führt auf `/landlord` derselben Origin, die Vermieteroberfläche von MRE (VC-X-80), und öffnet in einem neuen Tab (`target="_blank"`, `rel="noopener noreferrer"`); das Cockpit bleibt im bisherigen Tab. Der Link gibt weder Token noch Bestand (Realm) weiter (#388, #390; Entscheidung des Projektinhabers, 2026-11-17).
+
 **Personen:** Listen/Detail vorhanden. PERSON und ORGANIZATION mit typabhängigen Formularen; partyType bleibt nach Erstellung fix. Deaktivieren ist kein Löschen; keine automatische Reaktivierung oder Namens-Deduplizierung.
 
 **Eigentum:** Stichtag und Gültigkeitszeitraum immer sichtbar. Historie und asOf-Abfrage nicht vermischen. close beendet, void korrigiert fehlerhafte Erfassung. Ein Eigentümerwechsel wird mit /property-references/{id}/ownership-changes atomar ausgeführt, nicht als lose Folge von Einzelaufrufen.
