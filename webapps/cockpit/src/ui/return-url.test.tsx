@@ -9,7 +9,7 @@ import { clearCacheWhenSessionEnds } from '../session/cache-binding';
 import type { MreAuthenticator } from '../session/mre-authenticator';
 import { Session } from '../session/session';
 import { SessionContext } from '../session/use-session';
-import { category, page, property, REALM_A, REALM_B, transaction } from '../transactions/fixtures.test-support';
+import { category, listItem, page, property, REALM_A, REALM_B } from '../transactions/fixtures.test-support';
 import { App } from './App';
 
 /**
@@ -39,7 +39,7 @@ function server() {
       '/api/v1/financial-categories': () => ({ items: [category()] }),
       '/api/v1/transactions': () => {
         state.lists.push(url.search);
-        return page([transaction({ description: `Liste ${state.tokens.has(NEW) ? 'neu' : 'alt'}` })], { page: 2, pageSize: 25, total: 60 });
+        return page([listItem({ description: `Liste ${state.tokens.has(NEW) ? 'neu' : 'alt'}` })], { page: 2, pageSize: 25, total: 60 });
       },
     };
     const answer = answers[url.pathname];

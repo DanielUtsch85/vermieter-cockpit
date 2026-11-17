@@ -5,14 +5,17 @@ import type {
   FinancialCategoryDto,
   PageDto,
   PropertyReferenceDto,
+  RentAllocationDto,
   RentCategoryCode,
   ReverseInputDto,
   SplitInputDto,
   TransactionDetailDto,
   TransactionDto,
+  TransactionListItemDto,
   TransactionSplitDto,
   TransactionSplitsDto,
 } from '@vermieter-cockpit/de-backend/client-contract';
+import { addCents, compareCents, decimalToCents } from '../transactions/split-amount';
 import { apiPath, ifMatchForVersion, type DeClient } from './client';
 import { ApiError, CLIENT_CODES } from './errors';
 
@@ -23,11 +26,13 @@ export type {
   FinancialCategoryDto,
   PageDto,
   PropertyReferenceDto,
+  RentAllocationDto,
   RentCategoryCode,
   ReverseInputDto,
   SplitInputDto,
   TransactionDetailDto,
   TransactionDto,
+  TransactionListItemDto,
   TransactionSplitDto,
   TransactionSplitsDto,
 };
@@ -51,10 +56,43 @@ export function checkRealm<T extends { readonly mreRealmId: string }>(realmId: s
 }
 
 /** `GET /transactions` with the list's query (list-params.ts: only supported parameters). */
-export async function listTransactions(client: DeClient, query: Readonly<Record<string, string>>, signal?: AbortSignal): Promise<PageDto<TransactionDto>> {
-  const { data } = await client.get<PageDto<TransactionDto>>('/transactions', { query, ...(signal === undefined ? {} : { signal }) });
+export async function listTransactions(
+  client: DeClient,
+  query: Readonly<Record<string, string>>,
+  signal?: AbortSignal,
+): Promise<PageDto<TransactionListItemDto>> {
+  const { data } = await client.get<PageDto<TransactionListItemDto>>('/transactions', { query, ...(signal === undefined ? {} : { signal }) });
   checkRealm(client.realmId, data.items);
+  if (!data.items.every(rentAllocationValid)) {
+    throw new ApiError(200, CLIENT_CODES.unexpected, 'A list item has an invalid rent allocation.');
+  }
   return data;
+}
+
+/** The states of `rentAllocation` (api-design.md §30.1A). */
+export const RENT_ALLOCATION_STATES = ['NONE', 'PARTIAL', 'FULL'] as const;
+
+/**
+ * `rentAllocation` of a list item as §30.1A defines it, else the page is refused, never shown: `null`, or only on a
+ * counted (`CONFIRMED`/`RECONCILED`, not a reversal) `INFLOW`, with three amounts in the Transaction's currency, a rent
+ * share > 0, rent share = allocated + free, and the state that follows from them (`NONE` at 0 allocated, `FULL` at 0
+ * free, `PARTIAL` between). Decimal strings only, compared as cents: no floating point (ui-guide.md §5.2).
+ */
+export function rentAllocationValid(item: TransactionListItemDto): boolean {
+  const allocation: RentAllocationDto | null | undefined = item.rentAllocation;
+  if (allocation === null) return true;
+  if (allocation === undefined || typeof allocation !== 'object') return false;
+  const counted = (item.status === 'CONFIRMED' || item.status === 'RECONCILED') && item.correctionRole !== 'REVERSAL';
+  if (!counted || item.direction !== 'INFLOW') return false;
+  const amounts = [allocation.rentAmount, allocation.allocatedAmount, allocation.freeAmount];
+  if (!amounts.every((money) => typeof money === 'object' && money !== null && money.currency === item.amount.currency && typeof money.amount === 'string')) {
+    return false;
+  }
+  const [rent, allocated, free] = amounts.map((money) => (/^\d+\.\d{2}$/.test(money.amount) ? decimalToCents(money.amount) : undefined));
+  if (rent === undefined || allocated === undefined || free === undefined) return false;
+  if (rent === '0' || compareCents(addCents(allocated, free), rent) !== 0) return false;
+  const state = allocated === '0' ? 'NONE' : free === '0' ? 'FULL' : 'PARTIAL';
+  return allocation.state === state;
 }
 
 export interface TransactionRead {

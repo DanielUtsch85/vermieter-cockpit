@@ -6,12 +6,13 @@ import {
   ACCOUNT,
   correctionAnswer,
   detail,
+  listItem,
   page,
   property,
   PROPERTY,
-  reversalAnswer,
   REALM_A,
   REALM_B,
+  reversalAnswer,
   split,
   transaction,
   TX,
@@ -48,7 +49,7 @@ function routeOf(call: Call): string | undefined {
 
 describe('step 2 reads: GET /transactions (api-design.md §30.1)', () => {
   it('sends only the supported parameters of the URL, with the Realm and the token', async () => {
-    const { client: de, calls } = client(json(200, page([transaction()])));
+    const { client: de, calls } = client(json(200, page([listItem()])));
     const query = toApiQuery(readListParams('?status=IMPORTED&status=UNREVIEWED&q=Miete&reviewable=true&page=2'));
     const result = await listTransactions(de, query);
     expect(result.items).toHaveLength(1);
@@ -59,7 +60,7 @@ describe('step 2 reads: GET /transactions (api-design.md §30.1)', () => {
   });
 
   it('the amount stays the string of the API: no number reaches the page', async () => {
-    const { client: de } = client(json(200, page([transaction({ amount: { amount: '999999999999999999.99', currency: 'EUR' } })])));
+    const { client: de } = client(json(200, page([listItem({ amount: { amount: '999999999999999999.99', currency: 'EUR' } })])));
     const result = await listTransactions(de, { page: '1', pageSize: '50' });
     expect(result.items[0]?.amount).toEqual({ amount: '999999999999999999.99', currency: 'EUR' });
   });
@@ -84,7 +85,7 @@ describe('step 2 reads: GET /transactions (api-design.md §30.1)', () => {
   });
 
   it('an item of another Realm refuses the whole answer (never shown)', async () => {
-    const { client: de } = client(json(200, page([transaction(), transaction({ mreRealmId: REALM_B })])));
+    const { client: de } = client(json(200, page([listItem(), listItem({ mreRealmId: REALM_B })])));
     await expect(listTransactions(de, { page: '1', pageSize: '50' })).rejects.toMatchObject({ code: CLIENT_CODES.realmMismatch });
   });
 });
@@ -221,7 +222,7 @@ describe('step 3 write: PUT /transactions/{transactionId}/splits (api-design.md 
 describe('integration gate: steps 2 to 4 call only routes of the pinned inventory', () => {
   it('every request of the step-2 reads and the step-3 and step-4 writes is a route of USED_ROUTES, and every such route is used', async () => {
     const { client: de, calls } = client(
-      json(200, page([transaction()])),
+      json(200, page([listItem()])),
       json(200, detail(), { etag: '"3"' }),
       json(200, page([account()])),
       json(200, page([property()])),

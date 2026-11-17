@@ -8,8 +8,10 @@ import {
   LoanNotActiveError,
   DIRECTIONS,
   checkBusinessDate,
+  type RentAllocation,
+  RENT_ALLOCATION_STATES,
   type TransactionFilter,
-  type TransactionPage,
+  type TransactionListPage,
   type TransactionStatus,
   REVIEWABLE_STATUSES,
   TRANSACTION_STATUSES,
@@ -151,6 +153,8 @@ const listFields = z.object({
   financialCategoryCode: z.string().regex(CATEGORY_CODE).optional(),
   bookingDateFrom: businessDate.optional(),
   bookingDateTo: businessDate.optional(),
+  // §30.1A: any of the rent allocation states; „Mietanteil noch frei“ is `NONE,PARTIAL`.
+  rentAllocation: anyOf(RENT_ALLOCATION_STATES).optional(),
   ...PAGING,
 });
 
@@ -185,6 +189,7 @@ export function listFilter(q: Omit<ListQuery, 'propertyReferenceId' | 'page' | '
     ...(q.bookingDateFrom === undefined ? {} : { bookingDateFrom: q.bookingDateFrom }),
     ...(q.bookingDateTo === undefined ? {} : { bookingDateTo: q.bookingDateTo }),
     ...(q.current === 'true' ? { current: true as const } : {}),
+    ...(q.rentAllocation === undefined ? {} : { rentAllocation: q.rentAllocation }),
   };
 }
 
@@ -200,8 +205,25 @@ export function replacementCurrencyFields(error: CurrencyMismatchError, body: { 
   return [...new Set(fields)].map((field) => ({ field, code: 'CURRENCY_MISMATCH' }));
 }
 
-export function sendPage(res: Response, result: TransactionPage): void {
-  res.json({ items: result.items.map(toDto), page: result.page, pageSize: result.pageSize, total: result.total });
+/** The two lists (§30.1, §30.1A): each item is the Transaction's DTO plus `rentAllocation`; nothing else carries that field. */
+export function sendPage(res: Response, result: TransactionListPage): void {
+  res.json({
+    items: result.items.map(({ transaction, rentAllocation }) => ({ ...toDto(transaction), rentAllocation: toRentAllocationDto(rentAllocation) })),
+    page: result.page,
+    pageSize: result.pageSize,
+    total: result.total,
+  });
+}
+
+/** §30.1A's field: `null`, or the state and the three amounts as Money (§31). */
+export function toRentAllocationDto(allocation: RentAllocation | null) {
+  if (allocation === null) return null;
+  return {
+    state: allocation.state,
+    rentAmount: allocation.rentAmount.toJSON(),
+    allocatedAmount: allocation.allocatedAmount.toJSON(),
+    freeAmount: allocation.freeAmount.toJSON(),
+  };
 }
 
 /** `amend` (api-design.md §31.3): only the fields to change, at least one; null clears an optional one. */

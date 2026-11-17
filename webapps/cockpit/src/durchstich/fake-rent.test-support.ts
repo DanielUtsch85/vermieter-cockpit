@@ -352,6 +352,15 @@ export function createRentFake(ctx: RentContext) {
       }),
     );
   };
+  /** A list item's `rentAllocation` (§30.1A), by the backend's rule over the fake's own sums. */
+  const rentAllocation = (t: Tx) =>
+    real.rentAllocation({
+      status: t.status,
+      correctionRole: t.correctionRole,
+      direction: t.direction,
+      rentCash: rentCash(t),
+      matchedTotal: confirmedTotal([...reconciliations.values()].filter((r) => r.transactionId === t.id)),
+    });
   /** The free rent cash of a counted inflow (§37.1), or undefined when it does not count. */
   const available = (t: Tx): Money | undefined => {
     if (t.status !== 'CONFIRMED' || t.correctionRole === 'REVERSAL' || t.direction !== 'INFLOW') return undefined;
@@ -501,5 +510,19 @@ export function createRentFake(ctx: RentContext) {
     return json(201, answer, { etag: `"${r.version}"` });
   };
 
-  return { rentCash, marker, suggest, newRec, recCommand, termCoverage, transactionRent, splitProposal, createMatch, termKey, tenantList, tenantTerms };
+  return {
+    rentCash,
+    rentAllocation,
+    marker,
+    suggest,
+    newRec,
+    recCommand,
+    termCoverage,
+    transactionRent,
+    splitProposal,
+    createMatch,
+    termKey,
+    tenantList,
+    tenantTerms,
+  };
 }

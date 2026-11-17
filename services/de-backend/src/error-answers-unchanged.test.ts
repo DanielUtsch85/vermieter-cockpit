@@ -55,7 +55,10 @@ const RECORD = process.env['VC_X65_RECORD_BEFORE'] === '1';
  * VC-X-66 (Express 4 → 5; review hint on #324): the fields the schemas know but the walk above did not end on, each at
  * every fixed value, on the walk's last body; and the query keys a schema knows that the catalogue walk did not find.
  * Recorded by this file on main 5abb3f1 (Express 4.22.3) with `VC_X66_RECORD_BEFORE=1`, in a file of its own, so the
- * record of VC-X-65 stays as it is.
+ * record of VC-X-65 stays as it is. VC-X-81 (§30.1A) wrote it again (the whole file run, `VC_X66_EXPRESS=4.22.3`): it
+ * differs only in the three routes that gained the query key `rentAllocation` (`GET /transactions`, the
+ * PropertyReference's list, `GET /exports/transactions.csv`): the key among `known` and `paths`, and those routes'
+ * request count and hash; every other route and every body is the earlier record.
  */
 const schemaGolden = join(dirname(fileURLToPath(import.meta.url)), 'error-answers-golden', 'schema-fields-before-vc-x-66.json');
 const RECORD_SCHEMA = process.env['VC_X66_RECORD_BEFORE'] === '1';

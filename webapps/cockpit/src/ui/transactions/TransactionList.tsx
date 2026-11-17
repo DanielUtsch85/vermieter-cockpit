@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { ApiError, partitionFieldErrors, type FieldError } from '../../api/errors';
-import type { PageDto, TransactionDto } from '../../api/transactions';
+import type { PageDto, RentAllocationDto, TransactionListItemDto } from '../../api/transactions';
 import { AREAS, areaPath, transactionPath } from '../../routing';
 import { hasFilters, LIST_FIELD_NAMES, pageCount, toSearch, withPage, type ListParams } from '../../transactions/list-params';
 import { formatBusinessDate } from '../../format/dates';
@@ -11,12 +11,20 @@ import { Link } from '../Link';
 import type { Loadable } from '../RealmChoice';
 import { LoadingState, Notice, ReadProblem } from '../states';
 import { FilterBar } from './FilterBar';
-import { directionLabel, provenanceLabel, statusLabel } from './labels';
+import { directionLabel, provenanceLabel, rentAllocationLabel, statusLabel } from './labels';
 import { accountName, type References } from './references';
 
 /** StatusBadge (ui-guide.md §4.3): the text always says the status, the colour only repeats it (§4.1). */
 export function StatusBadge({ code }: { readonly code: string }) {
   return <Badge label={statusLabel(code)} />;
+}
+
+/**
+ * The rent allocation under the status (api-design.md §30.1A): only for a confirmed rent payment, i.e. when the list
+ * names one; nothing for `null`. It reads the reconciliations, never the status, and says nothing about `RECONCILED`.
+ */
+export function RentAllocationBadge({ allocation }: { readonly allocation: RentAllocationDto | null }) {
+  return allocation === null ? null : <Badge label={rentAllocationLabel(allocation)} />;
 }
 
 /** The field errors of a refused list read, by parameter name; the ones the filter bar has no control for stay out. */
@@ -37,7 +45,7 @@ const NO_ERRORS: ReadonlyMap<string, readonly FieldError[]> = new Map();
 export function TransactionListView(props: {
   readonly realmId: string;
   readonly params: ListParams;
-  readonly list: Loadable<PageDto<TransactionDto>>;
+  readonly list: Loadable<PageDto<TransactionListItemDto>>;
   readonly references: References;
   readonly onFilter: (params: ListParams) => void;
   readonly onRetry: () => void;
@@ -72,7 +80,7 @@ export function TransactionListView(props: {
 function ListContent(props: {
   readonly realmId: string;
   readonly params: ListParams;
-  readonly list: Loadable<PageDto<TransactionDto>>;
+  readonly list: Loadable<PageDto<TransactionListItemDto>>;
   readonly references: References;
   readonly onRetry: () => void;
   readonly listHref: (params: ListParams) => string;
@@ -163,7 +171,15 @@ function ListContent(props: {
  * 2026-11-12, point 7), the account wraps to at most two lines (Entscheidung des Projektinhabers, 2026-11-13); text cut
  * off at the end of its line or lines has the whole text as `title`.
  */
-function Row({ realmId, transaction, references }: { readonly realmId: string; readonly transaction: TransactionDto; readonly references: References }) {
+function Row({
+  realmId,
+  transaction,
+  references,
+}: {
+  readonly realmId: string;
+  readonly transaction: TransactionListItemDto;
+  readonly references: References;
+}) {
   const date = formatBusinessDate(transaction.bookingDate) ?? transaction.bookingDate;
   const account = accountName(references, transaction.financialAccountId);
   return (
@@ -186,7 +202,10 @@ function Row({ realmId, transaction, references }: { readonly realmId: string; r
         </p>
       </td>
       <td className="p-3">
-        <StatusBadge code={transaction.status} />
+        <div className="flex flex-col items-start gap-1">
+          <StatusBadge code={transaction.status} />
+          <RentAllocationBadge allocation={transaction.rentAllocation} />
+        </div>
       </td>
       <td className="p-3">{provenanceLabel(transaction.provenance).text}</td>
       <td className="p-3">

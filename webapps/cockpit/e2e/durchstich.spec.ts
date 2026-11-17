@@ -205,6 +205,16 @@ test('import, review items, split from the MRE proposal, confirm, rent suggestio
   const coverage = page.getByRole('region', { name: 'Mietabgleich dieser Buchung' });
   await expect(coverage).toContainText(`Mietanteil der Buchung${euro('850,00')}Davon bestätigt zugeordnet${euro('0,00')}Noch frei${euro('850,00')}`);
 
+  // #381 part 2 (api-design.md §30.1A): in the Buchungsliste the confirmed rent payment reads „Miete nicht zugeordnet“
+  // under its status, and „Mietanteil noch frei“ finds it.
+  await nav(page, 'Buchungen');
+  await expect(page.getByText('Miete nicht zugeordnet', { exact: true })).toHaveCount(1);
+  await page.getByRole('checkbox', { name: 'Mietanteil noch frei' }).check();
+  await page.getByRole('button', { name: 'Filter anwenden' }).click();
+  await expect(page).toHaveURL(/\?rentAllocation=NONE%2CPARTIAL$/);
+  await expect(page.getByRole('link', { name: 'Buchung vom 01.10.2026 öffnen' })).toHaveCount(1);
+  await expectNoSideScroll(page, 'transaction list with the rent allocation');
+
   // Step 6: suggest October, confirm the one suggestion, then write it back to MRE as its own step.
   await nav(page, 'Mietabgleich');
   await page.getByLabel('Erster Monat').fill('2026-10');
@@ -229,4 +239,9 @@ test('import, review items, split from the MRE proposal, confirm, rent suggestio
   await expectNoSideScroll(page, 'rent reconciliation');
   const reconciliation = new URL(page.url()).pathname.split('/').at(-1) ?? '';
   expect(await mrePayments(s, TERM_OCT)).toEqual([{ amount: 850, reference: `DE-RPR-${reconciliation}` }]);
+
+  // #381 part 2: after the confirmed match the list reads „Miete zugeordnet“; the status stays „Bestätigt“ (P4-D3).
+  await nav(page, 'Buchungen');
+  await expect(page.getByText('Miete zugeordnet', { exact: true })).toHaveCount(1);
+  await expect(page.getByText('Miete nicht zugeordnet', { exact: true })).toHaveCount(0);
 });

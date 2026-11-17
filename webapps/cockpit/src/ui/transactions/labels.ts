@@ -3,6 +3,8 @@
  * translated; §6.3: the status labels of its table). A code the client does not know is shown with the code, never as
  * an empty cell or a guess (§11: an unknown enum gives no empty page).
  */
+import { formatMoney, type MoneyValue } from '../../format/money';
+
 export type Tone = 'warning' | 'success' | 'neutral' | 'info';
 
 export interface CodeLabel {
@@ -45,6 +47,31 @@ const lookup = (table: Readonly<Record<string, string>>, code: string, unknown: 
 export function statusLabel(code: string): CodeLabel {
   const entry = Object.hasOwn(STATUS, code) ? STATUS[code] : undefined;
   return entry === undefined ? { text: `Unbekannter Status (${code})`, tone: 'info', known: false } : { text: entry[0], tone: entry[1], known: true };
+}
+
+/**
+ * The rent allocation of a confirmed rent payment in the list (api-design.md §30.1A; Entscheidung des Projektinhabers,
+ * 2026-11-17: the texts as proposed). „nicht zugeordnet“, not „offen“: „offene Miete“ reads as the tenant's arrear.
+ * Open work is `warning` („offen, prüfen“, ui-guide.md §4.1), the full allocation `success`; the text says it either way.
+ */
+const RENT_ALLOCATION: Readonly<Record<string, readonly [text: string, tone: Tone]>> = {
+  NONE: ['Miete nicht zugeordnet', 'warning'],
+  PARTIAL: ['Miete teilweise zugeordnet', 'warning'],
+  FULL: ['Miete zugeordnet', 'success'],
+};
+
+/** The state's text alone (the filter's note names a state the bar does not offer). */
+export function rentAllocationStateLabel(state: string): CodeLabel {
+  const entry = Object.hasOwn(RENT_ALLOCATION, state) ? RENT_ALLOCATION[state] : undefined;
+  return entry === undefined ? { text: `Unbekannte Mietzuordnung (${state})`, tone: 'info', known: false } : { text: entry[0], tone: entry[1], known: true };
+}
+
+/** The badge under the status: the state, and for `PARTIAL` the free rest in the list's money format („noch frei 250,00 €“). */
+export function rentAllocationLabel(allocation: { readonly state: string; readonly freeAmount: MoneyValue }): CodeLabel {
+  const label = rentAllocationStateLabel(allocation.state);
+  if (allocation.state !== 'PARTIAL') return label;
+  const free = formatMoney(allocation.freeAmount) ?? `${allocation.freeAmount.amount} ${allocation.freeAmount.currency}`;
+  return { ...label, text: `${label.text} · noch frei ${free}` };
 }
 
 export const provenanceLabel = (code: string): CodeLabel => lookup(PROVENANCE, code, 'Unbekannte Herkunft');

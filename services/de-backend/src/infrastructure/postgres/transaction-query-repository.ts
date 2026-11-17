@@ -3,6 +3,7 @@ import type { PageRequest, Transaction, TransactionFilter, TransactionPage, Tran
 import type { Database } from './schema.js';
 import { COLUMNS, UUID, toDomain } from './transaction-repository.js';
 import { filtered, matchesNothing, splitsOf } from './transaction-reads.js';
+import { rentSumsOfPage } from './transaction-rent-sums.js';
 
 /** PostgreSQL implementation of the Transaction read port (api-design.md §30). Plain reads, no locks. */
 export class PostgresTransactionQueries implements TransactionQueries {
@@ -23,7 +24,7 @@ export class PostgresTransactionQueries implements TransactionQueries {
   }
 
   async list(mreRealmId: string, filter: TransactionFilter, page: PageRequest): Promise<TransactionPage> {
-    const empty: TransactionPage = { items: [], page: page.page, pageSize: page.pageSize, total: 0 };
+    const empty: TransactionPage = { items: [], page: page.page, pageSize: page.pageSize, total: 0, rentSums: new Map() };
     if (matchesNothing(filter)) return empty;
     // Count and page in one snapshot, so `total` and `items` agree.
     return this.db
@@ -45,7 +46,13 @@ export class PostgresTransactionQueries implements TransactionQueries {
           .limit(page.pageSize)
           .offset((page.page - 1) * page.pageSize);
         const rows = await newestFirst(trx.selectFrom('ledger_transaction')).select(COLUMNS).where('ledger_transaction.id', 'in', pageIds).execute();
-        return { items: rows.map(toDomain), page: page.page, pageSize: page.pageSize, total };
+        // §30.1A: the rent sums of the page's rows, one further statement in the same snapshot.
+        const rentSums = await rentSumsOfPage(
+          trx,
+          mreRealmId,
+          rows.map((r) => r.id),
+        );
+        return { items: rows.map(toDomain), page: page.page, pageSize: page.pageSize, total, rentSums };
       });
   }
 }

@@ -15,6 +15,11 @@ import { databaseUrl, REALM_A, REALM_B, usePhase2App } from './phase-2-acceptanc
  * with every supported parameter at a valid value and with refusals of known parameters, is answered. Here the same
  * fixture is read again and the raw bodies must equal the record once ids are replaced by names and instants by a
  * marker. Synthetic data only.
+ *
+ * VC-X-81 (§30.1A) added `rentAllocation` to every item of the two Transaction lists: the record was written again on
+ * that branch and differs from the one before only by `,"rentAllocation":null` after each list item's last field (11
+ * items in 5 answers; the fixture has no rent split). With that field removed every answer is the earlier record, byte
+ * for byte; the CSV exports and every other answer are unchanged.
  */
 const golden = join(dirname(fileURLToPath(import.meta.url)), 'query-parameters-golden', 'before-vc-x-61.json');
 const RECORD = process.env['VC_X61_RECORD_BEFORE'] === '1';

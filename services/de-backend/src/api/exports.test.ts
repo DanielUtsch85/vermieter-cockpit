@@ -81,6 +81,9 @@ describe('GET /api/v1/exports/transactions.csv', () => {
       'bookingDateFrom=2026-09-01',
       'bookingDateTo=2026-09-30',
       `financialAccountId=${ACCOUNT}&status=CONFIRMED&current=true&propertyReferenceId=${PROPERTY}&financialCategoryCode=RENT_BASE&provenance=MANUAL&bookingDateFrom=2026-01-01&bookingDateTo=2026-12-31`,
+      // §30.1A: the export takes the list's rentAllocation through the same schema (Entscheidung des Projektinhabers, 2026-11-17).
+      'rentAllocation=NONE,PARTIAL',
+      'rentAllocation=FULL&status=CONFIRMED',
     ];
     for (const query of queries) {
       expect((await get(base, `/exports/transactions.csv?${query}`)).status, query).toBe(200);
@@ -90,6 +93,20 @@ describe('GET /api/v1/exports/transactions.csv', () => {
     expect(exported[1]).toEqual({ financialAccountId: ACCOUNT });
     expect(exported[5]).toEqual({ statuses: ['IMPORTED'] });
     expect(exported[6]).toEqual({ current: true });
+    expect(exported[12]).toEqual({ rentAllocation: ['NONE', 'PARTIAL'] });
+    expect(exported[13]).toEqual({ statuses: ['CONFIRMED'], rentAllocation: ['FULL'] });
+  });
+
+  it('§30.1A: with rentAllocation the file is the same file, column for column (no new column)', async () => {
+    const base = await start({ transactions: fake([[item, item]]) });
+    for (const dialect of ['rfc4180', 'excel-de']) {
+      for (const rows of ['transactions', 'splits']) {
+        const plain = await (await get(base, `/exports/transactions.csv?dialect=${dialect}&rows=${rows}`)).text();
+        const filtered = await (await get(base, `/exports/transactions.csv?dialect=${dialect}&rows=${rows}&rentAllocation=NONE,PARTIAL`)).text();
+        expect(filtered, `${dialect} ${rows}`).toBe(plain);
+        expect(filtered.split('\r\n')[0]).not.toMatch(/rent|alloc/i);
+      }
+    }
   });
 
   it.each([
@@ -101,6 +118,8 @@ describe('GET /api/v1/exports/transactions.csv', () => {
     ['an inverted range', 'bookingDateFrom=2026-10-01&bookingDateTo=2026-09-01', [{ field: 'bookingDateTo', code: 'INVALID_RANGE' }]],
     ['a malformed account id', 'financialAccountId=x', [{ field: 'financialAccountId', code: 'INVALID_FORMAT' }]],
     ['an unknown status', 'status=NOPE', [{ field: 'status', code: 'INVALID_FORMAT' }]],
+    ['an unknown rent allocation state', 'rentAllocation=OPEN', [{ field: 'rentAllocation', code: 'INVALID_FORMAT' }]],
+    ['rentAllocation twice', 'rentAllocation=NONE&rentAllocation=FULL', [{ field: 'rentAllocation', code: 'INVALID_FORMAT' }]],
     ['dialect=excel', 'dialect=excel', [{ field: 'dialect', code: 'INVALID_FORMAT' }]],
     ['dialect=EXCEL-DE', 'dialect=EXCEL-DE', [{ field: 'dialect', code: 'INVALID_FORMAT' }]],
     ['dialect empty', 'dialect=', [{ field: 'dialect', code: 'INVALID_FORMAT' }]],

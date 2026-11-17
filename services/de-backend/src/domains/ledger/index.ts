@@ -148,6 +148,7 @@ export type {
 } from './amend-transaction.js';
 export { CURRENT_STATUSES, REVIEWABLE_STATUSES } from './transaction-query.js';
 export type {
+  ListedRentSums,
   PageRequest,
   TransactionExportHead,
   TransactionExportQueries,

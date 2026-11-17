@@ -1,3 +1,4 @@
+import type { Money } from '../../shared/index.js';
 import type { TransactionSplit } from './transaction-split.js';
 import type { BusinessDate, Provenance, Transaction, TransactionStatus } from './transaction.js';
 
@@ -24,6 +25,12 @@ export interface TransactionFilter {
    * `CORRECTED` original nor its reversal. Combined with `statuses` like any other filter (AND).
    */
   readonly current?: true;
+  /**
+   * §30.1A (VC-X-81): only Transactions whose rent allocation is in any of these states, so never one whose
+   * `rentAllocation` would be `null`. The states and their rule are rent-reconciliation's (`RENT_ALLOCATION_STATES`,
+   * `rentAllocationOf`); the Ledger names them only to carry the filter to the adapter.
+   */
+  readonly rentAllocation?: readonly ('NONE' | 'PARTIAL' | 'FULL')[];
 }
 
 export interface PageRequest {
@@ -32,11 +39,24 @@ export interface PageRequest {
   readonly pageSize: number;
 }
 
+/**
+ * A listed Transaction's rent sums (api-design.md §30.1A), read for the page's rows in the list's snapshot: Σ of its
+ * splits in the rent categories (`null` without one) and Σ `matchedAmount` of its `CONFIRMED` reconciliations (`0.00`
+ * when none), both of the caller's Realm. The Ledger only carries them; rent-reconciliation's `rentAllocationOf` turns
+ * them into the list's `rentAllocation`.
+ */
+export interface ListedRentSums {
+  readonly rentCash: Money | null;
+  readonly matchedTotal: Money;
+}
+
 export interface TransactionPage {
   readonly items: readonly Transaction[];
   readonly page: number;
   readonly pageSize: number;
   readonly total: number;
+  /** By Transaction id, one for every item of the page (§30.1A). */
+  readonly rentSums: ReadonlyMap<string, ListedRentSums>;
 }
 
 /** `reviewable` of §30: the pre-classification states. */

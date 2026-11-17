@@ -15,6 +15,7 @@ import {
 } from '../application/index.js';
 import { Money } from '../shared/index.js';
 import { createApp } from './app.js';
+import { toDto } from './transaction-dto.js';
 import { commandsWith, type CommandOverrides } from './app.test-support.js';
 import { REALM, ACCOUNT, PROPERTY, transaction, admin } from './transactions.test-support.js';
 
@@ -200,7 +201,7 @@ describe('GET /api/v1/transactions(/{id}) (§30.1, VC-X-21)', () => {
       transactions: {
         list: async (input) => {
           seen.push(input);
-          return { items: [transaction], page: input.page.page, pageSize: input.page.pageSize, total: 7 };
+          return { items: [{ transaction, rentAllocation: null }], page: input.page.page, pageSize: input.page.pageSize, total: 7 };
         },
       },
     });
@@ -232,6 +233,46 @@ describe('GET /api/v1/transactions(/{id}) (§30.1, VC-X-21)', () => {
     // current=true is passed as such; the repository applies it together with status.
     await get(base, '/transactions?current=true&status=RECONCILED');
     expect(seen[4]?.filter).toEqual({ statuses: ['RECONCILED'], current: true });
+    // §30.1A: rentAllocation as a comma list of states, passed as such (AND with the rest in the repository).
+    await get(base, '/transactions?rentAllocation=NONE,PARTIAL&status=CONFIRMED');
+    expect(seen[5]?.filter).toEqual({ statuses: ['CONFIRMED'], rentAllocation: ['NONE', 'PARTIAL'] });
+    await get(base, '/transactions?rentAllocation=FULL');
+    expect(seen[6]?.filter).toEqual({ rentAllocation: ['FULL'] });
+  });
+
+  it('§30.1A: each list item carries rentAllocation, null or the state with the three amounts as Money', async () => {
+    const allocation = {
+      state: 'PARTIAL' as const,
+      rentAmount: Money.of('850.00', 'EUR'),
+      allocatedAmount: Money.of('600.00', 'EUR'),
+      freeAmount: Money.of('250.00', 'EUR'),
+    };
+    const base = await startWith({
+      transactions: {
+        list: async () => ({
+          items: [
+            { transaction, rentAllocation: allocation },
+            { transaction, rentAllocation: null },
+          ],
+          page: 1,
+          pageSize: 50,
+          total: 2,
+        }),
+        listForPropertyReference: async () => ({ items: [{ transaction, rentAllocation: allocation }], page: 1, pageSize: 50, total: 1 }),
+      },
+    });
+    const expected = {
+      state: 'PARTIAL',
+      rentAmount: { amount: '850.00', currency: 'EUR' },
+      allocatedAmount: { amount: '600.00', currency: 'EUR' },
+      freeAmount: { amount: '250.00', currency: 'EUR' },
+    };
+    const body = (await (await get(base, '/transactions')).json()) as { items: Record<string, unknown>[] };
+    expect(body.items.map((i) => i['rentAllocation'])).toEqual([expected, null]);
+    // The field is added to the Transaction's DTO, nothing else changes: the keys are toDto's plus rentAllocation.
+    expect(Object.keys(body.items[0] ?? {})).toEqual([...Object.keys(toDto(transaction)), 'rentAllocation']);
+    const subresource = (await (await get(base, `/property-references/${PROPERTY}/transactions`)).json()) as { items: Record<string, unknown>[] };
+    expect(subresource.items[0]?.['rentAllocation']).toEqual(expected);
   });
 
   it('GET /property-references/{id}/transactions: the same filters, the id from the path; 404 when unknown or foreign', async () => {
@@ -241,7 +282,7 @@ describe('GET /api/v1/transactions(/{id}) (§30.1, VC-X-21)', () => {
         listForPropertyReference: async (input) => {
           seen.push(input);
           if (input.propertyReferenceId !== PROPERTY) throw new PropertyReferenceNotFoundError(input.propertyReferenceId);
-          return { items: [transaction], page: input.page.page, pageSize: input.page.pageSize, total: 1 };
+          return { items: [{ transaction, rentAllocation: null }], page: input.page.page, pageSize: input.page.pageSize, total: 1 };
         },
       },
     });
@@ -275,8 +316,20 @@ describe('GET /api/v1/transactions(/{id}) (§30.1, VC-X-21)', () => {
       'provenance=IMPORT',
       'financialAccountId=x',
       'bookingDateFrom=2026-09-02&bookingDateTo=2026-09-01',
+      // §30.1A: empty, an empty element, lower case, another value, the alias of the alternative, a repeated key.
+      'rentAllocation=',
+      'rentAllocation=NONE,',
+      'rentAllocation=none',
+      'rentAllocation=OPEN',
+      'rentAllocation=NONE&rentAllocation=PARTIAL',
     ]) {
       expect((await get(base, `/transactions?${query}`)).status, query).toBe(400);
+    }
+    for (const query of ['rentAllocation=', 'rentAllocation=OPEN', 'rentAllocation=none']) {
+      const refused = await get(base, `/transactions?${query}`);
+      expect(((await refused.json()) as { error: { details: unknown } }).error.details, query).toEqual({
+        fields: [{ field: 'rentAllocation', code: 'INVALID_FORMAT' }],
+      });
     }
     const inverted = await get(base, '/transactions?bookingDateFrom=2026-09-02&bookingDateTo=2026-09-01');
     expect(((await inverted.json()) as { error: { details: unknown } }).error.details).toEqual({ fields: [{ field: 'bookingDateTo', code: 'INVALID_RANGE' }] });

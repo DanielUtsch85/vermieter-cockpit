@@ -1444,6 +1444,7 @@ Useful filters:
   - `financialCategoryCode`: at least one split of that category (a code such as `RENT_BASE`). Unsplit Transactions never match. A deactivated category still matches its historical splits. An unknown code matches nothing, unlike in the split commands (§33), where it is `400 UNKNOWN_CATEGORY`: a read filter for a code that has no splits is an empty answer, not an error (review note on #34). A malformed code is `400`;
   - `bookingDateFrom` / `bookingDateTo`: inclusive, `400 INVALID_RANGE` when inverted;
   - `current=true`: only the current Transactions of §35.3, i.e. `CONFIRMED` or `RECONCILED` and not a reversal. A chain shows only its last member: neither the `CORRECTED` originals nor their reversals. Combined with `status` like the other filters, so `current=true&status=RECONCILED` lists the reconciled ones and `current=true&status=CORRECTED` lists nothing. Summing a `current=true` list (signed by `direction`, over all pages) gives the net effect of §35.3 per account and period; per category and PropertyReference the current Transactions' splits are needed, since the list items carry none (review note on #31).
+  - `rentAllocation`: a comma-separated list of `NONE`, `PARTIAL`, `FULL`, any of them: the Transactions whose rent allocation (§30.1A) is in one of these states, e.g. `rentAllocation=NONE,PARTIAL` for „Mietanteil noch frei“. Each item of both lists carries the field `rentAllocation` (§30.1A, VC-X-81).
 - **`GET /api/v1/property-references/{propertyReferenceId}/transactions`:** the same list with `propertyReferenceId` taken from the path (the Transaction's own or one of its splits'), with the same filters and paging. A `propertyReferenceId` query parameter is unknown there (`400`). An unknown or foreign PropertyReference is `404 NOT_FOUND` with `details.propertyReferenceId`, not an empty page; a malformed id is `400`.
 - **Paging:** `page` starts at 1. `pageSize` is 1–200, default 50. `total` and `items` come from the same snapshot.
 - **Query plan (VC-X-19, migration 0015):** the page's ids are read in list order from the index `(mre_realm_id, booking_date DESC, created_at DESC, id DESC)`, and the scan stops at offset + limit. Only then is the DTO read for those rows, so the two link subqueries (`reversalTransactionId`, `replacementTransactionId`) run once per row of the page, each an index probe, and never for the rows the offset skips. A plan test (`EXPLAIN`) holds this. A deep page still walks its offset in the index; keyset paging is a later choice.
@@ -1452,11 +1453,11 @@ Useful filters:
 - **No match possible:** `status` together with `reviewable=true` without a common status (e.g. `status=CONFIRMED&reviewable=true`) is an empty page, not an error.
 - **Raw list:** without `status` or `current` the list also holds `CORRECTED` originals, reversals and `IGNORED` Transactions.
 - **Not yet:**
-  - The filters for counterparty (no counterparty fields on Transactions yet), unreconciled (Phase 4, reconciliation) and needs review (meaning still open). For rent, §30.1A specifies the list's `rentAllocation` field and filter (#381 part 2, VC-X-81, not built); a general "unreconciled" stays open.
+  - The filters for counterparty (no counterparty fields on Transactions yet), unreconciled (Phase 4, reconciliation) and needs review (meaning still open). For rent, the list has the field and filter `rentAllocation` (§30.1A, #381 part 2, VC-X-81, implemented); a general "unreconciled" stays open.
 
-## 30.1A Rent allocation in the list (#381 part 2, VC-X-81, specified, not built)
+## 30.1A Rent allocation in the list (#381 part 2, VC-X-81, implemented: no migration)
 
-**Status:** specified in this docs PR, **not built** (backlog VC-X-81). Backend and the cockpit's Buchungsliste follow in **one** PR, after part 1 of #381 (the honest status filter). One field on the list items and one filter on §30.1's list; no write, no migration, no new route, no new error code. `RECONCILED` keeps its meaning of §35.4 and P4-D3: nothing here sets it or reads it as "rent matched".
+**Status:** **implemented** (VC-X-81; no migration; "As implemented (VC-X-81)" at the end of this section). The ten open questions were decided **as proposed** (Entscheidung des Projektinhabers, 2026-11-17; "Decided" below). Specified in the docs PR #382; backend and the cockpit's Buchungsliste in **one** PR, after part 1 of #381 (the honest status filter). One field on the list items and one filter on §30.1's list; no write, no migration, no new route, no new error code. `RECONCILED` keeps its meaning of §35.4 and P4-D3: nothing here sets it or reads it as "rent matched".
 
 **Decided by the owner on 2026-11-16 (chat)** (Entscheidung des Projektinhabers, 2026-11-16): „Ja: Spec, dann bauen“, for part 2 of #381: first a short spec section in api-design and a backlog row (a field in the list DTO and a filter), then backend and list in one PR, after part 1. Not decided and not proposed: setting `RECONCILED` after a rent reconciliation (the status makes a Transaction not correctable, §35.4; P4-D3 left it open on purpose).
 
@@ -1526,7 +1527,7 @@ No route is added: `docs/development/api-inventory.md` is unchanged. §58W's rou
 - **Cockpit:** each badge text and none for `null`; the shortcut writes and restores the URL; a `400` shown at the checkbox; the e2e run (Durchstich) shows „Miete nicht zugeordnet“ before and „Miete zugeordnet“ after the confirmed match.
 - **Mutations** (each alone, restored byte for byte): `RELEASED` summed; `SUGGESTED` summed; the `INFLOW` condition dropped; the reversal condition dropped; `FULL` at `>` instead of `≥`; the Realm condition dropped from the allocated sum; the filter built without the counted condition; the aggregate run per row (the plan or a query counter turns red).
 
-### Open questions for review
+### Open questions for review (decided as proposed, see "Decided" below)
 
 1. **`null` or a state for "nothing to allocate".** **Proposal:** `null` whenever the Transaction is not counted, not `INFLOW` or has no rent share, so the cockpit shows a badge only where a match is possible. **Alternative:** a fourth state `NOT_APPLICABLE` (always an object), or `null` only without a rent share and a state `NOT_COUNTED` for an unconfirmed rent payment.
 2. **Which reconciliations count as allocated.** **Proposal:** `CONFIRMED` only, as §37.2's `matchedTotal` and the cash guard; `RELEASED` gives its cash back, `SUGGESTED` and `REJECTED` never held any. **Alternative:** count `SUGGESTED` ones too, or show them separately (`suggestedAmount`), so a pending suggestion is visible in the list.
@@ -1538,6 +1539,26 @@ No route is added: `docs/development/api-inventory.md` is unchanged. §58W's rou
 8. **The shortcut.** **Proposal:** a checkbox „Mietanteil noch frei“ beside „Nur aktuelle …“, sending `rentAllocation=NONE,PARTIAL`. **Alternative:** a select „Mietzuordnung“ with „alle / nicht zugeordnet / teilweise / vollständig / noch frei“.
 9. **`freeAmount` in the field.** **Proposal:** yes: the client shows money and never computes it. **Alternative:** only `rentAmount` and `allocatedAmount`, the cockpit subtracts (as decimal strings).
 10. **The field's name.** **Proposal:** `rentAllocation` (the cockpit's „Zuordnung“), distinct from `RECONCILED` and from the resource name `rent-reconciliations`, so nobody reads it as the status. **Alternative:** `rentReconciliation` or `rentCoverage` (the latter is §37.2's per-term word, with other states).
+
+### Decided (Entscheidung des Projektinhabers, 2026-11-17)
+
+> #382: alles wie vorgeschlagen, alle zehn Punkte. Nur bestätigte Zuordnungen zählen, passend zu `matchedTotal` und „noch frei“ an anderer Stelle; der Export übernimmt den Filter ohne neue Spalte, damit das Kassenbuch als Datei unverändert bleibt.
+
+So, each as proposed: (1) `null` when there is nothing to allocate (not counted, not `INFLOW`, no rent share), no fourth state; (2) only `CONFIRMED` reconciliations count (`SUGGESTED`, `REJECTED`, `RELEASED` never); (3) an `OUTFLOW` with a rent split is `null`; (4) the filter is a comma list of `NONE`, `PARTIAL`, `FULL`, no alias; (5) the export accepts the filter and adds no column; (6) only the two lists carry the field, not `GET /transactions/{id}` nor the command responses; (7) the badge texts „Miete zugeordnet“, „Miete teilweise zugeordnet · noch frei …“, „Miete nicht zugeordnet“, none for `null`; (8) the shortcut is a checkbox „Mietanteil noch frei“ (`rentAllocation=NONE,PARTIAL`, a URL parameter); (9) `freeAmount` is in the field; (10) the name is `rentAllocation`. **Not** decided and not done: setting `RECONCILED` (§35.4, P4-D3).
+
+### As implemented (VC-X-81)
+
+No migration, no new route (`docs/development/api-inventory.md` and `yarn api:inventory:check` unchanged, 177 routes), no new error code, no write.
+
+1. **Rule** (`domains/rent-reconciliation/reconciliation.ts`): `rentAllocationOf({ counted, direction, rentCash, matchedTotal })` → `RentAllocation | null` beside `availableOf`; `RENT_ALLOCATION_STATES`. `freeAmount` and `availableOf` go through one private function (`freeRentOf`); the cash rules' "counted" is one function `isCounted(status, correctionRole)`, used by `checkMatch`, §37.2's per-Transaction read and the list. A rent share of `0.00` (only possible with a zero split, which §33 refuses) is `null`, as `checkMatch` refuses it (`NO_RENT_CASH`).
+2. **Ledger port** (`domains/ledger/transaction-query.ts`): `TransactionFilter.rentAllocation` and `TransactionPage.rentSums` (by Transaction id: `rentCash` or `null`, `matchedTotal`). The Ledger domain names the three states only to carry the filter and imports nothing of rent-reconciliation (architecture.test.ts).
+3. **PostgreSQL** (`infrastructure/postgres/transaction-rent-sums.ts`): one SQL fragment (`rentSums`) correlated to `ledger_transaction`, both sums held to the caller's Realm; the page aggregate `rentSumsOfPage` (one statement after the page's rows, in the list's `REPEATABLE READ READ ONLY` snapshot, `CROSS JOIN LATERAL` over the page's ids only) and the filter `rentAllocationPredicate` in `filtered` (counted, `INFLOW`, rent share > 0, the state by `CASE` from the same fragment) use it. An empty state list matches nothing (`matchesNothing`). The currency of both sums is the Transaction's (composite foreign keys of 0008 and 0030).
+4. **Use case** (`application/read-transactions.ts`): both lists return `{ transaction, rentAllocation }` items, applying `rentAllocationOf` to the page's sums; a page whose sums miss an item is an error, never a silent `null`. **API** (`api/transaction-dto.ts`): `rentAllocation` parsed by `anyOf(RENT_ALLOCATION_STATES)` on both lists and, through the shared schema, on the export; `sendPage` adds `rentAllocation` (`toRentAllocationDto`) after the Transaction's fields. `toDto` is unchanged, so the single read and every command response are too. `client-contract.ts` gains `RentAllocationDto` and `TransactionListItemDto`.
+5. **Plan** (`transaction-rent-allocation-plan.test.ts`, 20 Realms × 500 confirmed rent payments, every other one with a `CONFIRMED` and a `RELEASED` match): the page aggregate is exactly one statement per list read; the rent sum reads `transaction_split_position_key`, the allocated sum `rent_payment_reconciliation_confirmed_key`, each once per row of the page (50 loops for page 2, never for the skipped rows), neither table sequentially; the filtered count and page probe the same two indexes. Counter-check: with the partial index dropped in a rolled-back transaction the allocated sum no longer uses it and reads more rows than the page has matches.
+6. **The answers recorded before VC-X-61** (`query-parameters-golden/before-vc-x-61.json`, §58W) were written again: they differ only by `,"rentAllocation":null` after each list item's last field (11 items in 5 answers); with it removed every answer, the CSV exports included, is the earlier record byte for byte.
+7. **Parameter catalogue** (§58W decision 8): the rows `/transactions`, `/property-references/:propertyReferenceId/transactions` and `/exports/transactions.csv` of §58W's route table name `rentAllocation`.
+8. **Cockpit** (Buchungsliste): the badge under the `StatusBadge` (`RentAllocationBadge`, labels in `labels.ts`: `FULL` success, `NONE` and `PARTIAL` warning, ui-guide §4.1); the shortcut „Mietanteil noch frei“ as a checkbox in the row of „Nur zu prüfende …“ and „Nur aktuelle …“, a URL parameter (`?rentAllocation=NONE%2CPARTIAL`) restored from the URL, its refusal shown at the checkbox; another state in the URL (a typed `FULL`) is named under the checkbox and dropped by „Filter anwenden“, as an unoffered status. The client refuses a page whose `rentAllocation` breaks this section (on an item that cannot be allocated, a wrong state, amounts that do not add up as cents, another currency). The Durchstich's fake answers the field through the backend's own rule and mapping. `BACKEND_PIN` moved to the backend commit (DTO change); `USED_ROUTES` unchanged.
+9. **Not done:** the detail's text for an `OUTFLOW` with a rent split (open question 3's "may align"): §37.2's read still shows its rent share as „Noch frei“; the list shows nothing for it. The ui-guide sentence for the Buchungsliste is proposed in the PR, not written here (ui-guide is changed by its own PR).
 
 ---
 
@@ -2165,7 +2186,7 @@ Decisions P4-D1, P4-D2, P4-D3 and P4-D7 (release and the correction rule) of `do
 - **Counted:** the Transaction is `CONFIRMED` or `RECONCILED`, and not a reversal (§35.3's "current").
 - **`INFLOW`.**
 - **Rent cash** = the sum of its splits with category `RENT_BASE`, `RENT_OPERATING_COST_ADVANCE` or `RENT_OPERATING_COST_SETTLEMENT`. A counted Transaction's splits are frozen (§34.2), so its rent cash never changes.
-- **Available** = rent cash − Σ `matchedAmount` of its `CONFIRMED` reconciliations. The Transaction list shows it per item (`rentAllocation`, §30.1A).
+- **Available** = rent cash − Σ `matchedAmount` of its `CONFIRMED` reconciliations. The two Transaction lists carry it per item as `rentAllocation.freeAmount` (§30.1A, VC-X-81) for a counted `INFLOW` Transaction with rent cash > 0; for any other item `rentAllocation` is `null`.
 - **At most one `CONFIRMED` reconciliation per Transaction, `mreTenantId` and `mreRentTerm`.** Several Transactions may match one term (a rent paid in two transfers), and one Transaction may match several terms (two months in one transfer, BR-RENT-008), each with its own `matchedAmount`.
 
 ### `POST /api/v1/rent-reconciliations`
@@ -2312,7 +2333,7 @@ Decision P4-D5 of `docs/development/phase-4-plan.md`, BR-RENT-006/007. Two deriv
   - `reconciliations`: every reconciliation of the Transaction, any status, in `createdAt` order, each as §37.1's response.
 - A Transaction that is not rent (no `RENT_*` split) answers with `rentCash = null` and its (empty) list, not `404`: the read describes, the match refuses (§37.1).
 - The rest after the matches (`available` > 0) stays visible: it is the "unresolved" part of BR-RENT-007 until it is matched or its meaning is decided.
-- **The Buchungsliste uses these definitions** (§30.1A, #381 part 2, VC-X-81, not built): its `rentAllocation` carries `rentAmount` = `rentCash`, `allocatedAmount` = `matchedTotal` and `freeAmount` = `available`, computed by the same rule, for a counted `INFLOW` Transaction with rent cash (else `null`). So „Davon bestätigt zugeordnet“ and „Noch frei“ in the detail and the badge in the list agree.
+- **The Buchungsliste uses these definitions** (§30.1A, #381 part 2, VC-X-81, implemented): its `rentAllocation` carries `rentAmount` = `rentCash`, `allocatedAmount` = `matchedTotal` and `freeAmount` = `available`, computed by the same rule, for a counted `INFLOW` Transaction with rent cash (else `null`). So „Davon bestätigt zugeordnet“ and „Noch frei“ in the detail and the badge in the list agree.
 
 ### In the code
 
@@ -10060,7 +10081,7 @@ Entscheidung des Projektinhabers, 2026-11-06: „**P1-Ergänzung im UI-Leitfaden
 
 ### `GET /api/v1/exports/transactions.csv`
 
-- **Query:** exactly §30.1's filters, parsed by the same schema (`listFields` without `page` and `pageSize`): `financialAccountId`, `status`, `provenance`, `reviewable`, `current`, `propertyReferenceId`, `financialCategoryCode`, `bookingDateFrom`, `bookingDateTo`, with §30.1's meanings, combinations and refusals (`400 INVALID_RANGE` when inverted, `400` for an unknown value). Two parameters of its own: `rows` = `transactions` (default) or `splits` (open question 1, decided as proposed); `dialect` = `rfc4180` (default) or `excel-de` (open questions 2 and 3, decided; "`dialect`" below). `page` and `pageSize` are unknown parameters here (`400`): the export is the whole filtered set. The filter is built by the **same function** as §30.1's list (`filtered`, moved to a module both read), so the two never diverge.
+- **Query:** exactly §30.1's filters, parsed by the same schema (`listFields` without `page` and `pageSize`): `financialAccountId`, `status`, `provenance`, `reviewable`, `current`, `propertyReferenceId`, `financialCategoryCode`, `bookingDateFrom`, `bookingDateTo` and, since VC-X-81, `rentAllocation` (§30.1A; it filters the rows, the columns are unchanged), with §30.1's meanings, combinations and refusals (`400 INVALID_RANGE` when inverted, `400` for an unknown value). Two parameters of its own: `rows` = `transactions` (default) or `splits` (open question 1, decided as proposed); `dialect` = `rfc4180` (default) or `excel-de` (open questions 2 and 3, decided; "`dialect`" below). `page` and `pageSize` are unknown parameters here (`400`): the export is the whole filtered set. The filter is built by the **same function** as §30.1's list (`filtered`, moved to a module both read), so the two never diverge.
 - **What history:** without `status` or `current`, every Transaction of the filter, as §30.1's raw list: `CORRECTED` originals, reversals, replacements and `IGNORED` ones included, each with its `status` and `correctionRole` (open question 5). `current=true` gives the current Transactions of §35.3; summing their `signedAmount` gives the net effect per account and period. Transactions are never deleted, so nothing "voided" is missing. **No AuditRecords** (open question 8): the amendments of an unconfirmed Transaction are not in the file, only its current values; a confirmed one is never changed, only corrected, and the correction chain is in the rows. `include` is an unknown parameter in version 1 (`400`); `?include=audit` is later work ("Later work" below).
 - **Rows:** `rows=transactions`: one row per Transaction. `rows=splits`: one row per split, the Transaction's columns repeated on each; a Transaction without splits is one row with empty split columns. Split rows of one Transaction are consecutive, in `position` order.
 - **Columns, in this order** (the header names are the DTO's field names, open question 6):
@@ -11249,7 +11270,7 @@ Read from the code and checked by a probe against the app as `createApp` builds 
 | `/depreciation-assets/:assetId/schedule` | `from`, `to`, `ownerPartyId` | B |
 | `/depreciation-assets/:assetId/schedule-versions` | `status` (comma list) | S |
 | `/depreciation-assets/:assetId/schedule-versions/:versionId` | none | I |
-| `/exports/transactions.csv` | §30.1's filters (below, `/transactions`, without paging), `rows`, `dialect` | N |
+| `/exports/transactions.csv` | §30.1's filters (below, `/transactions`, without paging; `rentAllocation` included, VC-X-81), `rows`, `dialect` | N |
 | `/financial-accounts` | `status`, `accountType` (comma lists), paging | B |
 | `/financial-accounts/:financialAccountId` | none | I |
 | `/financial-categories` | none | I |
@@ -11281,7 +11302,7 @@ Read from the code and checked by a probe against the app as `createApp` builds 
 | `/property-references/:propertyReferenceId/tax-meanings` | *`year`*, `reviewState`, `origin`, `taxCategory`, `sourceType` (comma lists), paging | B |
 | `/property-references/:propertyReferenceId/tax-years/:year` | `ownerPartyId` | B |
 | `/property-references/:propertyReferenceId/tax-years/:year/acknowledgements` | `status` (comma list) | S |
-| `/property-references/:propertyReferenceId/transactions` | as `/transactions` without `propertyReferenceId` | B |
+| `/property-references/:propertyReferenceId/transactions` | as `/transactions` without `propertyReferenceId` (`rentAllocation` included, VC-X-81) | B |
 | `/property-references/:propertyReferenceId/weg-memberships` | `asOf` or paging (not both: `NOT_SUPPORTED` on `page`) | B |
 | `/rent-reconciliations` | `status` (list), `transactionId`, `mreTenantId`, `mreRentTerm`, paging | B |
 | `/rent-reconciliations/:reconciliationId` | `checkMre` (`true`/`false`) | B |
@@ -11297,7 +11318,7 @@ Read from the code and checked by a probe against the app as `createApp` builds 
 | `/tax-rules` | none | I |
 | `/tax-rules/:ruleCode` | none | I |
 | `/transaction-splits/:splitId/tax-meaning` | none | I |
-| `/transactions` | `financialAccountId`, `status`, `provenance` (comma lists), `reviewable` (`true`), `current` (`true`), `propertyReferenceId`, `financialCategoryCode`, `bookingDateFrom`, `bookingDateTo`, paging | B |
+| `/transactions` | `financialAccountId`, `status`, `provenance`, `rentAllocation` (comma lists; `rentAllocation` since VC-X-81, §30.1A), `reviewable` (`true`), `current` (`true`), `propertyReferenceId`, `financialCategoryCode`, `bookingDateFrom`, `bookingDateTo`, paging | B |
 | `/transactions/:transactionId` | none | I |
 | `/transactions/:transactionId/hausgeld-proposal` | `propertyReferenceId` | B |
 | `/transactions/:transactionId/rent-reconciliations` | none | B |

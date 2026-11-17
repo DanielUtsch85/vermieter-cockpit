@@ -1,5 +1,6 @@
 import type { PageRequest, Transaction, TransactionFilter, TransactionPage, TransactionQueries, TransactionSplit } from '../domains/ledger/index.js';
 import type { PropertyReferenceRepository } from '../domains/property-reference/index.js';
+import { isCounted, rentAllocationOf, type RentAllocation } from '../domains/rent-reconciliation/index.js';
 import type { RealmPrincipal } from './access.js';
 import { PropertyReferenceNotFoundError } from './refresh-property-reference.js';
 import { TransactionNotFoundError } from './transaction-splits.js';
@@ -19,14 +20,46 @@ export function getTransaction(deps: { readonly queries: TransactionQueries }): 
   };
 }
 
+/** A list item (§30.1, §30.1A): the Transaction and its rent allocation, `null` when it has nothing to allocate. */
+export interface TransactionListItem {
+  readonly transaction: Transaction;
+  readonly rentAllocation: RentAllocation | null;
+}
+
+export interface TransactionListPage {
+  readonly items: readonly TransactionListItem[];
+  readonly page: number;
+  readonly pageSize: number;
+  readonly total: number;
+}
+
+/**
+ * §30.1A: each item's `rentAllocation` from the page's rent sums (read in the list's snapshot) by rent-reconciliation's
+ * rule, the one §37.2's per-Transaction read uses, so the list and the detail agree.
+ */
+function withRentAllocation(page: TransactionPage): TransactionListPage {
+  const items = page.items.map((transaction) => {
+    const sums = page.rentSums.get(transaction.id);
+    if (sums === undefined) throw new Error(`the list read no rent sums for Transaction ${transaction.id}`);
+    const rentAllocation = rentAllocationOf({
+      counted: isCounted(transaction.status, transaction.correctionRole),
+      direction: transaction.direction,
+      rentCash: sums.rentCash,
+      matchedTotal: sums.matchedTotal,
+    });
+    return { transaction, rentAllocation };
+  });
+  return { items, page: page.page, pageSize: page.pageSize, total: page.total };
+}
+
 export type ListTransactions = (input: {
   readonly principal: RealmPrincipal;
   readonly filter: TransactionFilter;
   readonly page: PageRequest;
-}) => Promise<TransactionPage>;
+}) => Promise<TransactionListPage>;
 
 export function listTransactions(deps: { readonly queries: TransactionQueries }): ListTransactions {
-  return ({ principal, filter, page }) => deps.queries.list(principal.mreRealmId, filter, page);
+  return async ({ principal, filter, page }) => withRentAllocation(await deps.queries.list(principal.mreRealmId, filter, page));
 }
 
 export type ListPropertyReferenceTransactions = (input: {
@@ -34,7 +67,7 @@ export type ListPropertyReferenceTransactions = (input: {
   readonly propertyReferenceId: string;
   readonly filter: Omit<TransactionFilter, 'propertyReferenceId'>;
   readonly page: PageRequest;
-}) => Promise<TransactionPage>;
+}) => Promise<TransactionListPage>;
 
 /**
  * `GET /property-references/{id}/transactions` (api-design.md §30.1): the list filtered by the PropertyReference,
@@ -48,6 +81,6 @@ export function listPropertyReferenceTransactions(deps: {
   return async ({ principal, propertyReferenceId, filter, page }) => {
     const reference = await deps.propertyReferences.findById(propertyReferenceId, principal.mreRealmId);
     if (reference === undefined) throw new PropertyReferenceNotFoundError(propertyReferenceId);
-    return deps.queries.list(principal.mreRealmId, { ...filter, propertyReferenceId: reference.id }, page);
+    return withRentAllocation(await deps.queries.list(principal.mreRealmId, { ...filter, propertyReferenceId: reference.id }, page));
   };
 }

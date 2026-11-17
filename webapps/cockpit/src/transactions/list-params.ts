@@ -18,6 +18,8 @@ export const FILTER_NAMES = [
   'financialCategoryCode',
   'bookingDateFrom',
   'bookingDateTo',
+  // §30.1A: the shortcut „Mietanteil noch frei“ (`NONE,PARTIAL`); last, so the earlier filters keep their order in the query.
+  'rentAllocation',
 ] as const;
 
 export type FilterName = (typeof FILTER_NAMES)[number];
@@ -69,6 +71,15 @@ export function readListParams(search: string): ListParams {
   return fromEntries(new URLSearchParams(search), true);
 }
 
+/**
+ * The shortcut „Mietanteil noch frei“ (api-design.md §30.1A; Entscheidung des Projektinhabers, 2026-11-17): rent
+ * payments whose rent share is not or only partly allocated, `rentAllocation=NONE,PARTIAL`.
+ */
+export const RENT_FREE = 'NONE,PARTIAL';
+
+/** Whether „Mietanteil noch frei“ is set: the URL's `rentAllocation` holds exactly `NONE` and `PARTIAL`, in any order. */
+export const rentFreeSet = (params: ListParams): boolean => [...(params.filters.rentAllocation?.split(',') ?? [])].sort().join(',') === RENT_FREE;
+
 /** Whether the shortcut „Nur zu prüfende“ (`reviewable=true`) is set. */
 export const reviewableSet = (params: ListParams): boolean => params.filters.reviewable === 'true';
 
@@ -117,8 +128,8 @@ export function hasFilters(params: ListParams): boolean {
   return FILTER_NAMES.some((name) => params.filters[name] !== undefined);
 }
 
-/** The values of a comma-list filter (`status`, `provenance`). */
-export function filterValues(params: ListParams, name: 'status' | 'provenance'): readonly string[] {
+/** The values of a comma-list filter (`status`, `provenance`, `rentAllocation`). */
+export function filterValues(params: ListParams, name: 'status' | 'provenance' | 'rentAllocation'): readonly string[] {
   return params.filters[name]?.split(',') ?? [];
 }
 

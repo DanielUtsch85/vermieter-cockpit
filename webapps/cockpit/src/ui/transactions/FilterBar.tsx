@@ -1,12 +1,21 @@
 import { useEffect, useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react';
 import type { FieldError } from '../../api/errors';
 import { formatBusinessDate } from '../../format/dates';
-import { filterValues, PAGE_SIZES, paramsFromForm, reviewableSet, type FilterName, type ListParams } from '../../transactions/list-params';
+import {
+  filterValues,
+  PAGE_SIZES,
+  paramsFromForm,
+  RENT_FREE,
+  rentFreeSet,
+  reviewableSet,
+  type FilterName,
+  type ListParams,
+} from '../../transactions/list-params';
 import { describeFieldError } from '../error-text';
 import { Link } from '../Link';
 import { NoLinkedProperties } from '../setup/setup-links';
 import { buttonClass } from '../states';
-import { accountStatusLabel, PROVENANCE_CODES, provenanceLabel, STATUS_CODES, statusLabel } from './labels';
+import { accountStatusLabel, PROVENANCE_CODES, provenanceLabel, rentAllocationStateLabel, STATUS_CODES, statusLabel } from './labels';
 import type { References } from './references';
 
 /** The controls of the filter bar, in screen order: the order in which the first refused one gets the focus. */
@@ -18,6 +27,7 @@ export const FILTER_CONTROLS: readonly string[] = [
   'provenance',
   'reviewable',
   'current',
+  'rentAllocation',
   'bookingDateFrom',
   'bookingDateTo',
   'pageSize',
@@ -27,6 +37,7 @@ export const controlId = (name: string): string => `filter-${name}`;
 const errorId = (name: string): string => `filter-${name}-fehler`;
 const STATUS_LOCK_NOTE = 'filter-status-gesperrt';
 const STATUS_URL_NOTE = 'filter-status-adresse';
+const RENT_URL_NOTE = 'filter-rentAllocation-adresse';
 
 /** The id of the first control with a field error (ui-guide.md §4.3: a form error focuses the first wrong field). */
 export function firstInvalidControl(errors: ReadonlyMap<string, readonly FieldError[]>): string | undefined {
@@ -120,6 +131,11 @@ export function FilterBar(props: {
   };
   const toggleStatus = (code: string, checked: boolean) => setStatuses((current) => (checked ? [...current, code] : current.filter((value) => value !== code)));
   const provenances = filterValues(params, 'provenance');
+  /**
+   * A `rentAllocation` of the URL other than „Mietanteil noch frei“ (a typed or bookmarked `FULL`): it still narrows this
+   * list, is named under the shortcut, and „Filter anwenden“ drops it, as an unoffered status (§30.1A).
+   */
+  const otherRentAllocation = filters.rentAllocation !== undefined && !rentFreeSet(params) ? filterValues(params, 'rentAllocation') : [];
 
   return (
     <form aria-label="Filter der Buchungsliste" onSubmit={submit} className="flex flex-col gap-4 rounded-card border border-border bg-surface p-4">
@@ -272,6 +288,9 @@ export function FilterBar(props: {
             // The label names what the user can find today; `current=true` itself is unchanged (api-design.md §30.1: CONFIRMED
             // or RECONCILED, not a reversal), as no Transaction is RECONCILED (#381; Entscheidung des Projektinhabers, 2026-11-16).
             ['current', 'Nur aktuelle (bestätigt, ohne Storno und Korrigierte)'],
+            // §30.1A: confirmed rent payments whose rent share is not or only partly allocated to a term (Entscheidung des
+            // Projektinhabers, 2026-11-17). Not coupled with the status boxes: a status choice without „Bestätigt“ finds nothing.
+            ['rentAllocation', 'Mietanteil noch frei'],
           ] as const
         ).map(([name, label]) => (
           <div key={name} className="flex flex-col">
@@ -280,15 +299,23 @@ export function FilterBar(props: {
                 id={controlId(name)}
                 type="checkbox"
                 name={name}
-                value="true"
+                value={name === 'rentAllocation' ? RENT_FREE : 'true'}
                 {...(name === 'reviewable'
                   ? { checked: reviewable, onChange: (event: ChangeEvent<HTMLInputElement>) => toggleReviewable(event.currentTarget.checked) }
-                  : { defaultChecked: filters[name] === 'true' })}
+                  : { defaultChecked: name === 'rentAllocation' ? rentFreeSet(params) : filters[name] === 'true' })}
                 aria-invalid={errors.has(name) ? true : undefined}
-                aria-describedby={errors.has(name) ? errorId(name) : undefined}
+                aria-describedby={describedBy([
+                  errors.has(name) ? errorId(name) : undefined,
+                  name === 'rentAllocation' && otherRentAllocation.length > 0 ? RENT_URL_NOTE : undefined,
+                ])}
               />
               {label}
             </label>
+            {name === 'rentAllocation' && otherRentAllocation.length > 0 && (
+              <p id={RENT_URL_NOTE} className="text-label text-muted">
+                {`Aus der Adresse gilt für diese Liste auch die Mietzuordnung: ${otherRentAllocation.map((state) => rentAllocationStateLabel(state).text).join(', ')}. Der Filter bietet sie nicht an; mit „Filter anwenden“ entfällt sie.`}
+              </p>
+            )}
             {errors.has(name) && (
               <p id={errorId(name)} className="text-label text-danger-text">
                 {fieldText(errors.get(name) ?? [])}

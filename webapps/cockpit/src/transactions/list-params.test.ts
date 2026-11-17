@@ -1,5 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { FILTER_NAMES, filterValues, hasFilters, pageCount, paramsFromForm, readListParams, toApiQuery, toSearch, withPage } from './list-params';
+import {
+  FILTER_NAMES,
+  filterValues,
+  hasFilters,
+  pageCount,
+  paramsFromForm,
+  readListParams,
+  RENT_FREE,
+  rentFreeSet,
+  toApiQuery,
+  toSearch,
+  withPage,
+} from './list-params';
 
 const ACCOUNT = '0b8f2c1e-3d4a-4b5c-8d6e-7f8091a2b3c4';
 
@@ -15,7 +27,23 @@ describe('the list filters in the URL and in the request (ui-guide.md §3.2, §6
       'financialCategoryCode',
       'bookingDateFrom',
       'bookingDateTo',
+      'rentAllocation',
     ]);
+  });
+
+  it('„Mietanteil noch frei“ (§30.1A): rentAllocation=NONE,PARTIAL in the URL and in the request, restored from the URL', () => {
+    const params = readListParams('?rentAllocation=NONE%2CPARTIAL&status=CONFIRMED&page=2');
+    expect(rentFreeSet(params)).toBe(true);
+    expect(toApiQuery(params)).toEqual({ status: 'CONFIRMED', rentAllocation: 'NONE,PARTIAL', page: '2', pageSize: '50' });
+    expect(toSearch(params)).toBe('?status=CONFIRMED&rentAllocation=NONE%2CPARTIAL&page=2');
+    expect(rentFreeSet(readListParams('?rentAllocation=PARTIAL,NONE'))).toBe(true);
+    // Another value of the URL is not the shortcut, but is still sent as it is (the backend judges it).
+    for (const other of ['?rentAllocation=FULL', '?rentAllocation=NONE', '?rentAllocation=NONE,PARTIAL,FULL', '']) {
+      expect(rentFreeSet(readListParams(other)), other).toBe(false);
+    }
+    expect(toApiQuery(readListParams('?rentAllocation=FULL'))).toEqual({ rentAllocation: 'FULL', page: '1', pageSize: '50' });
+    // The form's checkbox sends its value once; a new filter starts at page 1.
+    expect(toSearch(paramsFromForm([['rentAllocation', RENT_FREE]]))).toBe('?rentAllocation=NONE%2CPARTIAL');
   });
 
   it('without a search part: no filter, page 1, page size 50, and only page and page size are sent', () => {
