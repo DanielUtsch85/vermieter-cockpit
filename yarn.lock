@@ -324,14 +324,14 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@playwright/test@npm:1.65.0":
-  version: 1.65.0
-  resolution: "@playwright/test@npm:1.65.0"
+"@playwright/test@npm:1.65.1":
+  version: 1.65.1
+  resolution: "@playwright/test@npm:1.65.1"
   dependencies:
-    playwright: 1.65.0
+    playwright: 1.65.1
   bin:
     playwright: cli.js
-  checksum: e20f5edd0b3b2ff6b97085b27d561018e6ba96633077cfcfa4c50ae507ac0f127802e7e933316fd7788cb7459a685eaa63d0c961106a1fbdabba60889003ef89
+  checksum: 2181a4e9e6738c0723e632215206de31c7a6e8dc0f1ba7b8829bf5cd43b0ebd1aa5f831a150abd966f19e2580dbce98ebe9573b400efd340a2f1e8a580b8a4c6
   languageName: node
   linkType: hard
 
@@ -871,7 +871,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@vermieter-cockpit/cockpit@workspace:webapps/cockpit"
   dependencies:
-    "@playwright/test": 1.65.0
+    "@playwright/test": 1.65.1
     "@tanstack/react-query": 5.107.1
     "@testing-library/dom": 10.4.2
     "@testing-library/react": 16.3.3
@@ -2698,23 +2698,23 @@ __metadata:
   languageName: node
   linkType: hard
 
-"playwright-core@npm:1.65.0":
-  version: 1.65.0
-  resolution: "playwright-core@npm:1.65.0"
+"playwright-core@npm:1.65.1":
+  version: 1.65.1
+  resolution: "playwright-core@npm:1.65.1"
   bin:
     playwright-core: cli.js
-  checksum: 1c726cd73e5fdc9a8b07938604c9b0cac15ea509a72fdbe0f6588154159431dfa9ac2c6809146439e743ff44fd8dda8591462fe4117dd39ab81f5c7a77f635f6
+  checksum: efc868c56e146861b50e7c581eebb99e0530c5aa88645ff324e29ced183dfe085b86e58400a4a6f00c6c3bc30dbefd0a7a98497bf5bd38bfb09eaaae3db9a9d7
   languageName: node
   linkType: hard
 
-"playwright@npm:1.65.0":
-  version: 1.65.0
-  resolution: "playwright@npm:1.65.0"
+"playwright@npm:1.65.1":
+  version: 1.65.1
+  resolution: "playwright@npm:1.65.1"
   dependencies:
-    playwright-core: 1.65.0
+    playwright-core: 1.65.1
   bin:
     playwright: cli.js
-  checksum: b581862b94eb4aaeec8a5816c504d0b6283e8dcf7dec884ccb93e8ed1e2f124355f5703b44f6ee470e78af70e538b6511d02cc91305935fabdd97ab26826b24e
+  checksum: f633e048a73f5e09e3d1093484a184f90b405ea0eddc5e15541d43099f2d3ca0a8eff1f1523f868fa9bbd3417e2d153f0085e9f0f24fb3f4dd1a4c2baabd0e48
   languageName: node
   linkType: hard
 
