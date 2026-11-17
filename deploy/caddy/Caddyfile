@@ -6,8 +6,9 @@
 #   /api/v1, /api/v1/*   -> DE backend      (de-backend:8090; DE mounts its API under /api/v1, prefix kept)
 #   /cockpit, /cockpit/* -> cockpit UI      (cockpit-ui:80, webapps/cockpit; built with base path /cockpit, prefix kept)
 #   /api/v2/*, everything else -> MRE gateway (gateway:8080; the gateway itself routes /api/v2/authenticator,
-#                           /api/v2/documents, /api/v2 and /tenantapi and strips its own prefixes, so the
-#                           proxy passes the path through unchanged)
+#                           /api/v2/documents, /api/v2 and /tenantapi and strips its own prefixes, and serves the MRE
+#                           landlord UI under /landlord with that prefix kept (service landlord-frontend, VC-X-80), so
+#                           the proxy passes the path through unchanged)
 #
 # Access only over the VPN (WireGuard or Tailscale). The hostname is internal and never in public DNS;
 # docker-compose.proxy.yml publishes 443 only on the VPN interface address (PROXY_BIND_ADDRESS).
@@ -45,7 +46,8 @@
 		reverse_proxy {$COCKPIT_UI_UPSTREAM:cockpit-ui:80}
 	}
 
-	# MRE gateway: /api/v2 (incl. the authenticator's signin and refreshtoken) and the rest (/, /tenantapi, /health).
+	# MRE gateway: /api/v2 (incl. the authenticator's signin and refreshtoken), the landlord UI under /landlord and the rest
+	# (/, /tenantapi, /health).
 	handle {
 		reverse_proxy gateway:8080
 	}

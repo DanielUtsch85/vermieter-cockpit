@@ -8,8 +8,7 @@ import { button, click, control, openApp, requests, settle, twice, type, useDurc
 
 /**
  * The setup of a Realm in the cockpit (Issue #365; Entscheidung des Projektinhabers, 2026-11-16): „Konto anlegen“ with the
- * IBAN required for bank and deposit accounts (optional for cash, clearing and other accounts, #372) and checked as the
- * backend checks it, and „Objekte verknüpfen“ from MRE's list of the
+ * IBAN required for bank and deposit accounts (optional for cash, clearing and other accounts, #372) and checked as the backend checks it, and „Objekte verknüpfen“ from MRE's list of the
  * Realm, against the real UI and the stateful fake DE and MRE (answers through the backend's own mappings, bodies checked
  * with the routes' own schemas). Synthetic IBANs only (the standard German example IBAN).
  */
@@ -32,6 +31,14 @@ const fill = (values: { type?: string; name?: string; iban?: string }) => {
 };
 const accountPosts = () => requests(backend(), 'POST', ACCOUNTS);
 const bodyOf = (index: number) => JSON.parse(accountPosts()[index]?.body ?? 'null') as unknown;
+/** „MicroRealEstate öffnen“: `/landlord` of the same origin in a new tab (Entscheidungen des Projektinhabers, 2026-11-16, #372, und 2026-11-17, VC-X-80). */
+const expectMreLink = (link: HTMLElement) =>
+  expect([link.textContent, link.getAttribute('href'), link.getAttribute('target'), link.getAttribute('rel')]).toEqual([
+    'MicroRealEstate öffnen',
+    '/landlord',
+    '_blank',
+    'noopener noreferrer',
+  ]);
 
 describe('Konto anlegen: reachable from the overview, IBAN required for bank accounts', () => {
   it('the overview links both setup pages; the account page is a sub-page of the overview with the accounts listed', async () => {
@@ -273,10 +280,24 @@ describe('Objekte verknüpfen: MRE list of the Realm, already linked shown, one 
     expect(button(`${MRE_UNLINKED_NAME} verknüpfen`).disabled).toBe(false);
   });
 
-  it('MRE without properties says where they come from', async () => {
+  it('MRE without properties says where they come from, with a link to MRE in a new tab', async () => {
     backend().setup.mreProperties.set(REALM_A, []);
     await openApp(backend(), OBJEKTE);
-    expect(await screen.findByText(/In MicroRealEstate gibt es in diesem Bestand noch kein Objekt/)).toBeTruthy();
+    const empty = await screen.findByText(/In MicroRealEstate gibt es in diesem Bestand noch kein Objekt/);
+    expectMreLink(within(empty).getByRole('link', { name: 'MicroRealEstate öffnen' }));
+  });
+
+  it('the page links to MRE, where objects are created: /landlord of the same origin in a new tab, the cockpit stays (#372)', async () => {
+    await openLinkPage();
+    const links = screen.getAllByRole('link', { name: 'MicroRealEstate öffnen' });
+    expect(links).toHaveLength(1);
+    const [link] = links;
+    if (link === undefined) throw new Error('no link');
+    expectMreLink(link);
+    expect(link.closest('p')?.textContent).toContain('Objekte entstehen in MicroRealEstate.');
+    // No navigation inside the cockpit: the click is the browser's (a new tab), not the router's.
+    expect(fireEvent.click(link, { button: 0 })).toBe(true);
+    expect(window.location.pathname).toBe(OBJEKTE);
   });
 
   it('an unreachable MRE gateway is shown as an error, never as an empty list', async () => {

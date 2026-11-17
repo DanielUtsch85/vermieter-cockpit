@@ -1,6 +1,6 @@
 import { createContext, useContext, type ReactNode } from 'react';
 import { setupPath, type SetupPage } from '../../routing';
-import { Link } from '../Link';
+import { Link, MreLink } from '../Link';
 
 /**
  * The Realm a page shows, for the links to its setup pages from deep inside a form (the split editor's object, the
@@ -27,7 +27,8 @@ export function NoLinkedProperties({ id }: { readonly id?: string }) {
     <p id={id} className="text-label text-muted">
       {'In diesem Bestand ist noch kein Objekt aus MicroRealEstate verknüpft; die Auswahl ist leer. Objekte entstehen in MicroRealEstate und werden unter '}
       <SetupLink to="objekte" />
-      {' für das Cockpit verknüpft.'}
+      {' für das Cockpit verknüpft. '}
+      <MreLink />
     </p>
   );
 }

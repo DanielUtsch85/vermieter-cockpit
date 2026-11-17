@@ -24,6 +24,14 @@
 # default of docker-compose.proxy.yml, SIGNUP=false), and POST signup through Caddy answers 404 while sign-in still
 # answers 200.
 #
+# And the MRE landlord UI under /landlord (backlog VC-X-80; Entscheidung des Projektinhabers, 2026-11-17: „Dienst
+# landlord-frontend mit gepinntem Image, EXPOSE_FRONTENDS=true, LANDLORD_BASE_PATH=/landlord, betrieb.md,
+# compose-smoke-Prüfung“), the target of the cockpit's link „MicroRealEstate öffnen“: GET /landlord answers 200 HTML from
+# the landlord-frontend service, a script it names under /landlord/_next/static/ loads, its runtime settings call the
+# API on this same origin, its sign-in page answers, with a session it renders the account's Realm on the server side,
+# /tenant and / stay 404 (no tenant frontend and nothing else exposed), and at the end its sign-up page is hidden again.
+# curl only, no browser (Entscheidung des Projektinhabers: no Playwright in compose-smoke).
+#
 # Every request goes over HTTPS to the published 127.0.0.1:443 of Caddy under the cockpit hostname, and the TLS
 # certificate is verified against the root of Caddy's local CA from the caddy-data volume (no --insecure). The cookie
 # attributes are asserted on the Set-Cookie header as the authenticator sends it through Caddy, not on what a browser
@@ -116,6 +124,46 @@ start_page "GET $deep"
 req "$base/cockpit/assets/gate-missing.js"
 expect_code "GET /cockpit/assets/gate-missing.js" 404
 
+# 1b. The MRE landlord UI under /landlord (VC-X-80), through Caddy and the gateway to the service landlord-frontend.
+# Without a session the start page is still a 200 HTML page (its client side then goes to /landlord/signin).
+landlord_page() { # label: a 200 HTML page of the landlord UI
+  expect_code "$1" 200
+  [[ "$(header content-type)" == text/html* ]] || fail "$1: content-type is '$(header content-type)', not text/html"
+  grep -q '<title>' "$work/b" || fail "$1: no <title> in the page"
+  grep -q '"buildId"' "$work/b" || fail "$1: no Next.js page data (__NEXT_DATA__) in the page"
+}
+req "$base/landlord"
+landlord_page "GET /landlord"
+landlord_asset=$(grep -oE 'src="/landlord/_next/static/[^"]+\.js"' "$work/b" | head -n1 | sed -E 's/^src="(.*)"$/\1/')
+[ -n "$landlord_asset" ] || fail "GET /landlord: the page names no script under /landlord/_next/static/"
+req "$base$landlord_asset"
+expect_code "GET $landlord_asset" 200
+[[ "$(header content-type)" == *javascript* ]] || fail "GET $landlord_asset: content-type is '$(header content-type)'"
+req "$base/landlord/signin"
+landlord_page "GET /landlord/signin"
+# A German browser is sent to the German pages first (the pinned app's locales, i18n.js): the expected redirect, then 200.
+req -H 'accept-language: de-DE,de;q=0.9' "$base/landlord"
+expect_code "GET /landlord in German" 307
+[ "$(header location)" = /landlord/de-DE ] || fail "GET /landlord in German: location is '$(header location)', not /landlord/de-DE"
+req -H 'accept-language: de-DE,de;q=0.9' "$base/landlord/de-DE"
+landlord_page "GET /landlord/de-DE"
+# The runtime settings the page loads (window.__ENV, written by the image's runner.js at start): the browser calls
+# /api/v2 on this same origin, under the base path /landlord; sign-up shown while MRE_SIGNUP=true opens it for this run.
+landlord_env() { # key -> the value of NEXT_PUBLIC_<key> in /landlord/__ENV.js
+  req "$base/landlord/__ENV.js"
+  expect_code "GET /landlord/__ENV.js" 200 >/dev/null
+  sed -E '1s/^window\.__ENV = //' "$work/b" | jq -r --arg k "NEXT_PUBLIC_$1" '.[$k] // empty'
+}
+[ "$(landlord_env GATEWAY_URL)" = "$base" ] || fail "landlord UI: GATEWAY_URL is '$(landlord_env GATEWAY_URL)', not $base"
+[ "$(landlord_env BASE_PATH)" = /landlord ] || fail "landlord UI: BASE_PATH is '$(landlord_env BASE_PATH)', not /landlord"
+[ "$(landlord_env SIGNUP)" = true ] || fail "landlord UI: SIGNUP is '$(landlord_env SIGNUP)' although MRE_SIGNUP=true"
+echo "landlord UI settings: GATEWAY_URL=$base, BASE_PATH=/landlord, SIGNUP=true"
+# Nothing else of the frontends is exposed: no tenant frontend, and / stays the gateway's own 404.
+req "$base/tenant"
+expect_code "GET /tenant" 404
+req "$base/"
+expect_code "GET /" 404
+
 # 2. Sign-in through the MRE authenticator behind Caddy (no DE login, §47.2 item 1).
 run="$(date +%s)-$$"
 email="gate-admin-$run@example.com"
@@ -170,9 +218,20 @@ expect_code "GET /api/v1/health without a token" 401
 req -H "authorization: Bearer $token" -H "organizationid: $realm" "$base/api/v1/health"
 expect_code "GET /api/v1/health with the token, own realm" 200
 
+# The landlord UI with a session: its server side renews the token with the refresh cookie over the compose network
+# (DOCKER_GATEWAY_URL) and renders the account's Realm into the start page. A fresh sign-in gives an unused cookie.
+req -X POST "${json[@]}" "$base/api/v2/authenticator/landlord/signin" -d "{\"email\":\"$email\",\"password\":\"$password\"}"
+expect_code "sign-in $email for the landlord UI" 200
+landlord_cookie=$(grep -i '^set-cookie:[[:space:]]*refreshToken=' "$work/h" | head -n1 | tr -d '\r' | sed -E 's/^[^:]+:[[:space:]]*//; s/;.*$//')
+req -H "cookie: $landlord_cookie" "$base/landlord"
+landlord_page "GET /landlord with the refresh cookie"
+grep -q "\"Gate $run\"" "$work/b" || fail "GET /landlord with the refresh cookie: the page does not name the account's Realm 'Gate $run'"
+echo "GET /landlord with the refresh cookie: names the Realm 'Gate $run'"
+
 # 5. Sign-up closed again with the productive default (#332 F3; betrieb.md §9.4 steps 4 and 5): only the authenticator
-# is recreated, MRE_SIGNUP unset so SIGNUP falls back to false; the rest of the stack stays as it is (--no-deps).
-env -u MRE_SIGNUP docker compose "${files[@]}" up -d --no-deps --wait --wait-timeout 120 authenticator
+# and the landlord UI (its sign-up page, VC-X-80) are recreated, MRE_SIGNUP unset so SIGNUP falls back to false; the rest
+# of the stack stays as it is (--no-deps).
+env -u MRE_SIGNUP docker compose "${files[@]}" up -d --no-deps --wait --wait-timeout 120 authenticator landlord-frontend
 # The authenticator has no healthcheck: wait until sign-in through Caddy answers 200 again. That also shows the 404
 # below comes from the running authenticator without the route, not from a service that does not answer.
 for _ in $(seq 1 60); do
@@ -186,5 +245,8 @@ req -X POST "${json[@]}" "$base/api/v2/authenticator/landlord/signup" \
 echo "sign-up with the productive default (MRE_SIGNUP unset): HTTP $code"
 [ "$code" = 404 ] ||
   fail "sign-up with the productive default (MRE_SIGNUP unset) must answer 404 (the route does not exist), got $code"
+
+[ "$(landlord_env SIGNUP)" = false ] || fail "landlord UI: SIGNUP is '$(landlord_env SIGNUP)' with the productive default"
+echo "landlord UI with the productive default: SIGNUP=false"
 
 echo "cockpit gate through Caddy ($host, $image): OK"

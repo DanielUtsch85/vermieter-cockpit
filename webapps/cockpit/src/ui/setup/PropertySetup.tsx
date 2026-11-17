@@ -8,7 +8,7 @@ import { AREAS, areaPath } from '../../routing';
 import { useSession } from '../../session/use-session';
 import { Badge } from '../Badge';
 import { IdText } from '../IdText';
-import { Link } from '../Link';
+import { Link, MreLink } from '../Link';
 import { PageTitle } from '../PageTitle';
 import { ErrorState, isRetryable, LoadingState, Notice, ReadProblem, secondaryButtonClass } from '../states';
 import { transactionKeys } from '../transactions/TransactionsArea';
@@ -87,7 +87,7 @@ export function PropertySetup(props: { readonly client: DeClient; readonly realm
       <PageTitle title={SETUP_LABELS.objekte} />
       <p className="text-muted">
         Objekte entstehen in MicroRealEstate. Verknüpft stehen sie im Cockpit in der Aufteilung einer Buchung und im Objektfilter der Buchungsliste zur Wahl;
-        Name und Adresse bleiben in MicroRealEstate.
+        Name und Adresse bleiben in MicroRealEstate. <MreLink />
       </p>
       {outcome !== undefined && (
         <div ref={message} tabIndex={-1}>
@@ -124,7 +124,8 @@ export function PropertySetup(props: { readonly client: DeClient; readonly realm
           <ReadProblem error={linked.error} onRetry={() => void linked.refetch()} />
         ) : mre.data.length === 0 ? (
           <p className="text-muted">
-            In MicroRealEstate gibt es in diesem Bestand noch kein Objekt. Ein Objekt wird in MicroRealEstate angelegt; danach erscheint es hier zum Verknüpfen.
+            In MicroRealEstate gibt es in diesem Bestand noch kein Objekt. Ein Objekt wird in MicroRealEstate angelegt; danach erscheint es hier zum Verknüpfen.{' '}
+            <MreLink />
           </p>
         ) : (
           <ul aria-label="Objekte in MicroRealEstate" className="flex flex-col divide-y divide-border">
