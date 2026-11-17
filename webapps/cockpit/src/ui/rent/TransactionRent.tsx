@@ -57,6 +57,13 @@ export function TransactionRentSection({
   );
 }
 
+/**
+ * „Noch frei“ is §37.2's `available` only for an `INFLOW`: an `OUTFLOW` with a rent split (e.g. a repaid rent) can never
+ * be matched (§37.1 `TRANSACTION_NOT_INFLOW`), so the read's free amount is not shown as free but as „nicht zuordenbar“,
+ * as the list shows no `rentAllocation` for it (§30.1A; #381). (Entscheidung des Projektinhabers, 2026-11-17): „Eine zurückgezahlte
+ * Miete ist nicht zuordenbar, also soll das Detail unter „Noch frei“ dasselbe sagen wie die Liste: „Nicht zuordenbar
+ * (Ausgang)“ statt eines Betrags.“
+ */
 function Coverage({ realmId, c }: { readonly realmId: string; readonly c: TransactionRentCoverageDto }) {
   return (
     <>
@@ -74,7 +81,9 @@ function Coverage({ realmId, c }: { readonly realmId: string; readonly c: Transa
           </dd>
           <dt className="text-muted">Noch frei</dt>
           <dd>
-            {c.available === null ? (
+            {c.direction !== 'INFLOW' ? (
+              <span className="text-muted">Nicht zuordenbar (Ausgang)</span>
+            ) : c.available === null ? (
               <span className="text-muted">Nicht zuordenbar, solange die Buchung nicht bestätigt ist (oder ein Storno ist)</span>
             ) : (
               <MoneyText money={c.available} />
