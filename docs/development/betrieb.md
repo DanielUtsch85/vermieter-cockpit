@@ -179,7 +179,19 @@ Voraussetzungen: Docker mit Compose v2, Git, Zugriff auf den zweiten Ort und auf
 | 2026-11-06 | **Container-Probe**, kein frischer Rechner: PostgreSQL 16.15 im Entwicklungscontainer, ohne Docker; die Skripte liefen mit einem Ersatz für `docker compose`, der die Befehle gegen die lokale Datenbank ausführt | nur DE; synthetische Daten | Sicherung 0,5 s, Restore 2,5 s (Dump 4,9 MB) | Zeilenzahlen aller 224 Tabellen gleich, `kysely_migration` gleich, Start auf der wiederhergestellten Datenbank ohne ausstehende Migration | Claude Code (für #281) |
 | | **Frischer Rechner** (der Produktivrechner, bevor er Daten trägt), Docker Compose | DE, MRE und MRE-Dateien | | | Projektinhaber |
 
-**Restore auf dem frischen Rechner:** Den führt der Projektinhaber selbst auf dem Produktivrechner durch, bevor dieser Daten trägt: VPN einrichten, Stack starten, die Probe-Dumps aus #286 einspielen, DE und MRE prüfen (Abschnitt 7), Eintrag in die leere Zeile oben. Damit ist die Probe zugleich die Abnahme des Rechners (Entscheidung des Projektinhabers, 2026-11-06). Aus der Entwicklungsumgebung geht das nicht: dort gibt es keinen Docker-Daemon.
+**Restore auf dem frischen Rechner:** Den führt der Projektinhaber selbst auf dem Produktivrechner durch, bevor dieser Daten trägt, in derselben Reihenfolge wie Abschnitt 6: VPN einrichten (Abschnitt 9.2), `.env` anlegen (Abschnitt 9.5), **nur die Datenbanken starten** (Abschnitt 6 Schritt 4: `docker compose up -d --wait de-postgres mongo`), die Probe-Dumps einspielen (Abschnitt 6 Schritte 5 bis 7), **dann alles starten** (Abschnitt 6 Schritt 8, auf dem Produktivrechner mit beiden Compose-Dateien wie in Abschnitt 9.6), DE und MRE prüfen (Abschnitt 7), Eintrag in die leere Zeile oben. Wer den ganzen Stack zuerst startet, bekommt von `restore-de.sh` „Datenbank de enthält schon … Tabellen; Restore nur in eine leere Datenbank“, denn `de-backend` migriert beim Start (#388; Generalprobe 2026-11-17). Damit ist die Probe zugleich die Abnahme des Rechners (Entscheidung des Projektinhabers, 2026-11-06). Aus der Entwicklungsumgebung geht das nicht: dort gibt es keinen Docker-Daemon.
+
+**Woher die Probe-Dumps kommen:** aus einem Lauf von `scripts/ops/backup.sh` auf einer Testinstallation mit erfundenen Daten; er legt unter `BACKUP_DIR/daily/<datum>/` die drei Dateien `de-<stempel>.dump`, `mre-<stempel>.archive.gz` und `mre-files-<stempel>.tar.gz` mit `MANIFEST` und `SHA256SUMS` ab. Fertige Dateien aus #286 gibt es nicht: Die Probedatenbanken jener Probe wurden danach gelöscht (unten). So hat es auch die Generalprobe vom 2026-11-17 gemacht (#388).
+
+**Nach der Probe leeren** (#388; Generalprobe 2026-11-17): Nach der Probe trägt der Produktivrechner die Probedaten; der Go-live beginnt mit leerer Datenbank (Issue #281, Punkt 6). Dazu den Stack anhalten, genau die vier Daten-Volumes aus `docker-compose.yml` löschen und neu starten:
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.proxy.yml down
+docker volume rm <projekt>_de-postgres-data <projekt>_mre-mongo-data <projekt>_mre-pdf-uploads <projekt>_mre-pdf-data
+docker compose -f docker-compose.yml -f docker-compose.proxy.yml up -d --build --wait
+```
+
+`<projekt>` ist der Name des Compose-Projekts: ohne `COMPOSE_PROJECT_NAME` oder `-p` der Name des Projektverzeichnisses, bei `/opt/vermieter-cockpit` also `vermieter-cockpit`. `docker compose ls` zeigt ihn, `docker volume ls --filter label=com.docker.compose.project=<projekt>` die Volumes des Projekts. **Nie `docker compose down -v`:** Das löscht auch `caddy-data` und `caddy-config` und mit `caddy-data` die lokale CA; jedes Gerät müsste dann die neue Wurzel installieren (Abschnitt 9.3). Diese beiden Volumes bleiben. Danach sind DE und MRE leer, `de-backend` wendet beim Start alle Migrationen neu an, der SHA-256-Fingerprint der CA ist unverändert, und die Geräte vertrauen dem Zertifikat weiter. Die `.env` bleibt dieselbe; das neue Postgres-Volume übernimmt `DE_DB_PASSWORD` daraus beim ersten Initialisieren (Abschnitt 9.5). Das erste Konto entsteht danach nach Abschnitt 9.4.
 
 **Probe vom 2026-11-06 im Einzelnen:**
 
@@ -271,7 +283,34 @@ Die Entscheidung des Projektinhabers vom 2026-11-06 legt fest: Die lokale CA von
 - **Authenticator:** `SIGNUP` kommt aus `MRE_SIGNUP`, Default `false`; die Selbstregistrierung ist zu (Entscheidung des Projektinhabers, 2026-11-06). Für das erste Vermieterkonto gilt dieser Ablauf:
   1. In `.env` einmalig `MRE_SIGNUP=true` setzen.
   2. Den Authenticator neu erstellen: `docker compose -f docker-compose.yml -f docker-compose.proxy.yml up -d authenticator`. Compose erkennt die geänderte Umgebung und erstellt den Container neu. Ein `restart` reicht nicht, er übernimmt keine neuen Variablen.
-  3. Das Konto über die Anmeldung anlegen.
+  3. **Konto und Bestand per API anlegen** (#388; Generalprobe 2026-11-17). Im Stack von heute gibt es dafür keine Seite: Das Gateway läuft mit `EXPOSE_FRONTENDS: 'false'` ohne Vermieteroberfläche von MRE (`/` und `/landlord` antworten `404`, Abschnitt 9.1), und das Cockpit hat keine Registrierung. Ein neues Konto hat außerdem noch keinen Bestand (MRE-Realm): `GET /api/v2/realms` liefert `[]`, das Cockpit meldet „Zu Ihrem Konto gibt es keinen Bestand.“, und DE antwortet `403`. Deshalb zwei Aufrufe, mit genau den Feldern, die `.github/scripts/compose-cockpit-gate.sh` verwendet, über Caddy wie Schritt 5. Auszuführen auf dem Host oder einem Gerät im VPN, das `cockpit.internal` auflöst und die Wurzel der lokalen CA installiert hat (Abschnitt 9.3.1); ohne installierte Wurzel jedem `curl` `--cacert caddy-root.crt` anhängen. Gebraucht werden `curl` und `jq`. Die Platzhalter `<…>` durch eigene Werte ersetzen.
+
+     ```sh
+     base=https://cockpit.internal
+     email='<E-Mail>'
+     read -rs -p 'Passwort: ' pw; echo   # read ist ein Shell-Befehl: das Passwort landet weder in der Historie noch in der Prozessliste
+     export pw email
+
+     # a) Konto anlegen (nur solange MRE_SIGNUP=true): 201
+     jq -n '{firstname: "<vorname>", lastname: "<nachname>", email: env.email, password: env.pw}' |
+       curl -sS -o /dev/null -w '%{http_code}\n' -X POST -H 'content-type: application/json' --data @- "$base/api/v2/authenticator/landlord/signup"
+
+     # b) Anmelden und den Access-Token aus der Antwort nehmen: 200
+     token=$(jq -n '{email: env.email, password: env.pw}' |
+       curl -fsS -X POST -H 'content-type: application/json' --data @- "$base/api/v2/authenticator/landlord/signin" | jq -r '.accessToken')
+     unset pw
+
+     # c) Bestand anlegen, authentifiziert mit dem Token als Bearer (ohne organizationid): 200, die Antwort trägt die _id des Bestands
+     jq -n '{name: "<Name des Bestands>", currency: "EUR", locale: "de-DE",
+             members: [{name: "<vorname> <nachname>", email: env.email, role: "administrator", registered: true}]}' |
+       curl -fsS -X POST -H 'content-type: application/json' -H "authorization: Bearer $token" --data @- "$base/api/v2/realms" | jq -r '._id'
+
+     # d) Prüfen: die Liste nennt jetzt den Bestand
+     curl -fsS -H "authorization: Bearer $token" "$base/api/v2/realms" | jq -r '.[].name'
+     unset token
+     ```
+
+     Die JSON-Körper baut `jq` aus Umgebungsvariablen (`env.pw`) und reicht sie über die Standardeingabe an `curl` (`--data @-`); das Passwort steht so in keinem Befehlsargument. Danach mit dem Konto im Cockpit anmelden: Es bietet den Bestand an. Objekte, Mieter und Mietverhältnisse legt man in MRE an, nicht im Cockpit: in der Vermieteroberfläche von MRE unter `/landlord`, sobald VC-X-80 gemergt ist (Entscheidung des Projektinhabers, 2026-11-17: VC-X-80 kommt vor den Go-live), bis dahin über die API von MRE. Ohne sie bleiben „Objekte verknüpfen“ und der Mietabgleich leer; Konto, Import und Kassenbuch gehen auch so.
   4. `MRE_SIGNUP=false` zurücksetzen und den Authenticator mit demselben Befehl erneut neu erstellen.
   5. Prüfen: `curl -s -o /dev/null -w '%{http_code}\n' -X POST https://cockpit.internal/api/v2/authenticator/landlord/signup` antwortet `404`. Ohne `SIGNUP` legt der gepinnte Authenticator die Route gar nicht an (`services/authenticator/src/routes/landlord.js`, `if (SIGNUP)`).
 - **Gateway:** `CORS_ENABLED: 'false'`, denn es gibt nur eine Origin (§47.2). `APP_DOMAIN` wird `COCKPIT_HOSTNAME`; das Gateway braucht den Wert nur für CORS.
