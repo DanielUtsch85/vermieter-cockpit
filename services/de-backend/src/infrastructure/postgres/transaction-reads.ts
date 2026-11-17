@@ -3,15 +3,16 @@ import { CURRENT_STATUSES, type TransactionFilter, type TransactionSplit } from 
 import { fromNumericAmount } from './money-column.js';
 import type { Database } from './schema.js';
 import { UUID } from './transaction-repository.js';
+import { rentAllocationPredicate } from './transaction-rent-sums.js';
 
 /**
  * What `GET /transactions` (api-design.md §30.1) and the Kassenbuch export (§58S) both read: the filter, built by this
  * one function so the two never diverge, and the splits of Transactions in `position` order.
  */
 
-/** True when no Transaction can match: no status left (`IN ()` would be a syntax error) or a malformed id filter. */
+/** True when no Transaction can match: no status or rent state left (`IN ()` would be a syntax error) or a malformed id filter. */
 export function matchesNothing(filter: TransactionFilter): boolean {
-  if (filter.statuses?.length === 0) return true;
+  if (filter.statuses?.length === 0 || filter.rentAllocation?.length === 0) return true;
   if (filter.financialAccountId !== undefined && !UUID.test(filter.financialAccountId)) return true;
   return filter.propertyReferenceId !== undefined && !UUID.test(filter.propertyReferenceId);
 }
@@ -40,6 +41,8 @@ export function filtered(db: Kysely<Database>, mreRealmId: string, filter: Trans
   if (filter.current === true) {
     query = query.where('status', 'in', CURRENT_STATUSES).where((eb) => eb.or([eb('correction_role', 'is', null), eb('correction_role', '<>', 'REVERSAL')]));
   }
+  // §30.1A: the Transaction's whole rent share, also under `propertyReferenceId` or `financialCategoryCode`.
+  if (filter.rentAllocation !== undefined) query = query.where(rentAllocationPredicate(mreRealmId, filter.rentAllocation));
   if (filter.propertyReferenceId !== undefined) {
     const reference = filter.propertyReferenceId;
     query = query.where((eb) =>

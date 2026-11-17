@@ -106,13 +106,58 @@ export type MatchRefusal =
 
 /** Rent cash minus the `CONFIRMED` matches (P4-D3). */
 export function availableOf(cash: MatchCash & { readonly rentCash: Money }): Money {
-  return cash.confirmed.reduce((left, c) => left.subtract(c.matchedAmount), cash.rentCash);
+  return freeRentOf(
+    cash.rentCash,
+    Money.sum(
+      cash.confirmed.map((c) => c.matchedAmount),
+      cash.rentCash.currency,
+    ),
+  );
+}
+
+/** The free rest of rent cash: rent cash minus the `CONFIRMED` matches' total. `availableOf` and the list's `freeAmount` (§30.1A) both are this. */
+function freeRentOf(rentCash: Money, matchedTotal: Money): Money {
+  return rentCash.subtract(matchedTotal);
+}
+
+/** The cash rules' "counted" (§37.1): `CONFIRMED` or `RECONCILED`, and not a reversal (§35.3's "current"). */
+export function isCounted(status: string, correctionRole: string | null): boolean {
+  return (status === 'CONFIRMED' || status === 'RECONCILED') && correctionRole !== 'REVERSAL';
+}
+
+/** The list's rent allocation states (api-design.md §30.1A). */
+export const RENT_ALLOCATION_STATES = ['NONE', 'PARTIAL', 'FULL'] as const;
+export type RentAllocationState = (typeof RENT_ALLOCATION_STATES)[number];
+
+/** `rentAllocation` of a list item (§30.1A): §37.2's `rentCash`, `matchedTotal` and `available` under the list's names. */
+export interface RentAllocation {
+  readonly state: RentAllocationState;
+  readonly rentAmount: Money;
+  readonly allocatedAmount: Money;
+  readonly freeAmount: Money;
+}
+
+/**
+ * §30.1A's rule: `null` unless the Transaction is allocatable, i.e. counted, an `INFLOW` and with rent cash > 0 (checks
+ * 3–5 of §37.1's order: exactly what a match can name). `matchedTotal` is Σ of the `CONFIRMED` matches only (§37.2). The
+ * cash guard of 0030 keeps `matchedTotal` ≤ rent cash, so `FULL` is reached only at `=`; `≥` leaves no fifth case.
+ */
+export function rentAllocationOf(input: {
+  readonly counted: boolean;
+  readonly direction: string;
+  readonly rentCash: Money | null;
+  readonly matchedTotal: Money;
+}): RentAllocation | null {
+  const { rentCash, matchedTotal } = input;
+  if (!input.counted || input.direction !== 'INFLOW' || rentCash === null || !rentCash.isPositive()) return null;
+  const state: RentAllocationState = matchedTotal.isZero() ? 'NONE' : matchedTotal.compare(rentCash) >= 0 ? 'FULL' : 'PARTIAL';
+  return { state, rentAmount: rentCash, allocatedAmount: matchedTotal, freeAmount: freeRentOf(rentCash, matchedTotal) };
 }
 
 /** Checks 2–7 of §37.1's order; undefined when the match may be written. */
 export function checkMatch(cash: MatchCash | undefined, request: Pick<NewMatch, 'mreTenantId' | 'mreRentTerm' | 'matchedAmount'>): MatchRefusal | undefined {
   if (cash === undefined) return { kind: 'TRANSACTION_NOT_FOUND' };
-  if ((cash.status !== 'CONFIRMED' && cash.status !== 'RECONCILED') || cash.correctionRole === 'REVERSAL') {
+  if (!isCounted(cash.status, cash.correctionRole)) {
     return { kind: 'TRANSACTION_NOT_COUNTED', status: cash.status, correctionRole: cash.correctionRole };
   }
   if (cash.direction !== 'INFLOW') return { kind: 'TRANSACTION_NOT_INFLOW' };

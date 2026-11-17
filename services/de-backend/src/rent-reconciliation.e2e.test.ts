@@ -14,6 +14,9 @@ import {
   releaseReconciliation,
   getTermCoverage,
   getTransactionCoverage,
+  getTransaction,
+  listPropertyReferenceTransactions,
+  listTransactions,
   suggestReconciliations,
   confirmReconciliation,
   rejectReconciliation,
@@ -231,6 +234,12 @@ describe.skipIf(databaseUrl === undefined)('rent reconciliation end to end', () 
           confirm: confirmTransaction({ repository: transactions }),
           setSplits: setTransactionSplits({ repository: new PostgresTransactionSplitRepository(db) }),
           reverse: reverseTransaction({ repository: new PostgresCorrectionRepository(db) }),
+          get: getTransaction({ queries: new PostgresTransactionQueries(db) }),
+          list: listTransactions({ queries: new PostgresTransactionQueries(db) }),
+          listForPropertyReference: listPropertyReferenceTransactions({
+            queries: new PostgresTransactionQueries(db),
+            propertyReferences: new PostgresPropertyReferenceRepository(db),
+          }),
         },
       }),
     });
@@ -811,5 +820,80 @@ describe.skipIf(databaseUrl === undefined)('rent reconciliation end to end', () 
     };
     expect(after.items.map((i) => [i.transactionId, i.mreRentTerm])).toEqual([[tx.transactionId, '2028030100']]);
     expect(after.skipped).toEqual({ unconfirmed: 0, noRentCash: 0, decidedBefore: 0 });
+  });
+
+  it('§30.1A: the list s rentAllocation agrees with §37.2 s per-Transaction read for every Transaction of every Realm; the filter with it', async () => {
+    type Money = { amount: string; currency: string };
+    type Item = {
+      transactionId: string;
+      direction: string;
+      rentAllocation: { state: string; rentAmount: Money; allocatedAmount: Money; freeAmount: Money } | null;
+    };
+    type Side = { rentCash: Money | null; matchedTotal: Money; available: Money | null; direction: string };
+    // Besides what the cases above left (matched, released, suggested, rejected, reversed, written back): an OUTFLOW with
+    // a rent split, an unconfirmed rent payment and a confirmed non-rent payment.
+    const account = (await (await call(REALM_A, 'POST', '/financial-accounts', { accountType: 'BANK', displayName: 'Giro 2', currency: 'EUR' })).json()) as {
+      financialAccountId: string;
+    };
+    const book = async (direction: string, code: string, confirm: boolean) => {
+      const tx = (await (
+        await call(REALM_A, 'POST', '/transactions', {
+          financialAccountId: account.financialAccountId,
+          amount: eur('50.00'),
+          direction,
+          bookingDate: '2027-01-20',
+        })
+      ).json()) as { transactionId: string };
+      await call(REALM_A, 'PUT', `/transactions/${tx.transactionId}/splits`, { splits: [{ amount: eur('50.00'), financialCategoryCode: code }] });
+      if (confirm) expect((await call(REALM_A, 'POST', `/transactions/${tx.transactionId}/confirm`)).status).toBe(200);
+      return tx.transactionId;
+    };
+    const outflow = await book('OUTFLOW', 'RENT_BASE', true);
+    const unconfirmed = await book('INFLOW', 'RENT_BASE', false);
+    const notRent = await book('INFLOW', 'INSURANCE', true);
+
+    const states = new Map<string, string | null>();
+    let compared = 0;
+    for (const realm of [REALM_A, REALM_B, REALM_C, REALM_D, REALM_E, REALM_F, REALM_G]) {
+      const list = (await (await call(realm, 'GET', '/transactions?pageSize=200')).json()) as { items: Item[]; total: number };
+      expect(list.items).toHaveLength(list.total);
+      for (const item of list.items) {
+        const side = (await (await call(realm, 'GET', `/transactions/${item.transactionId}/rent-reconciliations`)).json()) as Side;
+        const allocatable = side.available !== null && side.direction === 'INFLOW' && side.rentCash !== null && Number(side.rentCash.amount) > 0;
+        if (!allocatable) {
+          expect(item.rentAllocation, item.transactionId).toBeNull();
+        } else {
+          expect(item.rentAllocation, item.transactionId).toMatchObject({
+            rentAmount: side.rentCash,
+            allocatedAmount: side.matchedTotal,
+            freeAmount: side.available,
+          });
+        }
+        states.set(item.transactionId, item.rentAllocation?.state ?? null);
+        compared++;
+      }
+      // The filter lists exactly the items whose state is in it.
+      for (const subset of [['NONE'], ['PARTIAL'], ['FULL'], ['NONE', 'PARTIAL']]) {
+        const filtered = (await (await call(realm, 'GET', `/transactions?pageSize=200&rentAllocation=${subset.join(',')}`)).json()) as { items: Item[] };
+        expect(filtered.items.map((i) => i.transactionId).sort(), `${realm} ${subset.join(',')}`).toEqual(
+          list.items
+            .filter((i) => i.rentAllocation !== null && subset.includes(i.rentAllocation.state))
+            .map((i) => i.transactionId)
+            .sort(),
+        );
+      }
+    }
+    expect(compared).toBeGreaterThan(20);
+    expect(new Set(states.values())).toEqual(new Set([null, 'NONE', 'FULL', 'PARTIAL']));
+    expect([states.get(outflow), states.get(unconfirmed), states.get(notRent)]).toEqual([null, null, null]);
+    // Only the lists: the single read keeps its DTO (§30.1A, open question 6).
+    expect(Object.keys((await (await call(REALM_A, 'GET', `/transactions/${outflow}`)).json()) as object)).not.toContain('rentAllocation');
+    // Another Realm's ids match nothing: Realm B's filtered list holds none of Realm A's Transactions, and B has its own.
+    const ofA = (await (await call(REALM_A, 'GET', '/transactions?pageSize=200&rentAllocation=NONE,PARTIAL,FULL')).json()) as { items: Item[] };
+    const ofB = (await (await call(REALM_B, 'GET', '/transactions?pageSize=200&rentAllocation=NONE,PARTIAL,FULL')).json()) as { items: Item[] };
+    expect(ofA.items.length).toBeGreaterThan(0);
+    expect(ofB.items.length).toBeGreaterThan(0);
+    const idsOfA = new Set(ofA.items.map((i) => i.transactionId));
+    expect(ofB.items.filter((i) => idsOfA.has(i.transactionId))).toEqual([]);
   });
 });

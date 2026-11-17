@@ -183,6 +183,10 @@ describe('a comma list names the parameter alone, without an index (§58W rule 7
     ['/transactions', 'status'],
     ['/transactions', 'provenance'],
     ['/exports/transactions.csv', 'status'],
+    // §30.1A (VC-X-81): the rent allocation states, on both lists and the export.
+    ['/transactions', 'rentAllocation'],
+    [`/property-references/${P}/transactions`, 'rentAllocation'],
+    ['/exports/transactions.csv', 'rentAllocation'],
     [`/depreciation-assets/${P}/schedule-versions`, 'status'],
     [`/property-references/${P}/tax-years/2027/acknowledgements`, 'status'],
   ];

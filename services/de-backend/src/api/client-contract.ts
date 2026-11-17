@@ -26,7 +26,7 @@ import type {
 } from './rent-reconciliations.js';
 import type { z } from 'zod';
 import type { RentCategoryCode } from '../application/index.js';
-import type { correctBody, reverseBody, split, toDto as toTransactionDto, toSplitDto } from './transaction-dto.js';
+import type { correctBody, reverseBody, split, toDto as toTransactionDto, toRentAllocationDto, toSplitDto } from './transaction-dto.js';
 import type { toSplitsDto } from './transaction-splits.js';
 
 export type { FieldError } from './validation.js';
@@ -51,8 +51,15 @@ export interface PageDto<T> {
   readonly total: number;
 }
 
-/** `GET /transactions` items and `GET /transactions/{id}` without `splits` (api-design.md §30.1, §31.2). */
+/** A Transaction as `GET /transactions/{id}` (without `splits`) and the commands answer it (api-design.md §30.1, §31.2). */
 export type TransactionDto = Wire<ReturnType<typeof toTransactionDto>>;
+/** `rentAllocation` of a list item when it is not `null` (api-design.md §30.1A): the state and its three amounts. */
+export type RentAllocationDto = Wire<NonNullable<ReturnType<typeof toRentAllocationDto>>>;
+/**
+ * An item of `GET /transactions` and `GET /property-references/{id}/transactions` (api-design.md §30.1, §30.1A): the
+ * Transaction plus `rentAllocation`, `null` when the Transaction has nothing to allocate. Only the two lists carry it.
+ */
+export type TransactionListItemDto = TransactionDto & { readonly rentAllocation: RentAllocationDto | null };
 /** One split of `GET /transactions/{id}` (api-design.md §33.2), in position order. */
 export type TransactionSplitDto = Wire<ReturnType<typeof toSplitDto>>;
 /** `GET /transactions/{id}` (api-design.md §30.1). */

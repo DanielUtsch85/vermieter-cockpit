@@ -182,6 +182,11 @@ describe.skipIf(databaseUrl === undefined)('PostgresTransactionExport (VC-X-04, 
       ['another Realm account', { financialAccountId: id['foreign'] as string }],
       ['another Realm property', { propertyReferenceId: id['foreignP'] as string }],
       ['a malformed account id', { financialAccountId: 'x' }],
+      // §30.1A: the list's filter, through the same `filtered` (the seeded rent payment is confirmed and unmatched).
+      ['rentAllocation NONE,PARTIAL', { rentAllocation: ['NONE', 'PARTIAL'] }],
+      ['rentAllocation FULL', { rentAllocation: ['FULL'] }],
+      ['rentAllocation with current and an account', { rentAllocation: ['NONE'], current: true, financialAccountId: giro }],
+      ['rentAllocation without a state', { rentAllocation: [] }],
     ];
     for (const [label, filter] of filters) {
       const got = await collect(exporter, REALM, filter);
@@ -192,6 +197,8 @@ describe.skipIf(databaseUrl === undefined)('PostgresTransactionExport (VC-X-04, 
     expect((await collect(exporter, REALM, {})).ids).toHaveLength(8);
     expect((await collect(exporter, REALM, { current: true })).ids).toHaveLength(3);
     expect((await collect(exporter, REALM, { statuses: [] })).heads).toEqual([expect.objectContaining({ transactionCount: 0 })]);
+    expect((await collect(exporter, REALM, { rentAllocation: ['NONE', 'PARTIAL'] })).ids.length).toBeGreaterThan(0);
+    expect((await collect(exporter, REALM, { rentAllocation: [] })).heads).toEqual([expect.objectContaining({ transactionCount: 0 })]);
   });
 
   it('history: a corrected Transaction (original, reversal, replacement) and an ignored one are rows of the raw set, not of current', async () => {

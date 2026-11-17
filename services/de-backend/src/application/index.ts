@@ -129,7 +129,7 @@ export {
 export type { AmendTransaction, IgnoreTransaction, RestoreTransaction } from './amend-transaction.js';
 export type { TransactionChanges } from '../domains/ledger/index.js';
 export { getTransaction, listPropertyReferenceTransactions, listTransactions } from './read-transactions.js';
-export type { GetTransaction, ListPropertyReferenceTransactions, ListTransactions } from './read-transactions.js';
+export type { GetTransaction, ListPropertyReferenceTransactions, ListTransactions, TransactionListItem, TransactionListPage } from './read-transactions.js';
 export {
   ExportTooLargeError,
   PROPERTY_EXPORT_LIMIT,
@@ -539,8 +539,8 @@ export type {
   RemoveFromMre,
   WriteBackToMre,
 } from './rent-write-back.js';
-export { RECONCILIATION_STATUSES, WRITE_BACK_STATES, isTermKey } from '../domains/rent-reconciliation/index.js';
-export type { Coverage, ReconciliationStatus, RentPaymentReconciliation } from '../domains/rent-reconciliation/index.js';
+export { RECONCILIATION_STATUSES, RENT_ALLOCATION_STATES, WRITE_BACK_STATES, isTermKey } from '../domains/rent-reconciliation/index.js';
+export type { Coverage, ReconciliationStatus, RentAllocation, RentPaymentReconciliation } from '../domains/rent-reconciliation/index.js';
 export { RentNotProposableError, getRentSplitProposal } from './rent-split-proposal.js';
 export type {
   GetRentSplitProposal,

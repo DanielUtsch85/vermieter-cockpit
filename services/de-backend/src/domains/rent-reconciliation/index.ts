@@ -5,12 +5,14 @@
 export {
   COVERAGES,
   RECONCILIATION_STATUSES,
+  RENT_ALLOCATION_STATES,
   RENT_CATEGORIES,
   WRITE_BACK_STATES,
   availableOf,
   checkMatch,
   coverageOf,
   holdsLease,
+  isCounted,
   isTermKey,
   matchFingerprint,
   matchedTotalOf,
@@ -19,6 +21,7 @@ export {
   planRelease,
   planRemoval,
   planWriteBack,
+  rentAllocationOf,
   staleBy,
 } from './reconciliation.js';
 export {
@@ -61,6 +64,8 @@ export type {
   RejectOutcome,
   RejectPlan,
   ReleasePlan,
+  RentAllocation,
+  RentAllocationState,
   RentPaymentReconciliation,
   RentPaymentReconciliationId,
   RentReconciliationRepository,

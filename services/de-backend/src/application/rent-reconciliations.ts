@@ -1,5 +1,6 @@
 import {
   availableOf,
+  isCounted,
   bookingWindow,
   countDecidedBefore,
   coverageOf,
@@ -346,7 +347,7 @@ export function getTransactionCoverage(deps: { readonly repository: RentReconcil
   return async ({ principal, transactionId }) => {
     const side = await deps.repository.transactionSide(transactionId, principal.mreRealmId);
     if (side === undefined) throw new TransactionNotFoundError(transactionId);
-    const counted = (side.status === 'CONFIRMED' || side.status === 'RECONCILED') && side.correctionRole !== 'REVERSAL';
+    const counted = isCounted(side.status, side.correctionRole);
     const confirmed = side.reconciliations.filter((r) => r.status === 'CONFIRMED');
     const matchedTotal = matchedTotalOf(side.reconciliations);
     const available = counted && side.rentCash !== null ? availableOf({ ...side, rentCash: side.rentCash, confirmed }) : null;
