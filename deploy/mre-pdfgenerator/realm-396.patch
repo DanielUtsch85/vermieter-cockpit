@@ -1,0 +1,52 @@
+diff -ru a/services/pdfgenerator/data/index.js b/services/pdfgenerator/data/index.js
+--- a/services/pdfgenerator/data/index.js
++++ b/services/pdfgenerator/data/index.js
+@@ -1,12 +1,20 @@
++// Vermieter Cockpit overlay (issue #396, backlog VC-X-82; docs/development/betrieb.md §11.7): this file is
++// services/pdfgenerator/data/index.js of MicroRealEstate 479d0ad703436071b64dfdf4e48321c121d8efb5 (the pinned image),
++// changed only where the realm fix of upstream microrealestate/microrealestate#273 (in v1.0.0) needs it: the tenant is
++// read by its id AND the realm the route authorized, so a tenant id of another realm finds nothing (and a request
++// without a realm, realmId undefined, matches no tenant: the driver sends it as null). The same lines as upstream; the
++// rest of upstream's diff to v1.0.0 is not taken. deploy/mre-pdfgenerator/realm-396.patch holds the change;
++// .github/scripts/mre-overlay-check.sh checks it reproduces this file from the original. Remove with the MRE upgrade
++// (VC-X-06).
+ import { Collections, logger } from '@microrealestate/common';
+ import moment from 'moment';
+ 
+ export async function getRentsData(params) {
+-  const { id: tenantId, term } = params;
++  const { id: tenantId, term, realmId } = params;
+ 
+   let dbTenant;
+   try {
+-    dbTenant = await Collections.Tenant.findOne({ _id: tenantId })
++    dbTenant = await Collections.Tenant.findOne({ _id: tenantId, realmId })
+       .populate('realmId')
+       .populate('leaseId')
+       .populate('properties.propertyId');
+diff -ru a/services/pdfgenerator/src/routes/documents.js b/services/pdfgenerator/src/routes/documents.js
+--- a/services/pdfgenerator/src/routes/documents.js
++++ b/services/pdfgenerator/src/routes/documents.js
+@@ -1,3 +1,10 @@
++// Vermieter Cockpit overlay (issue #396, backlog VC-X-82; docs/development/betrieb.md §11.7): this file is
++// services/pdfgenerator/src/routes/documents.js of MicroRealEstate 479d0ad703436071b64dfdf4e48321c121d8efb5 (the pinned
++// image), changed only where the realm fix of upstream microrealestate/microrealestate#273 (in v1.0.0) needs it: the
++// PDF route passes the realm that Middlewares.checkOrganization() authorized (req.realm) on to the data of the
++// document, which reads the tenant by id and realm (data/index.js). deploy/mre-pdfgenerator/realm-396.patch holds the
++// change; .github/scripts/mre-overlay-check.sh checks it reproduces this file from the original. Remove with the MRE
++// upgrade (VC-X-06).
+ import * as pdf from '../pdf.js';
+ import * as s3 from '../utils/s3.js';
+ import {
+@@ -246,7 +253,10 @@
+     Middlewares.asyncWrapper(async (req, res) => {
+       try {
+         logger.debug(`generate pdf file for ${JSON.stringify(req.params)}`);
+-        const pdfFile = await pdf.generate(req.params.document, req.params);
++        const pdfFile = await pdf.generate(req.params.document, {
++          ...req.params,
++          realmId: req.realm?._id
++        });
+         return res.download(pdfFile);
+       } catch (error) {
+         throw new ServiceError(error, 404);
