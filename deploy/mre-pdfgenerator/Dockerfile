@@ -7,6 +7,9 @@
 # replaced, everything else of the image (node, chromium, node_modules, templates, user 1000, WORKDIR /usr/app, CMD)
 # stays as it is. Built by docker compose like de-backend, never pushed to a registry.
 #
+# .github/scripts/mre-overlay-check.sh pins this file as a whole: only this FROM, the checksum line and one same-path
+# COPY per file of realm-396.patch are allowed; any other instruction makes CI red.
+#
 # Remove the overlay with the MRE upgrade (VC-X-06): MRE 1.0.0 carries the fix (microrealestate/microrealestate#273).
 # Rollback point: the plain pinned image (betrieb.md §11.7).
 FROM ghcr.io/microrealestate/microrealestate/pdfgenerator:479d0ad703436071b64dfdf4e48321c121d8efb5@sha256:05e614a8b5c534cae360e20df59e93a99a80afb0fb6afef127db388c08ef1c15
