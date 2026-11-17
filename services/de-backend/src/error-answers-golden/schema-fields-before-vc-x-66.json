@@ -1147,8 +1147,8 @@
       "paths": []
     },
     "GET /api/v1/exports/transactions.csv": {
-      "requests": 1,
-      "sha256": "351a93da17110f5325f1312334638fda91ef0fb93d8e429924afbec25f662822",
+      "requests": 71,
+      "sha256": "f811f1fb750bf6de6076c4110f3e7d62abf2c9b19983651a38dee95fbca9f57d",
       "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
       "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
       "known": [
@@ -1161,10 +1161,11 @@
         "financialCategoryCode",
         "bookingDateFrom",
         "bookingDateTo",
+        "rentAllocation",
         "rows",
         "dialect"
       ],
-      "paths": []
+      "paths": ["rentAllocation"]
     },
     "GET /api/v1/financial-accounts": {
       "requests": 1,
@@ -1415,8 +1416,8 @@
       "paths": []
     },
     "GET /api/v1/property-references/:propertyReferenceId/transactions": {
-      "requests": 1,
-      "sha256": "da6b754df299ecf29e6a814910171818bbd480545d233102ade1cee0f5a264d9",
+      "requests": 71,
+      "sha256": "4f67d5a59fc0955e67d0fc21595996bd193581bff5e6b43373f71bcbbcda6a30",
       "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
       "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
       "known": [
@@ -1428,10 +1429,11 @@
         "financialCategoryCode",
         "bookingDateFrom",
         "bookingDateTo",
+        "rentAllocation",
         "page",
         "pageSize"
       ],
-      "paths": []
+      "paths": ["rentAllocation"]
     },
     "GET /api/v1/property-references/:propertyReferenceId/weg-memberships": {
       "requests": 1,
@@ -1554,8 +1556,8 @@
       "paths": []
     },
     "GET /api/v1/transactions": {
-      "requests": 1,
-      "sha256": "c4ef541abcfaa936da6643100153ed49e2699ad4d75d4f1a6b7911ab0ca4f82d",
+      "requests": 71,
+      "sha256": "778d9a01433ea8b141e03b42fd8b2c1c8193af83498328ade80654ddcae60c3d",
       "first": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
       "last": "{\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Internal error.\"}}",
       "known": [
@@ -1568,10 +1570,11 @@
         "financialCategoryCode",
         "bookingDateFrom",
         "bookingDateTo",
+        "rentAllocation",
         "page",
         "pageSize"
       ],
-      "paths": []
+      "paths": ["rentAllocation"]
     },
     "GET /api/v1/transactions/:transactionId": {
       "requests": 1,
