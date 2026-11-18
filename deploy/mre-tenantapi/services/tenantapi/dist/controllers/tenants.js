@@ -1,4 +1,4 @@
-// Vermieter Cockpit overlay (issue #398; docs/development/betrieb.md §11.7): this file is
+// Vermieter Cockpit overlay (issue #398; docs/development/betrieb.md §11.8): this file is
 // services/tenantapi/dist/controllers/tenants.js of MicroRealEstate 479d0ad703436071b64dfdf4e48321c121d8efb5 (the pinned
 // image, compiled from src/controllers/tenants.ts), changed only in how a tenant is found by e-mail: the address of the
 // session is compared exactly (case-insensitive, as an escaped and anchored pattern), no longer used as a regular
