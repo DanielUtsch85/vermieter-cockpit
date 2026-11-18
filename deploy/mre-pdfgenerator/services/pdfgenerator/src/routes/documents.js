@@ -5,6 +5,9 @@
 // document, which reads the tenant by id and realm (data/index.js). deploy/mre-pdfgenerator/realm-396.patch holds the
 // change; .github/scripts/mre-overlay-check.sh checks it reproduces this file from the original. Remove with the MRE
 // upgrade (VC-X-06).
+// Issue #398 (deploy/mre-pdfgenerator/realm-398.patch, on top of realm-396.patch): the Realm of the list, update and
+// delete routes is req.realm instead of the organizationid header, and a file document's url must lie in the upload
+// folder of its own Realm to be stored, read or deleted (_isOwnFile).
 import * as pdf from '../pdf.js';
 import * as s3 from '../utils/s3.js';
 import {
@@ -21,6 +24,21 @@ import Handlebars from 'handlebars';
 import moment from 'moment';
 import path from 'path';
 import uploadMiddleware from '../utils/uploadmiddelware.js';
+
+// issue #398: a file document's url is a path inside the upload folder of its own Realm (`<name>-<realm id>/…`, as the
+// upload route builds it): relative, no empty, `.` or `..` segment, no backslash or NUL, and a first folder that ends
+// with this Realm's id (the name part may have changed since). Anything else is never read, deleted or stored.
+function _isOwnFile(realm, url) {
+  if (typeof url !== 'string' || /[\\\0]/.test(url)) {
+    return false;
+  }
+  const segments = url.split('/');
+  return (
+    segments.length > 1 &&
+    segments.every((segment) => segment && segment !== '.' && segment !== '..') &&
+    segments[0].endsWith(`-${realm._id}`)
+  );
+}
 
 async function _getTempate(organization, templateId) {
   const template = await Collections.Template.findOne({
@@ -267,7 +285,7 @@ export default function () {
   documentsApi.get(
     '/',
     Middlewares.asyncWrapper(async (req, res) => {
-      const organizationId = req.headers.organizationid;
+      const organizationId = req.realm._id;
 
       const documentsFound = await Collections.Document.find({
         realmId: organizationId
@@ -313,6 +331,11 @@ export default function () {
         if (documentFound.url.indexOf('..') !== -1) {
           logger.error('document url invalid containing ".."');
           throw new ServiceError('missing fields', 422);
+        }
+
+        if (!_isOwnFile(req.realm, documentFound.url)) {
+          logger.warn(`document ${documentId} points outside its realm`);
+          throw new ServiceError('document not found', 404);
         }
 
         // first try to download from file system
@@ -435,6 +458,10 @@ export default function () {
         documentToCreate.mimeType = dataSet.mimeType || '';
         documentToCreate.expiryDate = dataSet.expiryDate || '';
         documentToCreate.url = dataSet.url || '';
+        if (!_isOwnFile(req.realm, documentToCreate.url)) {
+          logger.error('document url outside the realm');
+          throw new ServiceError('missing fields', 422);
+        }
         if (dataSet.versionId) {
           documentToCreate.versionId = dataSet.versionId;
         }
@@ -449,7 +476,7 @@ export default function () {
   documentsApi.patch(
     '/',
     Middlewares.asyncWrapper(async (req, res) => {
-      const organizationId = req.headers.organizationid;
+      const organizationId = req.realm._id;
       if (!req.body._id) {
         logger.error('document id is missing');
         throw new ServiceError('missing fields', 422);
@@ -486,7 +513,7 @@ export default function () {
   documentsApi.delete(
     '/:ids',
     Middlewares.asyncWrapper(async (req, res) => {
-      const organizationId = req.headers.organizationid;
+      const organizationId = req.realm._id;
       const documentIds = req.params.ids.split(',');
 
       // fetch documents
@@ -497,7 +524,11 @@ export default function () {
 
       // delete documents from file systems
       documents.forEach((doc) => {
-        if (doc.type !== 'file' || doc.url.indexOf('..') !== -1) {
+        if (
+          doc.type !== 'file' ||
+          doc.url.indexOf('..') !== -1 ||
+          !_isOwnFile(req.realm, doc.url)
+        ) {
           return;
         }
         const filePath = path.join(UPLOADS_DIRECTORY, doc.url);
@@ -509,7 +540,7 @@ export default function () {
       // delete document from s3
       if (s3.isEnabled(req.realm.thirdParties?.b2)) {
         const urlsIds = documents
-          .filter((doc) => doc.type === 'file')
+          .filter((doc) => doc.type === 'file' && _isOwnFile(req.realm, doc.url))
           .map(({ url, versionId }) => ({ url, versionId }));
 
         s3.deleteFiles(req.realm.thirdParties.b2, urlsIds).catch((err) => {

@@ -1,2 +1,4 @@
 f83bb80ccf3b466e02c1d2a0cbbfb58ab3c96244b11ac23509efa7acbca545c5  services/pdfgenerator/data/index.js
 3dabcea79b79acf5ae0ae4e9c7da9328b65fb77e2c2fa50deeec010ef25fd899  services/pdfgenerator/src/routes/documents.js
+9127c137daf25012662822e8f66edc208be3f213034be1698fd05806ec642432  services/pdfgenerator/src/routes/index.js
+0c40b8670c5177bbd4688e5b30be40e982cb4f0468de31d266458c406d3573dd  services/pdfgenerator/src/routes/templates.js

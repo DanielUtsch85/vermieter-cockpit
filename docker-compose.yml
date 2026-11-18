@@ -28,6 +28,7 @@ services:
   # DE (Vermieter Cockpit)
   #############################################################################
   de-postgres:
+    restart: unless-stopped
     image: postgres:16@sha256:f9a7b9ebf6f56201f949db745e47bc423c0f0f8294bafe991cc10bf74b029657
     environment:
       POSTGRES_USER: ${DE_DB_USER:-de}
@@ -62,11 +63,13 @@ services:
   # MRE (pinned baseline)
   #############################################################################
   redis:
+    restart: unless-stopped
     image: redis:7.4-bookworm@sha256:2e3eb11462c4e3759e6972678dd051d150ff54b1e60714b3c33b701260172a90
     command: ['sh', '-c', 'docker-entrypoint.sh --requirepass ${REDIS_PASSWORD:-redis_password} --loglevel warning']
     networks: [net]
 
   mongo:
+    restart: unless-stopped
     image: mongo:7@sha256:9896df581dfd0718b7abe112f4c37598d0986c54060e4ec1384997e6503c8c71
     command: --quiet --logpath /dev/null
     volumes:
@@ -74,6 +77,7 @@ services:
     networks: [net]
 
   gateway:
+    restart: unless-stopped
     image: ghcr.io/microrealestate/microrealestate/gateway:${MRE_VERSION:-479d0ad703436071b64dfdf4e48321c121d8efb5@sha256:1f482431144203a1df628c219d66d0a03069f7e7091f2c13bff7e7b36a3a640a}
     environment:
       NODE_ENV: production
@@ -145,6 +149,7 @@ services:
     networks: [net]
 
   authenticator:
+    restart: unless-stopped
     image: ghcr.io/microrealestate/microrealestate/authenticator:${MRE_VERSION:-479d0ad703436071b64dfdf4e48321c121d8efb5@sha256:2147a7eecd884c7e254033dc736b32daed133737b414ec9db33e565dd7430096}
     environment:
       NODE_ENV: production
@@ -164,8 +169,13 @@ services:
     depends_on: [redis, mongo, emailer]
     networks: [net]
 
+  # The pinned MRE api with the Realm-ownership fix of issue #398 (deploy/mre-api: FROM the pinned image, commit 479d0ad,
+  # digest sha256:e764969e…, plus one patched file): the Realm of a record comes from the authorized request, never from
+  # the body. Follows no MRE_VERSION, like the pdfgenerator below. Rollback point and upgrade path: betrieb.md §11.7.
   api:
-    image: ghcr.io/microrealestate/microrealestate/api:${MRE_VERSION:-479d0ad703436071b64dfdf4e48321c121d8efb5@sha256:e764969e031f0b5efa2e104bce4b74f4f7e02982be4174cd6fc4e7f2b9083a92}
+    restart: unless-stopped
+    build:
+      context: deploy/mre-api
     environment:
       NODE_ENV: production
       PORT: 8200
@@ -180,8 +190,13 @@ services:
     depends_on: [mongo, emailer, pdfgenerator]
     networks: [net]
 
+  # The pinned MRE tenantapi with the exact e-mail match of issue #398 (deploy/mre-tenantapi: FROM the pinned image,
+  # commit 479d0ad, digest sha256:cb41ee6f…, plus one patched file). Nothing in this stack calls it, and Caddy answers 404
+  # for /tenantapi (deploy/caddy/Caddyfile); fixed all the same. Follows no MRE_VERSION. betrieb.md §11.7.
   tenantapi:
-    image: ghcr.io/microrealestate/microrealestate/tenantapi:${MRE_VERSION:-479d0ad703436071b64dfdf4e48321c121d8efb5@sha256:cb41ee6f5ef823a1de726ae19327e8618ea68bd08ea721ba85a31ef740443ec9}
+    restart: unless-stopped
+    build:
+      context: deploy/mre-tenantapi
     environment:
       NODE_ENV: production
       PORT: 8250
@@ -197,6 +212,7 @@ services:
   # only the two patched files. It follows no MRE_VERSION: the patch fits only that commit. Rollback point and upgrade
   # path (VC-X-06): docs/development/betrieb.md §11.7.
   pdfgenerator:
+    restart: unless-stopped
     build:
       context: deploy/mre-pdfgenerator
     environment:
@@ -217,6 +233,7 @@ services:
     networks: [net]
 
   emailer:
+    restart: unless-stopped
     image: ghcr.io/microrealestate/microrealestate/emailer:${MRE_VERSION:-479d0ad703436071b64dfdf4e48321c121d8efb5@sha256:00df04b1171b44226e2ea03c0fe373e4a819fc09a5859a40edcf274d6a930a63}
     environment:
       NODE_ENV: production

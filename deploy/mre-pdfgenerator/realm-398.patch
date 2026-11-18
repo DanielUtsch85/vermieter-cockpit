@@ -1,0 +1,183 @@
+diff -ru a/services/pdfgenerator/src/routes/documents.js b/services/pdfgenerator/src/routes/documents.js
+--- a/services/pdfgenerator/src/routes/documents.js
++++ b/services/pdfgenerator/src/routes/documents.js
+@@ -5,6 +5,9 @@
+ // document, which reads the tenant by id and realm (data/index.js). deploy/mre-pdfgenerator/realm-396.patch holds the
+ // change; .github/scripts/mre-overlay-check.sh checks it reproduces this file from the original. Remove with the MRE
+ // upgrade (VC-X-06).
++// Issue #398 (deploy/mre-pdfgenerator/realm-398.patch, on top of realm-396.patch): the Realm of the list, update and
++// delete routes is req.realm instead of the organizationid header, and a file document's url must lie in the upload
++// folder of its own Realm to be stored, read or deleted (_isOwnFile).
+ import * as pdf from '../pdf.js';
+ import * as s3 from '../utils/s3.js';
+ import {
+@@ -22,6 +25,21 @@
+ import path from 'path';
+ import uploadMiddleware from '../utils/uploadmiddelware.js';
+ 
++// issue #398: a file document's url is a path inside the upload folder of its own Realm (`<name>-<realm id>/…`, as the
++// upload route builds it): relative, no empty, `.` or `..` segment, no backslash or NUL, and a first folder that ends
++// with this Realm's id (the name part may have changed since). Anything else is never read, deleted or stored.
++function _isOwnFile(realm, url) {
++  if (typeof url !== 'string' || /[\\\0]/.test(url)) {
++    return false;
++  }
++  const segments = url.split('/');
++  return (
++    segments.length > 1 &&
++    segments.every((segment) => segment && segment !== '.' && segment !== '..') &&
++    segments[0].endsWith(`-${realm._id}`)
++  );
++}
++
+ async function _getTempate(organization, templateId) {
+   const template = await Collections.Template.findOne({
+     _id: templateId,
+@@ -267,7 +285,7 @@
+   documentsApi.get(
+     '/',
+     Middlewares.asyncWrapper(async (req, res) => {
+-      const organizationId = req.headers.organizationid;
++      const organizationId = req.realm._id;
+ 
+       const documentsFound = await Collections.Document.find({
+         realmId: organizationId
+@@ -315,6 +333,11 @@
+           throw new ServiceError('missing fields', 422);
+         }
+ 
++        if (!_isOwnFile(req.realm, documentFound.url)) {
++          logger.warn(`document ${documentId} points outside its realm`);
++          throw new ServiceError('document not found', 404);
++        }
++
+         // first try to download from file system
+         const filePath = path.join(UPLOADS_DIRECTORY, documentFound.url);
+         if (fs.existsSync(filePath)) {
+@@ -435,6 +458,10 @@
+         documentToCreate.mimeType = dataSet.mimeType || '';
+         documentToCreate.expiryDate = dataSet.expiryDate || '';
+         documentToCreate.url = dataSet.url || '';
++        if (!_isOwnFile(req.realm, documentToCreate.url)) {
++          logger.error('document url outside the realm');
++          throw new ServiceError('missing fields', 422);
++        }
+         if (dataSet.versionId) {
+           documentToCreate.versionId = dataSet.versionId;
+         }
+@@ -449,7 +476,7 @@
+   documentsApi.patch(
+     '/',
+     Middlewares.asyncWrapper(async (req, res) => {
+-      const organizationId = req.headers.organizationid;
++      const organizationId = req.realm._id;
+       if (!req.body._id) {
+         logger.error('document id is missing');
+         throw new ServiceError('missing fields', 422);
+@@ -486,7 +513,7 @@
+   documentsApi.delete(
+     '/:ids',
+     Middlewares.asyncWrapper(async (req, res) => {
+-      const organizationId = req.headers.organizationid;
++      const organizationId = req.realm._id;
+       const documentIds = req.params.ids.split(',');
+ 
+       // fetch documents
+@@ -497,7 +524,11 @@
+ 
+       // delete documents from file systems
+       documents.forEach((doc) => {
+-        if (doc.type !== 'file' || doc.url.indexOf('..') !== -1) {
++        if (
++          doc.type !== 'file' ||
++          doc.url.indexOf('..') !== -1 ||
++          !_isOwnFile(req.realm, doc.url)
++        ) {
+           return;
+         }
+         const filePath = path.join(UPLOADS_DIRECTORY, doc.url);
+@@ -509,7 +540,7 @@
+       // delete document from s3
+       if (s3.isEnabled(req.realm.thirdParties?.b2)) {
+         const urlsIds = documents
+-          .filter((doc) => doc.type === 'file')
++          .filter((doc) => doc.type === 'file' && _isOwnFile(req.realm, doc.url))
+           .map(({ url, versionId }) => ({ url, versionId }));
+ 
+         s3.deleteFiles(req.realm.thirdParties.b2, urlsIds).catch((err) => {
+diff -ru a/services/pdfgenerator/src/routes/index.js b/services/pdfgenerator/src/routes/index.js
+--- a/services/pdfgenerator/src/routes/index.js
++++ b/services/pdfgenerator/src/routes/index.js
+@@ -1,3 +1,9 @@
++// Vermieter Cockpit overlay (issue #398; docs/development/betrieb.md §11.7): this file is
++// services/pdfgenerator/src/routes/index.js of MicroRealEstate 479d0ad703436071b64dfdf4e48321c121d8efb5 (the pinned
++// image), changed only so that the templates and documents routes answer a request only with a Realm that the
++// middleware authorized (a tenant session has none) and never for the role tenant, as the api does.
++// deploy/mre-pdfgenerator/realm-398.patch holds the change; .github/scripts/mre-overlay-check.sh checks it reproduces
++// this file from the original. Remove with the MRE upgrade (VC-X-06).
+ import { Middlewares, Service } from '@microrealestate/common';
+ import documents from './documents.js';
+ import express from 'express';
+@@ -9,7 +15,12 @@
+     Middlewares.needAccessToken(
+       Service.getInstance().envConfig.getValues().ACCESS_TOKEN_SECRET
+     ),
+-    Middlewares.checkOrganization()
++    Middlewares.checkOrganization(),
++    // issue #398: only a request with a Realm that Middlewares.checkOrganization() authorized, and not as a tenant. The
++    // pinned middleware skips every check for a tenant session (sessionToken cookie without Authorization) and leaves
++    // req.realm unset; templates and documents then trusted the organizationid header. 404 as for a foreign Realm.
++    (req, res, next) => (req.realm ? next() : res.sendStatus(404)),
++    Middlewares.notRoles(['tenant'])
+   );
+   apiRoutes.use('/templates', templates());
+   apiRoutes.use('/documents', documents());
+diff -ru a/services/pdfgenerator/src/routes/templates.js b/services/pdfgenerator/src/routes/templates.js
+--- a/services/pdfgenerator/src/routes/templates.js
++++ b/services/pdfgenerator/src/routes/templates.js
+@@ -1,3 +1,9 @@
++// Vermieter Cockpit overlay (issue #398; docs/development/betrieb.md §11.7): this file is
++// services/pdfgenerator/src/routes/templates.js of MicroRealEstate 479d0ad703436071b64dfdf4e48321c121d8efb5 (the pinned
++// image), changed only so that the Realm of a template is the one the middleware authorized (req.realm), no
++// longer the organizationid header the client sends.
++// deploy/mre-pdfgenerator/realm-398.patch holds the change; .github/scripts/mre-overlay-check.sh checks it reproduces
++// this file from the original. Remove with the MRE upgrade (VC-X-06).
+ import {
+   Collections,
+   logger,
+@@ -55,7 +61,7 @@
+   templatesApi.get(
+     '/',
+     Middlewares.asyncWrapper(async (req, res) => {
+-      const organizationId = req.headers.organizationid;
++      const organizationId = req.realm._id;
+ 
+       const templatesFound = await Collections.Template.find({
+         realmId: organizationId
+@@ -94,7 +100,7 @@
+   templatesApi.post(
+     '/',
+     Middlewares.asyncWrapper(async (req, res) => {
+-      const organizationId = req.headers.organizationid;
++      const organizationId = req.realm._id;
+ 
+       const errors = _checkTemplateParameters(req.body);
+       if (errors.length) {
+@@ -133,7 +139,7 @@
+   templatesApi.patch(
+     '/',
+     Middlewares.asyncWrapper(async (req, res) => {
+-      const organizationId = req.headers.organizationid;
++      const organizationId = req.realm._id;
+ 
+       let errors = _checkTemplateParameters(req.body);
+       if (!req.body._id) {
+@@ -168,7 +174,7 @@
+   templatesApi.delete(
+     '/:ids',
+     Middlewares.asyncWrapper(async (req, res) => {
+-      const organizationId = req.headers.organizationid;
++      const organizationId = req.realm._id;
+       const templateIds = req.params.ids.split(',');
+       const result = await Collections.Template.deleteMany({
+         _id: { $in: templateIds },

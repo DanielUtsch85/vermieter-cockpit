@@ -100,11 +100,18 @@ jobs:
       # settings and right before the gate, which closes sign-up again at its end.
       - name: PDF route Realm isolation through Caddy and the MRE gateway (two Realms; tenant of another Realm 404 and never a PDF, in every document type; red on the plain pinned pdfgenerator; issue 396)
         run: .github/scripts/compose-pdf-realm-gate.sh
-      # Last on purpose: it adds docker-compose.proxy.yml and recreates authenticator, gateway, emailer and de-backend
+      # Issue 398 (betrieb.md §11.8): same stack and settings as the PDF gate (proxy override, sign-up open).
+      - name: MRE Realm isolation through Caddy and the MRE gateway (two Realms, landlord and tenant sessions; tenant endpoints 404 at Caddy, templates and documents only with an authorized Realm, exact e-mail in the tenant API, no realmId from the body, uploads only in the own Realm; every attack red on the plain pinned images; issue 398)
+        run: .github/scripts/compose-mre-security-gate.sh
+      # Last but one on purpose: it adds docker-compose.proxy.yml and recreates authenticator, gateway, emailer and de-backend
       # (all four are overridden there) with the proxy settings (https, the cockpit hostname), which the steps above do
       # not expect. At its end it recreates the authenticator once more with MRE_SIGNUP unset (sign-up closed).
       - name: Cockpit gate through Caddy with curl (/cockpit/ start page and deep link from cockpit-ui with no-store, asset, sign-in, refresh cookie HttpOnly; Secure; SameSite=Strict; Domain=<host>, /api/v1/health, sign-up 404 with the productive default at the end; Entscheidungen des Projektinhabers, 2026-11-10 und 2026-11-11)
         run: .github/scripts/compose-cockpit-gate.sh
+      # Issue 398 (betrieb.md §9.9): after the cockpit gate, against the full stack it leaves; restarts the Docker daemon
+      # and runs no `docker compose up` afterwards, so every service must come back through its restart policy.
+      - name: Automatic restart (Docker daemon restarted; every service back in its own container, healthy; DE, MRE, gateway, cockpit UI and landlord UI work, a Realm of before the restart is still there; issue 398)
+        run: .github/scripts/compose-restart-check.sh
       # Only the base stack (docker-compose.yml). The cockpit gate prints the logs of caddy, cockpit-ui and the
       # authenticator itself when it fails (trap in .github/scripts/compose-cockpit-gate.sh).
       - name: Logs on failure

@@ -1,0 +1,35 @@
+diff -ru a/services/api/src/routes.js b/services/api/src/routes.js
+--- a/services/api/src/routes.js
++++ b/services/api/src/routes.js
+@@ -1,3 +1,11 @@
++// Vermieter Cockpit overlay (issue #398; docs/development/betrieb.md §11.7): this file is services/api/src/routes.js of
++// MicroRealEstate 479d0ad703436071b64dfdf4e48321c121d8efb5 (the pinned image), changed only so that the Realm of a
++// record comes from the authorized request (req.realm, set by Middlewares.checkOrganization()) and never from the
++// body: every route of the api drops `realmId` from the JSON body and refuses a body with an update operator (a top-level
++// key starting with `$`), before any manager sees it. Without it, PATCH /properties/:id, /leases/:id and /tenants/:id
++// with `"realmId": "<other Realm>"` (or `"$set": { "realmId": … }`) moved the record into that Realm. MRE 1.0.0 still
++// passes the body on for properties. deploy/mre-api/realm-398.patch holds the change; .github/scripts/mre-overlay-check.sh
++// checks it reproduces this file from the original. Remove with the MRE upgrade (VC-X-06) once the managers do the same.
+ import * as accountingManager from './managers/accountingmanager.js';
+ import * as dashboardManager from './managers/dashboardmanager.js';
+ import * as emailManager from './managers/emailmanager.js';
+@@ -18,7 +26,18 @@
+     // update req with the user organizations
+     Middlewares.checkOrganization(),
+     // forbid access to tenant
+-    Middlewares.notRoles(['tenant'])
++    Middlewares.notRoles(['tenant']),
++    // the Realm of a record is req.realm, never a value of the body (issue #398)
++    (req, res, next) => {
++      const body = req.body;
++      if (body && typeof body === 'object' && !Array.isArray(body)) {
++        if (Object.keys(body).some((key) => key.startsWith('$'))) {
++          return res.sendStatus(422);
++        }
++        delete body.realmId;
++      }
++      next();
++    }
+   );
+ 
+   const realmsRouter = express.Router();
