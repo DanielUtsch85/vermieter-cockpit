@@ -1,4 +1,4 @@
-# MRE tenantapi with the exact e-mail match of issue #398 (docs/development/betrieb.md §11.7; Auftrag des
+# MRE tenantapi with the exact e-mail match of issue #398 (docs/development/betrieb.md §11.8; Auftrag des
 # Projektinhabers, 2026-11-18: „E-Mail-Adressen werden als ungefilterte reguläre Ausdrücke verwendet. Auf exakten,
 # fachlich passenden Vergleich umstellen und bestandsübergreifende Zugriffe verhindern.“).
 #
@@ -11,7 +11,7 @@
 # COPY per file of the patch are allowed; any other instruction makes CI red.
 #
 # Remove the overlay with the MRE upgrade (VC-X-06): MRE 1.0.0 compares the address exactly. Rollback point: the plain
-# pinned image (betrieb.md §11.7).
+# pinned image (betrieb.md §11.8).
 FROM ghcr.io/microrealestate/microrealestate/tenantapi:479d0ad703436071b64dfdf4e48321c121d8efb5@sha256:cb41ee6f5ef823a1de726ae19327e8618ea68bd08ea721ba85a31ef740443ec9
 
 # The patched file fits exactly this original: the build fails if the base image holds anything else there.

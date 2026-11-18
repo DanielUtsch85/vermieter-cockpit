@@ -1,4 +1,4 @@
-// Vermieter Cockpit overlay (issue #398; docs/development/betrieb.md §11.7): this file is
+// Vermieter Cockpit overlay (issue #398; docs/development/betrieb.md §11.8): this file is
 // services/pdfgenerator/src/routes/index.js of MicroRealEstate 479d0ad703436071b64dfdf4e48321c121d8efb5 (the pinned
 // image), changed only so that the templates and documents routes answer a request only with a Realm that the
 // middleware authorized (a tenant session has none) and never for the role tenant, as the api does.

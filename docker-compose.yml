@@ -6,12 +6,12 @@
 # - MRE gateway: http://localhost:8080 (landlord API under /api/v2)
 #
 # MRE runs from the published images of the pinned baseline commit (ADR-036,
-# mre-integration.md §55); the pdfgenerator is that image with one backported fix on top (deploy/mre-pdfgenerator,
-# issue #396). Of the two MRE frontends only the landlord UI runs (landlord-frontend, behind the gateway
+# mre-integration.md §55); pdfgenerator, api and tenantapi are those images with backported fixes on top
+# (deploy/mre-*, issues #396 and #398). Of the two MRE frontends only the landlord UI runs (landlord-frontend, behind the gateway
 # under /landlord; backlog VC-X-80); the tenant frontend is not started.
 # Every image is pinned by digest (VC-X-09): `tag@sha256:…`; for MRE the digest sits in the default of
-# ${MRE_VERSION:-…}, so a set MRE_VERSION is tag-only (docs/development/betrieb.md §11); the pdfgenerator's base digest
-# sits in deploy/mre-pdfgenerator/Dockerfile (§11.7).
+# ${MRE_VERSION:-…}, so a set MRE_VERSION is tag-only (docs/development/betrieb.md §11); the base digests of the three
+# overlays sit in deploy/mre-*/Dockerfile (§11.7, §11.8).
 # All secrets below are development defaults — override them via .env, never use
 # them in production. Published ports bind to 127.0.0.1 only: with the known
 # default ACCESS_TOKEN_SECRET anyone who can reach the gateway could forge MRE
@@ -171,7 +171,7 @@ services:
 
   # The pinned MRE api with the Realm-ownership fix of issue #398 (deploy/mre-api: FROM the pinned image, commit 479d0ad,
   # digest sha256:e764969e…, plus one patched file): the Realm of a record comes from the authorized request, never from
-  # the body. Follows no MRE_VERSION, like the pdfgenerator below. Rollback point and upgrade path: betrieb.md §11.7.
+  # the body. Follows no MRE_VERSION, like the pdfgenerator below. Rollback point and upgrade path: betrieb.md §11.8.
   api:
     restart: unless-stopped
     build:
@@ -192,7 +192,7 @@ services:
 
   # The pinned MRE tenantapi with the exact e-mail match of issue #398 (deploy/mre-tenantapi: FROM the pinned image,
   # commit 479d0ad, digest sha256:cb41ee6f…, plus one patched file). Nothing in this stack calls it, and Caddy answers 404
-  # for /tenantapi (deploy/caddy/Caddyfile); fixed all the same. Follows no MRE_VERSION. betrieb.md §11.7.
+  # for /tenantapi (deploy/caddy/Caddyfile); fixed all the same. Follows no MRE_VERSION. betrieb.md §11.8.
   tenantapi:
     restart: unless-stopped
     build:
