@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Issue #281 item 4 (docs/development/betrieb.md §9; Entscheidung des Projektinhabers, 2026-11-06): the optional
-# proxy override still renders together with docker-compose.yml, publishes Caddy on no wildcard address, and the
-# Caddyfile is valid in the very Caddy image the override names. Needs docker; starts nothing of the stack.
+# proxy override still renders together with docker-compose.yml, publishes Caddy on no wildcard address, every service
+# restarts on its own (issue #398), and the Caddyfile is valid in the very Caddy image the override names. Needs docker; starts nothing of the stack.
 set -euo pipefail
 
 files=(-f docker-compose.yml -f docker-compose.proxy.yml)
@@ -29,6 +29,18 @@ echo "$rendered" | jq -e '.services.gateway.environment | .EXPOSE_FRONTENDS == "
   echo "the gateway does not serve landlord-frontend under /landlord" >&2
   exit 1
 }
+
+# Automatic restart after a crash or a host reboot (issue #398; Auftrag des Projektinhabers, 2026-11-18: „Bitte den
+# vollständigen automatischen Wiederanlauf gewährleisten …“): every service of the productive stack has
+# `restart: unless-stopped` (or `always`), in the base file and with the override alike. The restart itself is checked in
+# compose-smoke by .github/scripts/compose-restart-check.sh.
+for rendered_set in "$(docker compose -f docker-compose.yml config --format json)" "$rendered"; do
+  missing=$(echo "$rendered_set" | jq -r '.services | to_entries[] | select(.value.restart != "unless-stopped" and .value.restart != "always") | .key')
+  if [ -n "$missing" ]; then
+    echo "service(s) without restart: unless-stopped: $(echo $missing)" >&2
+    exit 1
+  fi
+done
 
 image=$(echo "$rendered" | jq -r '.services.caddy.image')
 docker run --rm -e COCKPIT_HOSTNAME=cockpit.internal -e COCKPIT_UI_UPSTREAM=cockpit-ui:80 \

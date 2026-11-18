@@ -76,25 +76,40 @@ if [ "$(grep -c . <<<"$node_refs")" != 1 ]; then
   fail=1
 fi
 
-# One MRE commit (issue #396, betrieb.md §11.7): the pdfgenerator overlay (deploy/mre-pdfgenerator/Dockerfile) starts FROM
-# the pinned pdfgenerator image, so its tag is the same MRE commit as the ${MRE_VERSION:-<commit>@sha256:…} default of
-# every MRE image in docker-compose.yml. An MRE upgrade that moves the compose default but not the overlay (or the other
-# way round) stays red here: the overlay's patched files fit only the commit they were made from (VC-X-06).
+# One MRE commit (issues #396 and #398, betrieb.md §11.7): the MRE overlays (deploy/mre-<service>/Dockerfile:
+# pdfgenerator, api, tenantapi) start FROM the pinned image of their service, so their tags are the same MRE commit as
+# the ${MRE_VERSION:-<commit>@sha256:…} default of every MRE image in docker-compose.yml. An MRE upgrade that moves the
+# compose defaults but not an overlay (or the other way round) stays red here: the overlays' patched files fit only the
+# commit they were made from (VC-X-06).
+overlays=(deploy/mre-pdfgenerator deploy/mre-api deploy/mre-tenantapi)
 mre_commits=$(
   {
     grep -hoE 'ghcr\.io/microrealestate/microrealestate/[a-z-]+:\$\{MRE_VERSION:-[0-9a-f]{40}@' docker-compose.yml |
       sed -E 's/.*:-([0-9a-f]{40})@$/\1/'
-    from_refs deploy/mre-pdfgenerator/Dockerfile ghcr.io/microrealestate/microrealestate/pdfgenerator |
-      sed -nE 's/^[^:]+:([0-9a-f]{40})@sha256:.*/\1/p'
+    for overlay in "${overlays[@]}"; do
+      from_refs "$overlay/Dockerfile" "ghcr.io/microrealestate/microrealestate/${overlay#deploy/mre-}" |
+        sed -nE 's/^[^:]+:([0-9a-f]{40})@sha256:.*/\1/p'
+    done
   } | sort -u
 )
-if ! grep -q 'microrealestate/pdfgenerator:' deploy/mre-pdfgenerator/Dockerfile 2>/dev/null; then
-  echo "deploy/mre-pdfgenerator/Dockerfile has no FROM of the pinned MRE pdfgenerator image" >&2
-  fail=1
-elif [ "$(grep -c . <<<"$mre_commits")" != 1 ]; then
-  echo "MRE commit differs between docker-compose.yml and deploy/mre-pdfgenerator/Dockerfile: $(tr '\n' ' ' <<<"$mre_commits")" >&2
+for overlay in "${overlays[@]}"; do
+  if ! grep -q "microrealestate/${overlay#deploy/mre-}:" "$overlay/Dockerfile" 2>/dev/null; then
+    echo "$overlay/Dockerfile has no FROM of the pinned MRE ${overlay#deploy/mre-} image" >&2
+    fail=1
+  fi
+done
+if [ "$(grep -c . <<<"$mre_commits")" != 1 ]; then
+  echo "MRE commit differs between docker-compose.yml and the overlays ${overlays[*]}: $(tr '\n' ' ' <<<"$mre_commits")" >&2
   fail=1
 fi
+# Every overlay directory is one of the list above, so none escapes the commit check.
+for dir in deploy/mre-*/; do
+  case " ${overlays[*]} " in *" ${dir%/} "*) ;; *)
+    echo "${dir%/} is an MRE overlay not listed in .github/scripts/image-pin-check.sh" >&2
+    fail=1
+    ;;
+  esac
+done
 
 [ "$fail" = 0 ] || exit 1
 echo "images pinned by digest, actions by commit SHA, postgres in CI as in compose, one caddy, one node and one MRE commit: OK"

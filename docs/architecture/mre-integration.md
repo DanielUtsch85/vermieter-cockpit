@@ -1157,6 +1157,8 @@ Each MRE upgrade should run:
 
 Maintain a compatibility record containing MRE version and compatible DE version.
 
+**Deviation from the pinned baseline (issues #396 and #398):** three MRE services do not run as the plain pinned images but as small overlays built in this repository: `pdfgenerator` (realm fix of the PDF route, the same lines as upstream 1.0.0, PR #397; plus the Realm checks for templates, documents and uploads, PR #398), `api` (no `realmId` from request bodies) and `tenantapi` (exact e-mail match), each `FROM` the pinned image of commit `479d0ad` by digest with only the patched files on top (`deploy/mre-*`, checked by `mre-overlay-check.sh` and `image-pin-check.sh`). No fork, no foreign registry. Way back with the upgrade (VC-X-06): `docs/development/betrieb.md` §11.4, §11.7 and §11.8; the gates `compose-pdf-realm-gate.sh` and `compose-mre-security-gate.sh` must stay green against the new release.
+
 ---
 
 # 56. Fork Policy

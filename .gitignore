@@ -20,3 +20,5 @@ coverage/
 
 # Playwright output of the cockpit browser run (VC-X-70)
 e2e-results/
+# The MRE tenantapi overlay replaces a compiled file of the pinned image (issue #398, deploy/mre-tenantapi).
+!deploy/mre-tenantapi/services/tenantapi/dist/
