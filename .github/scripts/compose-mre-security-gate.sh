@@ -24,6 +24,9 @@
 #      create, and one already stored (written straight into MongoDB) neither reads nor deletes B's file. Control: B
 #      uploads, reads and A uploads, reads, deletes its own file.
 #
+#   L  api (issue #401, no security finding): PATCH of a lease a tenant already uses answers 200 and changes only name,
+#      description, active and stepperMode (the pinned api answers 500).
+#
 # The PDF route of #396 keeps its own gate (compose-pdf-realm-gate.sh). This gate runs in compose-smoke after it, against
 # the same stack (docker-compose.yml plus docker-compose.proxy.yml with sign-up open; the cockpit gate closes it again).
 # The tenant session is minted inside the pdfgenerator container with its own ACCESS_TOKEN_SECRET, exactly as the
@@ -351,6 +354,22 @@ for variant in plain set; do
   moved tenants "$tenant_f3" "Mieter F3 $n" "$variant"
 done
 echo "F3 control: the PATCHes renamed the records in Realm A (or, with \$set, were refused with 422)"
+
+#############################################################################
+# L (issue #401): PATCH of a lease a tenant already uses (tenant A uses lease A)
+#############################################################################
+# The pinned api answers 500 here (it reads dbLease inside its own declaration). With the overlay: 200, name, description
+# and active as sent, the other fields (here numberOfTerms) as stored.
+as "$email_a" "$realm_a" PATCH "/api/v2/leases/$lease_a" "${json[@]}" -d "{\"_id\":\"$lease_a\",\"name\":\"Wohnraum $run\",
+  \"description\":\"Beschreibung L\",\"numberOfTerms\":99,\"timeRange\":\"months\",\"active\":false}"
+echo "L  PATCH of lease A, used by tenant A: HTTP $code"
+if [ "$code" != 200 ]; then
+  breach "L: PATCH of a lease in use answers $code, not 200 (issue #401)"
+else
+  as "$email_a" "$realm_a" GET "/api/v2/leases/$lease_a"
+  jq -e --arg n "Wohnraum $run" '.name == $n and .description == "Beschreibung L" and .active == false and .numberOfTerms == 12' \
+    "$work/b" >/dev/null || breach "L: the lease in use was not updated as expected: $(body)"
+fi
 
 if [ "$failures" != 0 ]; then
   fail "$failures attack(s) went through (BREACH lines above)"
