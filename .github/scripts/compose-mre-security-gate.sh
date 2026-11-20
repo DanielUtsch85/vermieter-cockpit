@@ -25,7 +25,7 @@
 #      uploads, reads and A uploads, reads, deletes its own file.
 #
 #   L  api (issue #401, no security finding): PATCH of a lease a tenant already uses answers 200 and changes only name,
-#      description, active and stepperMode (the pinned api answers 500).
+#      description, active and stepperMode (the pinned api answers 500); answer and GET say usedByTenants true.
 #
 # The PDF route of #396 keeps its own gate (compose-pdf-realm-gate.sh). This gate runs in compose-smoke after it, against
 # the same stack (docker-compose.yml plus docker-compose.proxy.yml with sign-up open; the cockpit gate closes it again).
@@ -366,9 +366,12 @@ echo "L  PATCH of lease A, used by tenant A: HTTP $code"
 if [ "$code" != 200 ]; then
   breach "L: PATCH of a lease in use answers $code, not 200 (issue #401)"
 else
+  # usedByTenants true in the answer and in GET: /landlord locks the schedule fields of a lease in use only then.
+  jq -e '.usedByTenants == true' "$work/b" >/dev/null || breach "L: the PATCH answer has no usedByTenants true: $(body)"
   as "$email_a" "$realm_a" GET "/api/v2/leases/$lease_a"
   jq -e --arg n "Wohnraum $run" '.name == $n and .description == "Beschreibung L" and .active == false and .numberOfTerms == 12' \
     "$work/b" >/dev/null || breach "L: the lease in use was not updated as expected: $(body)"
+  jq -e '.usedByTenants == true' "$work/b" >/dev/null || breach "L: GET of the lease in use has no usedByTenants true"
 fi
 
 if [ "$failures" != 0 ]; then

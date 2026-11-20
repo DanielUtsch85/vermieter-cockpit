@@ -3,7 +3,9 @@
 // image), changed only in update(): for a lease a tenant already uses, the pinned code read dbLease inside the statement
 // that declares it (ReferenceError, PATCH /leases/:id answered 500). As upstream v1.0.0 (leasemanager.ts) does, the
 // update of such a lease is built from the request alone: name, and description, active and stepperMode where given;
-// the stored values of the other fields stay. deploy/mre-api/realm-401.patch holds the change;
+// the stored values of the other fields stay. And, as upstream v1.0.0, usedByTenants compares String(_id) (the set holds
+// the tenants' leaseId strings; with the ObjectId it was always false, and /landlord never locked the schedule fields of
+// a lease in use). deploy/mre-api/realm-401.patch holds the change;
 // .github/scripts/mre-overlay-check.sh checks it reproduces this file from the original. Remove with the MRE upgrade
 // (VC-X-06).
 import { Collections, logger, ServiceError } from '@microrealestate/common';
@@ -40,7 +42,7 @@ export async function add(req, res) {
   });
   const savedLease = await dbLease.save();
   const setOfUsedLeases = await _leaseUsedByTenant(realm);
-  savedLease.usedByTenants = setOfUsedLeases.has(savedLease._id);
+  savedLease.usedByTenants = setOfUsedLeases.has(String(savedLease._id));
   res.json(savedLease);
 }
 
@@ -87,7 +89,7 @@ export async function update(req, res) {
     throw new ServiceError('lease not found', 404);
   }
 
-  dbLease.usedByTenants = setOfUsedLeases.has(dbLease._id);
+  dbLease.usedByTenants = setOfUsedLeases.has(String(dbLease._id));
   res.json(dbLease);
 }
 
@@ -169,7 +171,7 @@ export async function all(req, res) {
   res.json(
     dbLeases.map((dbLease) => ({
       ...dbLease,
-      usedByTenants: setOfUsedLeases.has(dbLease._id)
+      usedByTenants: setOfUsedLeases.has(String(dbLease._id))
     }))
   );
 }
@@ -188,6 +190,6 @@ export async function one(req, res) {
   }
 
   const setOfUsedLeases = await _leaseUsedByTenant(realm);
-  dbLease.usedByTenants = setOfUsedLeases.has(dbLease._id);
+  dbLease.usedByTenants = setOfUsedLeases.has(String(dbLease._id));
   res.json(dbLease);
 }
