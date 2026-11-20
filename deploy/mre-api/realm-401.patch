@@ -1,0 +1,89 @@
+diff -ru a/services/api/src/managers/leasemanager.js b/services/api/src/managers/leasemanager.js
+--- a/services/api/src/managers/leasemanager.js
++++ b/services/api/src/managers/leasemanager.js
+@@ -1,3 +1,13 @@
++// Vermieter Cockpit overlay (issue #401; docs/development/betrieb.md §11.8): this file is
++// services/api/src/managers/leasemanager.js of MicroRealEstate 479d0ad703436071b64dfdf4e48321c121d8efb5 (the pinned
++// image), changed only in update(): for a lease a tenant already uses, the pinned code read dbLease inside the statement
++// that declares it (ReferenceError, PATCH /leases/:id answered 500). As upstream v1.0.0 (leasemanager.ts) does, the
++// update of such a lease is built from the request alone: name, and description, active and stepperMode where given;
++// the stored values of the other fields stay. And, as upstream v1.0.0, usedByTenants compares String(_id) (the set holds
++// the tenants' leaseId strings; with the ObjectId it was always false, and /landlord never locked the schedule fields of
++// a lease in use). deploy/mre-api/realm-401.patch holds the change;
++// .github/scripts/mre-overlay-check.sh checks it reproduces this file from the original. Remove with the MRE upgrade
++// (VC-X-06).
+ import { Collections, logger, ServiceError } from '@microrealestate/common';
+ 
+ /**
+@@ -32,7 +42,7 @@
+   });
+   const savedLease = await dbLease.save();
+   const setOfUsedLeases = await _leaseUsedByTenant(realm);
+-  savedLease.usedByTenants = setOfUsedLeases.has(savedLease._id);
++  savedLease.usedByTenants = setOfUsedLeases.has(String(savedLease._id));
+   res.json(savedLease);
+ }
+ 
+@@ -51,20 +61,27 @@
+ 
+   const setOfUsedLeases = await _leaseUsedByTenant(realm);
+ 
++  // if lease already used by tenants, only allow to update name, description, active fields
++  let updatedLease = lease;
++  if (setOfUsedLeases.has(lease._id)) {
++    updatedLease = { name: lease.name };
++    if (lease.description != null) {
++      updatedLease.description = lease.description;
++    }
++    if (lease.active != null) {
++      updatedLease.active = lease.active;
++    }
++    if (lease.stepperMode != null) {
++      updatedLease.stepperMode = lease.stepperMode;
++    }
++  }
++
+   const dbLease = await Collections.Lease.findOneAndUpdate(
+     {
+       realmId: realm._id,
+       _id: lease._id
+     },
+-    // if lease already used by tenants, only allow to update name, description, active fields
+-    setOfUsedLeases.has(lease._id)
+-      ? {
+-          name: lease.name || dbLease.name,
+-          description: lease.description ?? dbLease.description,
+-          active: lease.active ?? dbLease.active,
+-          stepperMode: lease.stepperMode ?? dbLease.stepperMode
+-        }
+-      : lease,
++    updatedLease,
+     { new: true }
+   ).lean();
+ 
+@@ -72,7 +89,7 @@
+     throw new ServiceError('lease not found', 404);
+   }
+ 
+-  dbLease.usedByTenants = setOfUsedLeases.has(dbLease._id);
++  dbLease.usedByTenants = setOfUsedLeases.has(String(dbLease._id));
+   res.json(dbLease);
+ }
+ 
+@@ -154,7 +171,7 @@
+   res.json(
+     dbLeases.map((dbLease) => ({
+       ...dbLease,
+-      usedByTenants: setOfUsedLeases.has(dbLease._id)
++      usedByTenants: setOfUsedLeases.has(String(dbLease._id))
+     }))
+   );
+ }
+@@ -173,6 +190,6 @@
+   }
+ 
+   const setOfUsedLeases = await _leaseUsedByTenant(realm);
+-  dbLease.usedByTenants = setOfUsedLeases.has(dbLease._id);
++  dbLease.usedByTenants = setOfUsedLeases.has(String(dbLease._id));
+   res.json(dbLease);
+ }
